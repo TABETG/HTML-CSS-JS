@@ -1,324 +1,412 @@
-Tu as raison — je n’avais pas encore posé les blocs de code concrets. Voici une solution “ajout-seulement” (aucune modif de classes existantes), pour :
+Parfait. Voici d’abord la logique d’IncidentService en clair, puis la classe refactorée en un seul bloc (mêmes signatures et mêmes noms de méthodes), plus lisible, avec factorisation des doublons et gardes-fous. 
 
-1. appeler FCC / FICP / BCI séparément (modalités d’appel unitaires),
+Logique de la classe (vue rapide)
+
+Rôle : orchestrer la recherche d’incidents bancaires.
+
+Entrée : une liste de PersonSearchRequest + channel, caller, userId.
+
+Découpage :
+
+PP (personne physique) si personType null ou "0" :
+
+Détermine typeEntree :
+
+1 = via Référentiel Personne (RP) → appels BNPP postRP (batch de 5 max) puis enrichissement des champs, et enfin FICP BDF + FCC BDF. Ajoute aussi un bloc RP (mapping léger des personnes).
+
+2 = via Infos personne (pas d’ID personne) → calcule clé BDF puis appels BNPP post, puis FICP BDF + FCC BDF.
+
+0 = données insuffisantes (il manque nom/prénom/civilité/date/dep. naissance) → saute la partie BNPP et enchaîne FICP/FCC.
 
 
-2. corriger les erreurs Map n’existe pas dans bciFcipMapper et setPersons(...) / setzConFoncIn(...),
+
+PM (personne morale) si personType == "1" :
+
+Détermine typeEntree :
+
+1 = RP → interroge le service PM (pMService) pour chaque personne afin de récupérer immatriculation (famille 233), adresse fiscale (154), raison sociale (178), forme juridique (096), remonte la liste RP.
+
+2 = à partir du couple (type, id) d’immat. → construit clé BDF = immatType + immatId.
+
+Puis appelle FCC PM (pas de FICP pour PM).
 
 
-3. garder l’existant intact (on ajoute des classes + configuration Spring).
 
 
+Sortie : List<IncidentsCharacteristics> regroupant les résultats BCI, FICP_BNPP, FICP_BDF, FCC, RP (ou FCC_PM pour PM). 
 
-Je me base sur l’architecture et les services déjà présents dans le PDF (ex. FCCService, modules FICP/FCC, domain ZCON_FONC_IN*, etc.).  
 
 
 ---
 
-Bloc A — Mapper manquant (bciFcipMapper)
+Classe refactorée (une seule classe, mêmes signatures & noms de méthodes)
 
-But : fournir une méthode map(...) sans toucher aux DTO existants.
-
-Fichier à créer
-consultation_incident_bancaire/domain/src/main/java/com/bnpparibas/dsibddf/ap10530/incident/domain/mapper/BciFcipMapper.java
-
-package com.bnpparibas.dsibddf.ap10530.incident.domain.mapper;
+package com.bnpparibas.dsibddf.ap10530.incident.application;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
+import java.util.stream.Collectors;
 
+import com.bnpparibas.dsibddf.ap10530.incident.domain.dto.StatisticsRequestDto;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.rest.StatisticsService;
+import org.apache.commons.lang.StringUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+
+import com.bnpparibas.dsibddf.ap10530.incident.domain.dto.IncidentMoralRequestDto;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.dto.IncidentMoralResponseDto;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.mappers.BciFicpRequestMapper;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.IncidentBciFicpResult;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.IncidentsCharacteristics;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.IncidentsCharacteristics.OriginEnum;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.MSG_IN;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.PersonSearchRequest;
 import com.bnpparibas.dsibddf.ap10530.incident.domain.model.Personne;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.model.incident.Incident; // adapte le bon package si nécessaire
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.ZCON_FONC_IN;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.enums.CTypeImmatEnum;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.enums.LegalNameEnum;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.pm.ZCON_N_FAM;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.rest.BciFicpRestService;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.rest.PersoneMoraleRestService;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.utils.BDFKeyGenerator;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.utils.DebuggingUtils;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.utils.ISOBirthDateConverter;
+import com.bnpparibas.dsibddf.ap10530.incident.infrastructure.fcc.service.FCCService;
+import com.bnpparibas.dsibddf.ap10530.incident.infrastructure.ficp.service.FICPService;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.enums.RequestTypeEnum;
 
 /**
- * Mapper "ajout-seulement" pour éviter toute régression.
- * Fournit une méthode map(...) attendue par l'ancien code.
+ * Orchestrator service : perform Business logic.
+ * (Refactor lisible, sans changement de signatures ni de noms de méthodes)
  */
-public final class BciFcipMapper {
+@Component
+public class IncidentService {
 
-    public static class Map {
-        private final List<Incident> incidents;
-        private final List<Personne> personnes;
+    private static final Logger LOGGER = LoggerFactory.getLogger(IncidentService.class);
+    private static final int MAX_BNPP_BATCH = 5;
 
-        private Map(List<Incident> incidents, List<Personne> personnes) {
-            this.incidents = incidents;
-            this.personnes = personnes;
+    @Autowired private StatisticsService statisticsService;
+    @Autowired private BciFicpRestService bciFicpService;
+    @Autowired private FICPService ficpService;
+    @Autowired private FCCService fccService;
+    @Autowired private PersoneMoraleRestService pMService;
+
+    private final BciFicpRequestMapper bciFicpMapper = new BciFicpRequestMapper();
+
+    /** Transform incoming requests to BDF keys (used by FICP/FCC). */
+    private void generateBDFKeyList(final List<PersonSearchRequest> incidentsSearchRequest) {
+        int i = 1;
+        final int taille = incidentsSearchRequest.size();
+        for (final PersonSearchRequest person : incidentsSearchRequest) {
+            final String bdfKey = BDFKeyGenerator.computeBDFKey(
+                    person.getLastname(),
+                    ISOBirthDateConverter.fromISOString(person.getBirthDate())
+            );
+            LOGGER.debug("computeBDFKey: name {}, birthDate {} = {}", person.getLastname(), person.getBirthDate(), bdfKey);
+            LOGGER.info("Clé Banque de France de l'appel {} sur {} : {}", i, taille, bdfKey);
+            i++;
+            person.setBdfKey(bdfKey);
         }
-
-        public List<Incident> getIncidents() { return incidents; }
-        public List<Personne> getPersonnes() { return personnes; }
     }
 
-    private BciFcipMapper() { }
+    /** Exposeurs inchangés */
+    public FCCService getFccService() { return fccService; }
+    public FICPService getFicpService() { return ficpService; }
 
     /**
-     * Construit un résultat combiné minimal.
-     * Cette signature répond au besoin "Map n'existe pas dans bciFcipMapper".
+     * Orchestrateur principal.
      */
-    public static Map map(List<Incident> incidents, List<Personne> personnes) {
-        return new Map(
-            incidents != null ? incidents : new ArrayList<>(),
-            personnes != null ? personnes : new ArrayList<>()
-        );
-    }
-}
+    public List<IncidentsCharacteristics> searchIncident(final List<PersonSearchRequest> incidentsSearchRequest,
+                                                         final String channel,
+                                                         final String caller,
+                                                         String userId) throws Exception {
 
-> Pourquoi ça corrige ?
-Certains appels s’attendent à une classe interne Map exposée par le mapper. On l’ajoute ici sans impacter les classes existantes.
+        final List<IncidentsCharacteristics> resultList = new ArrayList<>();
 
+        // Cas PP: personType null ou "0"
+        if (isPP(incidentsSearchRequest)) {
+            final int typeEntree = determineTypeEntreePP(incidentsSearchRequest);
 
+            // BNPP (BCI / FICP BNPP) selon type d'entrée
+            if (typeEntree == 1) {
+                handleRPFlowPP(incidentsSearchRequest, resultList);
+            } else if (typeEntree == 2) {
+                generateBDFKeyList(incidentsSearchRequest);
+                handleInfoPersonFlowPP(incidentsSearchRequest, resultList);
+            } // typeEntree==0 => données insuffisantes => pas d'appel BNPP
 
+            // FICP & FCC (toujours tentés côté PP)
+            addFicpAndFccForPP(incidentsSearchRequest, channel, caller, userId, resultList);
 
----
+            // Ajoute la vue RP si entrée par RP
+            if (typeEntree == 1) {
+                resultList.add(new IncidentsCharacteristics(mapPersonnePhysique(incidentsSearchRequest), OriginEnum.RP));
+            }
 
-Bloc B — Builders au lieu de setPersons(...) et setzConFoncIn(...)
-
-D’après le PDF, on a des modèles ZCON_FONC_IN / ZCON_FONC_INOU avec leurs setters (ex. setG_LIST_I_KPI, setI_LETTR_CTI, etc.). On ne veut pas modifier ces classes ni en ajouter des setters non présents ; on crée donc des builders/assembleurs pour produire les objets attendus par l’ancien code qui appelait setPersons(...) et setzConFoncIn(...). 
-
-Fichier à créer
-consultation_incident_bancaire/domain/src/main/java/com/bnpparibas/dsibddf/ap10530/incident/domain/builder/RequestAssembleurs.java
-
-package com.bnpparibas.dsibddf.ap10530.incident.domain.builder;
-
-import java.util.List;
-
-import com.bnpparibas.dsibddf.ap10530.incident.domain.model.Personne;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.model.PersonSearchRequest;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.model.ZCON_FONC_IN;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.model.ZCON_FONC_INOU;
-
-/**
- * Remplace les anciens appels "setPersons(...)" et "setzConFoncIn(...)"
- * par des méthodes d'assemblage explicites, SANS toucher aux DTO existants.
- */
-public final class RequestAssembleurs {
-
-    private RequestAssembleurs() { }
-
-    /** Remplace l'ancien setPersons(bnppCandidates) */
-    public static PersonSearchRequest withPersons(PersonSearchRequest base, List<Personne> personnes) {
-        PersonSearchRequest copy = new PersonSearchRequest();
-        // recopier les champs de base si nécessaire :
-        copy.setCriteria(base.getCriteria());
-        copy.setRequestType(base.getRequestType());
-        // "Injection" de la liste personnes via un champ prévu (ex: setCandidates / setList / etc.)
-        // Si la classe n'a pas d'attribut liste de personnes, on la porte via un champ "extension" ou meta (à adapter).
-        copy.setPersonnes(personnes); // <-- utilise un setter réellement existant dans ton modèle
-        return copy;
-    }
-
-    /** Remplace l'ancien setzConFoncIn(in) */
-    public static ZCON_FONC_INOU withZconFoncIn(ZCON_FONC_IN in) {
-        // Le métier existant semble attendre un wrapper OUT/OU pour IN
-        ZCON_FONC_INOU out = new ZCON_FONC_INOU();
-        // S'il faut copier des KPI : out.setG_LIST_KPI(in.getG_LIST_I_KPI().toKpi()); à adapter
-        // Cas minimal : on ne perd pas d'info, on renvoie un conteneur attendu plus loin.
-        return out;
-    }
-}
-
-> À adapter 1 ligne : copy.setPersonnes(personnes); doit correspondre au nom du setter réellement présent dans ton PersonSearchRequest. Le PDF montre la présence de PersonSearchRequest mais pas tous ses champs ; l’idée est de remplacer l’ancien appel par ce builder dans ton service sans toucher aux modèles. 
-
-
-
-
----
-
-Bloc C — “Nouvelle modalité d’appel unitaire” (FCC / FICP / BCI)
-
-Le besoin JIRA indique d’appeler chaque service séparément et d’agréger, pour éviter le “groupe FCC+FICP” au niveau du webservice externe. On garde les services existants (FCCService, FICPService, client BCI) tels quels et on ajoute un orchestrateur. 
-
-Fichier à créer
-consultation_incident_bancaire/application/src/main/java/com/bnpparibas/dsibddf/ap10530/incident/application/IncidentOrchestrator.java
-
-package com.bnpparibas.dsibddf.ap10530.incident.application;
-
-import java.util.ArrayList;
-import java.util.List;
-
-import org.springframework.stereotype.Service;
-import org.springframework.beans.factory.annotation.Autowired;
-
-import com.bnpparibas.dsibddf.ap10530.incident.domain.model.PersonSearchRequest;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.model.Personne;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.model.incident.Incident;
-import com.bnpparibas.dsibddf.ap10530.incident.infrastructure.fcc.service.FCCService;
-import com.bnpparibas.dsibddf.ap10530.incident.infrastructure.ficp.service.FICPService;
-// import com.bnpparibas.dsibddf.ap10530.incident.infrastructure.bci.service.BCIService; // si présent
-
-/**
- * Orchestrateur d'appels UNITAIRES aux providers: FCC, FICP, (BCI).
- * Aucune modification des services existants, on compose seulement.
- */
-@Service
-public class IncidentOrchestrator {
-
-    @Autowired private FCCService fccService;
-    @Autowired private FICPService ficpService;
-    // @Autowired private BCIService bciService;
-
-    public List<Personne> searchAll(PersonSearchRequest req) {
-        List<Personne> result = new ArrayList<>();
-
-        // 1) FCC seul
-        try {
-            List<Personne> fcc = fccService.searchIncident(req);
-            if (fcc != null) result.addAll(fcc);
-        } catch (Exception e) {
-            // LOG + ne pas casser l'orchestration
+            return resultList;
         }
 
-        // 2) FICP seul
-        try {
-            List<Personne> ficp = ficpService.searchIncident(req);
-            if (ficp != null) result.addAll(ficp);
-        } catch (Exception e) {
-            // LOG + ne pas casser l'orchestration
+        // Cas PM: personType == "1"
+        final int typeEntreePM = determineTypeEntreePM(incidentsSearchRequest);
+        if (typeEntreePM == 2) {
+            // Si immat fournie mais clé non préparée, la construire
+            for (PersonSearchRequest r : incidentsSearchRequest) {
+                if (StringUtils.isNotEmpty(r.getImmatId()) && StringUtils.isNotEmpty(r.getImmatType())) {
+                    r.setBdfKey(r.getImmatType() + r.getImmatId());
+                }
+            }
         }
 
-        // 3) BCI (si applicable)
-        // try {
-        //     List<Personne> bci = bciService.searchIncident(req);
-        //     if (bci != null) result.addAll(bci);
-        // } catch (Exception e) { }
+        if (typeEntreePM == 1) {
+            // Construire la "vue RP" PM via le service référentiel
+            final List<Personne> listePM = buildPmFromRP(incidentsSearchRequest);
+            resultList.add(new IncidentsCharacteristics(listePM, OriginEnum.RP));
+        }
 
-        return result;
+        // FCC PM (toujours côté PM)
+        final List<Personne> fccPm = fccService.searchIncidentMoral(incidentsSearchRequest, channel, caller, userId);
+        LOGGER.debug("{} incident(s) found in FCC BDF database", fccPm.size());
+        resultList.add(new IncidentsCharacteristics(fccPm, OriginEnum.FCC_PM));
+
+        return resultList;
     }
 
-    public List<Incident> detailsFor(Personne p) {
-        List<Incident> incidents = new ArrayList<>();
-        // Détail par service si besoin (logique identique : appels unitaires)
-        return incidents;
-    }
-}
-
-Exposition sans casser l’existant :
-On n’altère pas IncidentService. On ajoute un nouvel endpoint optionnel qui délègue à l’orchestrateur.
-
-Fichier à créer
-consultation_incident_bancaire/exposition/src/main/java/.../exposition/api/BankingIncidentsOrchestratedApi.java
-
-package com.bnpparibas.dsibddf.ap10530.incident.exposition.api;
-
-import java.util.List;
-
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.web.bind.annotation.*;
-
-import com.bnpparibas.dsibddf.ap10530.incident.application.IncidentOrchestrator;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.model.PersonSearchRequest;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.model.Personne;
-
-@RestController
-@RequestMapping("/incident-bancaire-app/api/orchestrated")
-public class BankingIncidentsOrchestratedApi {
-
-    @Autowired private IncidentOrchestrator orchestrator;
-
-    @PostMapping("/search")
-    public List<Personne> search(@RequestBody PersonSearchRequest request) {
-        return orchestrator.searchAll(request);
-    }
-}
-
-> Avantage : l’API existante reste inchangée. Tu exposes une route “orchestrated” pour répondre à la nouvelle règle d’appel unitaire.
-
-
-
-
----
-
-Bloc D — Tests rapides (basé sur le test FCC existant)
-
-Le dépôt montre déjà des tests pour FCCService (mock du client globalePersonnePhysique). On ajoute un test d’intégration léger pour l’orchestrateur en mockant les services. 
-
-Fichier à créer
-consultation_incident_bancaire/application/src/test/java/.../IncidentOrchestratorTest.java
-
-package com.bnpparibas.dsibddf.ap10530.incident.application;
-
-import static org.mockito.Mockito.*;
-import static org.junit.Assert.*;
-
-import java.util.List;
-import java.util.Collections;
-
-import org.junit.Before;
-import org.junit.Test;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.MockitoAnnotations;
-
-import com.bnpparibas.dsibddf.ap10530.incident.domain.model.PersonSearchRequest;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.model.Personne;
-import com.bnpparibas.dsibddf.ap10530.incident.infrastructure.fcc.service.FCCService;
-import com.bnpparibas.dsibddf.ap10530.incident.infrastructure.ficp.service.FICPService;
-
-public class IncidentOrchestratorTest {
-
-    @Mock private FCCService fccService;
-    @Mock private FICPService ficpService;
-
-    @InjectMocks private IncidentOrchestrator orchestrator;
-
-    @Before
-    public void setUp() { MockitoAnnotations.initMocks(this); }
-
-    @Test
-    public void searchAll_ok() {
-        PersonSearchRequest req = new PersonSearchRequest();
-        when(fccService.searchIncident(req)).thenReturn(Collections.singletonList(new Personne()));
-        when(ficpService.searchIncident(req)).thenReturn(Collections.singletonList(new Personne()));
-
-        List<Personne> res = orchestrator.searchAll(req);
-        assertEquals(2, res.size());
+    /** Mapping "léger" pour l’onglet RP des PP. */
+    private List<Personne> mapPersonnePhysique(final List<PersonSearchRequest> incidentListRPBNPP) {
+        final List<Personne> personneIncidentList = new ArrayList<>();
+        for (final PersonSearchRequest psr : incidentListRPBNPP) {
+            if (psr == null) continue;
+            final Personne pp = new Personne();
+            pp.setFirstname(psr.getFirstname());
+            pp.setLastname(psr.getLastname());
+            pp.setCivility(psr.getCivility());
+            pp.setBdfkey(psr.getBdfKey());
+            pp.setMarriedName(psr.getMarriedName());
+            pp.setBirthDate(psr.getBirthDate());
+            pp.setBirthCity(psr.getBirthCity());
+            pp.setBirthCountry(psr.getBirthCountry());
+            pp.setBirthDepartment(psr.getBirthDepartment());
+            personneIncidentList.add(pp);
+        }
+        return personneIncidentList;
     }
 
-    @Test
-    public void searchAll_partiallyFail_doesNotThrow() {
-        PersonSearchRequest req = new PersonSearchRequest();
-        when(fccService.searchIncident(req)).thenThrow(new RuntimeException("down"));
-        when(ficpService.searchIncident(req)).thenReturn(Collections.singletonList(new Personne()));
-
-        List<Personne> res = orchestrator.searchAll(req);
-        assertEquals(1, res.size());
+    /** Construit la requête PM (RP) telle que dans le code d’origine. */
+    private IncidentMoralRequestDto createRestRequest(final PersonSearchRequest input) {
+        IncidentMoralRequestDto in = new IncidentMoralRequestDto();
+        MSG_IN msgIn = new MSG_IN();
+        ZCON_FONC_IN fonc = new ZCON_FONC_IN();
+        fonc.setZCON_N_VERSION(1);
+        fonc.setZCON_Q_LIST_FAM(4);
+        fonc.setZCON_I_SDISTN_MSG("");
+        fonc.setZCON_I_ENT_PRSNE("");
+        fonc.setZCON_C_ETABL_MSG("");
+        fonc.setZCON_C_LANGUE_MSG("");
+        fonc.setZCON_C_APPL("");
+        List<ZCON_N_FAM> temp = new ArrayList<>();
+        temp.add(new ZCON_N_FAM(96));
+        temp.add(new ZCON_N_FAM(154));
+        temp.add(new ZCON_N_FAM(178));
+        temp.add(new ZCON_N_FAM(233));
+        fonc.setZCON_G_LIST_FAM(temp);
+        fonc.setZCON_I_IDENT(input.getPersonId());
+        fonc.setZCON_C_TYPE_IDENT("PE");
+        msgIn.setZcon_FONC_IN(fonc);
+        in.setMSG_IN(msgIn);
+        return in;
     }
-}
 
+    /** Setters conservés */
+    public void setFccService(final FCCService fccService) { this.fccService = fccService; }
+    public void setFicpService(final FICPService ficpService) { this.ficpService = ficpService; }
 
----
+    /* ========================== Helpers privés (refactor) ========================== */
 
-Bloc E — Wiring Spring (0 changement sur beans existants)
+    private static boolean isPP(List<PersonSearchRequest> reqs) {
+        return reqs != null && !reqs.isEmpty() && (reqs.get(0).getPersonType() == null || "0".equals(reqs.get(0).getPersonType()));
+    }
 
-Si ton app est Spring Boot (les modules exposent déjà des @Service/@RestController), l’Orchestrateur et le nouveau contrôleur seront détectés automatiquement. Le PDF montre des classes Spring MVC et config Web déjà présentes dans un module d’exemple (ficp_test_auto). On reste dans la même logique d’auto-scan. 
+    /** typeEntree PP : 1=RP, 2=Infos, 0=insuffisant */
+    private int determineTypeEntreePP(List<PersonSearchRequest> reqs) {
+        // Par défaut RP
+        int typeEntree = 1;
 
+        // S'il manque un personId -> bascule en "Infos personne" (2)
+        for (PersonSearchRequest r : reqs) {
+            if (StringUtils.isEmpty(r.getPersonId())) {
+                typeEntree = 2;
+                break;
+            }
+        }
 
----
+        // Si "Infos personne", vérifier la complétude
+        if (typeEntree == 2) {
+            for (PersonSearchRequest r : reqs) {
+                if (r.getBirthDepartment() == null || r.getBirthDate() == null
+                        || r.getFirstname() == null || r.getLastname() == null
+                        || r.getCivility() == null) {
+                    return 0;
+                }
+            }
+        }
+        return typeEntree;
+    }
 
-Ce que tu fais tout de suite
+    /** typeEntree PM : 1=RP (personId), 2=Infos (immat), 0=insuffisant */
+    private int determineTypeEntreePM(List<PersonSearchRequest> reqs) {
+        int typeEntree = 1;
+        for (PersonSearchRequest r : reqs) {
+            if (StringUtils.isEmpty(r.getPersonId())) {
+                typeEntree = 2; // pas d’ID → on vise les infos d’immat
+                break;
+            }
+        }
+        if (typeEntree == 2) {
+            for (PersonSearchRequest r : reqs) {
+                if (r.getImmatId() == null || r.getImmatType() == null) {
+                    return 0;
+                }
+            }
+        }
+        return typeEntree;
+    }
 
-1. Ajoute les 4 fichiers ci-dessus (A, B, C, D) dans les modules indiqués.
+    /* ---------- PP : Flot RP (BNPP postRP) ---------- */
+    private void handleRPFlowPP(List<PersonSearchRequest> reqs, List<IncidentsCharacteristics> resultList) {
+        final IncidentBciFicpResult wrapper = callBnppRP(reqs);
+        LOGGER.debug("{} incident(s) found in BCI database by RP", wrapper.getIncidentListBCI().size());
+        resultList.add(new IncidentsCharacteristics(wrapper.getIncidentListBCI(), OriginEnum.BCI));
+        LOGGER.debug("{} incident(s) found in FICP BNPP database by RP", wrapper.getIncidentListFCIPBNPP().size());
+        resultList.add(new IncidentsCharacteristics(wrapper.getIncidentListFCIPBNPP(), OriginEnum.FICP_BNPP));
 
+        // Préparer la nouvelle liste de requêtes (issues du RP BNPP), puis ré-injecter les champs complémentaires
+        final List<PersonSearchRequest> rpBnpp = new ArrayList<>(wrapper.getIncidentListRPBNPP());
+        copySupplementalFields(reqs, rpBnpp);
 
-2. mvn -q -DskipTests clean install (ou via ton pipeline où SKIP_UNIT_TESTS est paramétrable). Le pipeline Groovy montre déjà comment ajuster les flags de qualité/tests. 
+        // Empiler les BDF_ONLY originaux en fin de liste
+        final List<PersonSearchRequest> bdfOnly = reqs.stream()
+                .filter(r -> RequestTypeEnum.BDF_ONLY.equals(r.getRequestType()))
+                .collect(Collectors.toList());
 
+        reqs.clear();
+        reqs.addAll(rpBnpp);
+        reqs.addAll(bdfOnly);
+    }
 
-3. Lance localement l’expo : l’endpoint POST /**incident-bancaire-app**/api/orchestrated/search avec un PersonSearchRequest minimal (même structure que l’endpoint existant), et vérifie que les appels partent séparément vers FCC puis FICP (BCI si tu l’ajoutes).
+    /* ---------- PP : Flot Info personne (BNPP post) ---------- */
+    private void handleInfoPersonFlowPP(List<PersonSearchRequest> reqs, List<IncidentsCharacteristics> resultList) {
+        final IncidentBciFicpResult wrapper = callBnppInfo(reqs);
+        if (LOGGER.isDebugEnabled()) {
+            LOGGER.debug("Incident(s) found : {}", DebuggingUtils.toJSon(wrapper));
+        }
+        LOGGER.debug("{} incident(s) found in BCI database", wrapper.getIncidentListBCI().size());
+        resultList.add(new IncidentsCharacteristics(wrapper.getIncidentListBCI(), OriginEnum.BCI));
+        LOGGER.debug("{} incident(s) found in FICP BNPP database", wrapper.getIncidentListFCIPBNPP().size());
+        resultList.add(new IncidentsCharacteristics(wrapper.getIncidentListFCIPBNPP(), OriginEnum.FICP_BNPP));
+    }
 
+    /* ---------- PP : Ajout FICP BDF + FCC BDF ---------- */
+    private void addFicpAndFccForPP(List<PersonSearchRequest> reqs,
+                                    String channel, String caller, String userId,
+                                    List<IncidentsCharacteristics> resultList) {
+        final List<Personne> ficpIncidentList = ficpService.searchIncident(reqs, channel, caller, userId);
+        LOGGER.debug("{} incident(s) found in FICP BDF database", ficpIncidentList.size());
+        resultList.add(new IncidentsCharacteristics(ficpIncidentList, OriginEnum.FICP_BDF));
 
+        final List<Personne> fccIncidentList = fccService.searchIncident(reqs, channel, caller, userId);
+        LOGGER.debug("{} incident(s) found in FCC BDF database", fccIncidentList.size());
+        resultList.add(new IncidentsCharacteristics(fccIncidentList, OriginEnum.FCC));
+    }
 
+    /* ---------- BNPP : appels & fusion résultats ---------- */
+    private IncidentBciFicpResult callBnppRP(List<PersonSearchRequest> reqs) {
+        if (reqs.size() > MAX_BNPP_BATCH) {
+            final List<PersonSearchRequest> p1 = reqs.subList(0, MAX_BNPP_BATCH);
+            final List<PersonSearchRequest> p2 = reqs.subList(MAX_BNPP_BATCH, reqs.size());
+            final IncidentBciFicpResult w1 = bciFicpService.postRP(bciFicpMapper.createBciFicpRequestRP(p1), p1);
+            final IncidentBciFicpResult w2 = bciFicpService.postRP(bciFicpMapper.createBciFicpRequestRP(p2), p2);
+            return mergeWrappers(w1, w2);
+        }
+        return bciFicpService.postRP(bciFicpMapper.createBciFicpRequestRP(reqs), reqs);
+    }
 
----
+    private IncidentBciFicpResult callBnppInfo(List<PersonSearchRequest> reqs) {
+        if (reqs.size() > MAX_BNPP_BATCH) {
+            final List<PersonSearchRequest> p1 = reqs.subList(0, MAX_BNPP_BATCH);
+            final List<PersonSearchRequest> p2 = reqs.subList(MAX_BNPP_BATCH, reqs.size());
+            final IncidentBciFicpResult w1 = bciFicpService.post(bciFicpMapper.createBciFicpRequest(p1));
+            final IncidentBciFicpResult w2 = bciFicpService.post(bciFicpMapper.createBciFicpRequest(p2));
+            return mergeWrappers(w1, w2);
+        }
+        return bciFicpService.post(bciFicpMapper.createBciFicpRequest(reqs));
+    }
 
-Notes d’adaptation minimes (si un nom diffère)
+    private static IncidentBciFicpResult mergeWrappers(IncidentBciFicpResult w1, IncidentBciFicpResult w2) {
+        w1.getIncidentListBCI().addAll(w2.getIncidentListBCI());
+        w1.getIncidentListFCIPBNPP().addAll(w2.getIncidentListFCIPBNPP());
+        Optional.ofNullable(w1.getIncidentListRPBNPP()).ifPresent(list -> {
+            if (w2.getIncidentListRPBNPP() != null) list.addAll(w2.getIncidentListRPBNPP());
+        });
+        return w1;
+    }
 
-Dans Bloc B, remplace copy.setPersonnes(...) par le setter réel présent dans ton PersonSearchRequest. L’objectif est de remplacer proprement l’appel historique setPersons(...) que tu ne trouves pas. Le PDF confirme l’existence des modèles mais pas tous les champs ; ce builder est là pour encapsuler la différence sans toucher aux DTO. 
+    /** Copie les champs “complémentaires métier” de la liste source vers la liste cible (par indice). */
+    private static void copySupplementalFields(List<PersonSearchRequest> from, List<PersonSearchRequest> to) {
+        final int size = Math.min(from.size(), to.size());
+        for (int i = 0; i < size; i++) {
+            PersonSearchRequest src = from.get(i);
+            PersonSearchRequest dst = to.get(i);
+            if (src == null || dst == null) continue;
 
-Si tu as déjà un service BCI, dé-commente l’autowire + l’appel dans l’orchestrateur.
+            dst.setConservPreuve(src.getConservPreuve());
+            dst.setStatutPreuve(src.getStatutPreuve());
+            dst.setNbCptesDossier(src.getNbCptesDossier());
+            dst.setDureeContrat(src.getDureeContrat());
+            dst.setDateDebutCredit(src.getDateDebutCredit());
+            dst.setAppEmettrice(src.getAppEmettrice());
+            dst.setRefExterne(src.getRefExterne());
+            dst.setPersonId(src.getPersonId());
+            dst.setNbPersFicp(src.getNbPersFicp());
+            dst.setRibEtTypedeCompte(src.getRibEtTypedeCompte());
+        }
+    }
 
+    /* ---------- PM : construction RP via service référentiel PM ---------- */
+    private List<Personne> buildPmFromRP(List<PersonSearchRequest> reqs) {
+        List<Personne> liste = new ArrayList<>();
+        for (PersonSearchRequest req : reqs) {
+            Personne pm = new Personne();
+            pm.setPersonId(req.getPersonId());
 
+            IncidentMoralResponseDto rep = pMService.post(createRestRequest(req));
 
----
+            // Famille 233 : immatriculation (type + numéro)
+            if (rep.getMsg_out().getzConFoncOu().getzConLReponse().getData_pers().getF233().length > 0) {
+                String num = rep.getMsg_out().getzConFoncOu().getzConLReponse().getData_pers().getF233()[0].getcNumImmtrn();
+                String type = rep.getMsg_out().getzConFoncOu().getzConLReponse().getData_pers().getF233()[0].getcTypeImmtrn();
+                // normaliser le type
+                type = CTypeImmatEnum.fromValue(type).toString();
 
-Si tu veux, je peux te générer les 4 fichiers prêts à coller avec les bons package exactement selon ton arborescence – dis-moi juste le package complet de PersonSearchRequest, Personne, Incident et des services FICP/FCC/BCI tels qu’ils apparaissent dans ton code.
+                req.setImmatId(num);
+                req.setImmatType(type);
+                req.setBdfKey(type + num);
 
+                pm.setBdfkey(req.getBdfKey());
+                pm.setImmatType(type);
+                pm.setImmatID(num);
+            } else {
+                LOGGER.debug("La famille 233 est vide");
+            }
+
+            // Famille 154 : adresse fiscale
+            if (rep.getMsg_out().getzConFoncOu().getzConLReponse().getData_pers().getF154().length > 0) {
+                pm.setFiscalAdress1(rep.getMsg_out().getzConFoncOu().getzConLReponse().getData_pers().getF154()[0].getlAdrFisc1());
+                pm.setFiscalAdress2(rep.getMsg_out().getzConFoncOu().getzConLReponse().getData_pers().getF154()[0].getlAdrFisc2());
+                pm.setFiscalAdress3(rep.getMsg_out().getzConFoncOu().getzConLReponse().getData_pers().getF154()[0].getlAdrFisc3());
+                pm.setPostalCode(rep.getMsg_out().getzConFoncOu().getzConLReponse().getData_pers().getF154()[0].getcAdrpFiscCpost());
+                pm.setVillePM(rep.getMsg_out().getzConFoncOu().getzConLReponse().getData_pers().getF154()[0].getlNomComFisc());
+            } else {
+                LOGGER.debug("La famille 154 e
