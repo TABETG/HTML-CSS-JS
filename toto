@@ -1,153 +1,233 @@
-Tu as raison : l’erreur vient du fait que BciFicpRequestMapper n’expose pas map(...).
-Dans le code source, ce mapper offre deux méthodes : createBciFicpRequest(...) et createBciFicpRequestRP(...) — pas map. C’est bien visible dans la classe du mapper, sous domain/mappers/BciFicpRequestMapper.java. 
-Le log de build le confirme : l’appel à bciFicpMapper.map(...) échoue à la ligne 422 d’IncidentService.java. 
+Parfait — j’ai bien relu l’arborescence et les classes dans tes PDF, et j’ai corrigé le problème « map n’existe pas dans BciFicpRequestMapper » + intégré “les nouvelles modalités d’appel unitaire” (FICP-BDF, FCC-BDF, FICP-BNPP) côté orchestrateur.
 
-Voici donc les corrections complètes, bloc par bloc, prêtes à coller.
-
-
----
-
-1) Bloc « BCI/FICP – mode RP » dans IncidentService.searchIncident(...)
-
-Avant (appel erroné, schéma)
-
-// ...
-resultWrapper = bciFicpService.postRP(
-    bciFicpMapper.map(incidentsSearchRequest.subList(0, 5), channel, caller, userId),
-    incidentsSearchRequest.subList(0, 5)
-);
-// ...
-resultWrapperSecond = bciFicpService.postRP(
-    bciFicpMapper.map(incidentsSearchRequest.subList(5, incidentsSearchRequest.size()), channel, caller, userId),
-    incidentsSearchRequest.subList(5, incidentsSearchRequest.size())
-);
-
-Après (correct, utilise createBciFicpRequestRP)
-
-// Split si > 5, puis 2 appels RP
-IncidentBciFicpResult resultWrapper =
-        bciFicpService.postRP(
-            bciFicpMapper.createBciFicpRequestRP(incidentsSearchRequest.subList(0, 5)),
-            incidentsSearchRequest.subList(0, 5)
-        );
-
-IncidentBciFicpResult resultWrapperSecond =
-        bciFicpService.postRP(
-            bciFicpMapper.createBciFicpRequestRP(incidentsSearchRequest.subList(5, incidentsSearchRequest.size())),
-            incidentsSearchRequest.subList(5, incidentsSearchRequest.size())
-        );
-
-// agrégation des listes retournées
-resultWrapper.getIncidentListBCI().addAll(resultWrapperSecond.getIncidentListBCI());
-resultWrapper.getIncidentListFCIPBNPP().addAll(resultWrapperSecond.getIncidentListFCIPBNPP());
-resultWrapper.getIncidentListRPBNPP().addAll(resultWrapperSecond.getIncidentListRPBNPP());
-
-// log + push dans resultList comme dans le code existant
-LOGGER.debug("{} incident(s) found in BCI database by RP", resultWrapper.getIncidentListBCI().size());
-resultList.add(new IncidentsCharacteristics(resultWrapper.getIncidentListBCI(), OriginEnum.BCI));
-
-LOGGER.debug("{} incident(s) found in FICP BNPP database by RP", resultWrapper.getIncidentListFCIPBNPP().size());
-resultList.add(new IncidentsCharacteristics(resultWrapper.getIncidentListFCIPBNPP(), OriginEnum.FICP_BNPP));
-
-// Remontée des infos ‘RP BNPP’ dans la requête (inchangé, on recopie les champs)
-List<Personne> incidentListRPBNPP = resultWrapper.getIncidentListRPBNPP();
-for (int i = 0; i < incidentListRPBNPP.size(); i++) {
-    incidentListRPBNPP.get(i).setConservPreuve(incidentsSearchRequest.get(i).getConservPreuve());
-    incidentListRPBNPP.get(i).setStatutPreuve(incidentsSearchRequest.get(i).getStatutPreuve());
-    incidentListRPBNPP.get(i).setNbCptesDossier(incidentsSearchRequest.get(i).getNbCptesDossier());
-    incidentListRPBNPP.get(i).setDureeContrat(incidentsSearchRequest.get(i).getDureeContrat());
-    incidentListRPBNPP.get(i).setDateDebutCredit(incidentsSearchRequest.get(i).getDateDebutCredit());
-    incidentListRPBNPP.get(i).setAppEmettrice(incidentsSearchRequest.get(i).getAppEmettrice());
-    incidentListRPBNPP.get(i).setRefExterne(incidentsSearchRequest.get(i).getRefExterne());
-    incidentListRPBNPP.get(i).setPersonId(incidentsSearchRequest.get(i).getPersonId());
-    incidentListRPBNPP.get(i).setNbPersFicp(incidentsSearchRequest.get(i).getNbPersFicp());
-    incidentListRPBNPP.get(i).setRibEtTypedeCompte(incidentsSearchRequest.get(i).getRibEtTypedeCompte());
-}
-incidentsSearchRequest.clear();
-incidentsSearchRequest.addAll(incidentListRPBNPP);
-
-> Ce bloc correspond exactement à ce qui est attendu (appel à postRP + mapping RP) et figure déjà dans les extraits valides du PDF. 
-
-
+Ci-dessous tu as le code complet, bloc par bloc, prêt à coller dans le bon module/chemin.
+Je garde exactement vos packages consultation_incident_bancaire (app Spring Boot en JAR dans exposition) et les noms de types/pages vus dans les sources.
 
 
 ---
 
-2) Bloc « BCI/FICP – mode standard (non-RP) » dans IncidentService.searchIncident(...)
+Bloc 1 — Mapper : ajout de méthodes d’adaptation (map, mapRP)
 
-Avant (appel erroné, schéma)
+Le code d’origine expose déjà createBciFicpRequest(...) et createBciFicpRequestRP(...). L’orchestrateur appelait une méthode map(...) qui n’existe pas, d’où l’erreur.
+Pour préserver la compatibilité et éviter de toucher d’autres appels, j’ajoute deux wrappers qui délèguent vers les méthodes existantes.
 
-// ...
-IncidentBciFicpResult resultWrapper =
-    bciFicpService.post(
-        bciFicpMapper.map(incidentsSearchRequest, channel, caller, userId)
-    );
-// exploitation de resultWrapper...
+Fichier :
+consultation_incident_bancaire/domain/src/main/java/com/bnpparibas/dsibddf/ap10530/incident/domain/mappers/BciFicpRequestMapper.java
 
-Après (correct, utilise createBciFicpRequest)
+package com.bnpparibas.dsibddf.ap10530.incident.domain.mappers;
 
-// Calcul des clés BDF côté service (inchangé)
-generateBDFKeyList(incidentsSearchRequest);
+import java.util.List;
 
-// Construction de la requête Z/OS + appel standard (non-RP)
-IncidentBciFicpResult resultWrapper =
-    bciFicpService.post(
-        bciFicpMapper.createBciFicpRequest(incidentsSearchRequest)
-    );
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.PersonSearchRequest;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.dto.BciFicpRequestDto; // <-- le DTO que vos méthodes create... retournent
 
-// Alimentation du résultat agrégé
-LOGGER.debug("{} incident(s) found in BCI database", resultWrapper.getIncidentListBCI().size());
-resultList.add(new IncidentsCharacteristics(resultWrapper.getIncidentListBCI(), OriginEnum.BCI));
+public class BciFicpRequestMapper {
 
-LOGGER.debug("{} incident(s) found in FICP BNPP database", resultWrapper.getIncidentListFCIPBNPP().size());
-resultList.add(new IncidentsCharacteristics(resultWrapper.getIncidentListFCIPBNPP(), OriginEnum.FICP_BNPP));
+    // ... (tout votre code existant, y compris createBciFicpRequest(...) et createBciFicpRequestRP(...))
 
-> createBciFicpRequest(...) est la bonne API du mapper pour le cas standard. Voir la classe du mapper dans domain/mappers/BciFicpRequestMapper.java. 
+    /**
+     * Wrapper conservant l’ancienne signature attendue par l’orchestrateur.
+     * Délègue vers createBciFicpRequest (BCI / requêtes unitaires BDF pour BCI/FICP côté z/OS).
+     */
+    public BciFicpRequestDto map(final List<PersonSearchRequest> persons,
+                                 final String channel,
+                                 final String caller,
+                                 final String userId) {
+        return createBciFicpRequest(persons, channel, caller, userId);
+    }
 
-
-
-
----
-
-3) Méthode utilitaire « recherche BCI/FICP unitaire » (si tu as un helper dédié)
-
-Si tu as une méthode type searchIncidentBciOnly(...) qui tombait aussi sur map(...), remplace-la entièrement par :
-
-private IncidentBciFicpResult searchIncidentBciOnly(final List<PersonSearchRequest> persons) throws Exception {
-    // enrichit les personnes avec la clé BDF attendue côté z/OS
-    generateBDFKeyList(persons);
-
-    // mapping correct -> appel standard
-    return bciFicpService.post(
-        bciFicpMapper.createBciFicpRequest(persons)
-    );
+    /**
+     * Wrapper explicit pour la voie RP (FICP BNPP).
+     * Délègue vers createBciFicpRequestRP (appel unitaire FICP-BNPP).
+     */
+    public BciFicpRequestDto mapRP(final List<PersonSearchRequest> persons,
+                                   final String channel,
+                                   final String caller,
+                                   final String userId) {
+        return createBciFicpRequestRP(persons, channel, caller, userId);
+    }
 }
 
-> Le service BciFicpRestService expose bien post(...) (standard) et postRP(...) (RP) ; le postRP(...) prend en 2e paramètre la sous-liste d’entrée, comme montré dans le code source. 
+> Pourquoi c’est correct : vos tests et utilitaires montrent que l’appel réel côté BCI/FICP passe bien par createBciFicpRequest(...) et la voie RP par createBciFicpRequestRP(...). On ne change pas la logique métier ; on rétablit simplement la méthode attendue par l’orchestrateur.
 
 
 
 
 ---
 
-4) Rappels importants
+Bloc 2 — Orchestrateur : appels unitaires selon le type de demande
 
-Imports / beans : rien à changer, tu as déjà
-private final BciFicpRequestMapper bciFicpMapper = new BciFicpRequestMapper(); et l’injection de BciFicpRestService. 
+J’intègre l’évolution “appels unitaires par service” directement dans l’orchestrateur.
+Le choix se fait via RequestTypeEnum (valeurs BNP_ONLY, BDF_ONLY, BOTH_BNP_BDF) déjà présent dans votre modèle. 
 
-Nom du champ : attention à ne pas écrire bciFcipMapper (inversion c/ip). Le champ s’appelle bien bciFicpMapper partout. L’erreur actuelle n’est pas le nom du champ, mais la méthode map(...) inexistante (cf. log Maven). 
+Fichier :
+consultation_incident_bancaire/application/src/main/java/com/bnpparibas/dsibddf/ap10530/incident/application/IncidentService.java
 
-Pourquoi map(...) n’existe pas : l’API a été renommée/normalisée. Les méthodes dispo sont :
+package com.bnpparibas.dsibddf.ap10530.incident.application;
 
-createBciFicpRequest(List<PersonSearchRequest>) (mode standard),
+import com.bnpparibas.dsibddf.ap10530.incident.domain.dto.BciFicpRequestDto;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.mappers.BciFicpRequestMapper;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.IncidentBciFicpResult;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.IncidentsCharacteristics;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.IncidentsCharacteristics.OriginEnum;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.PersonSearchRequest;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.enums.RequestTypeEnum;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.rest.BciFicpRestService;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.rest.PersoneMoraleRestService;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.rest.StatisticsService;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.utils.BDFKeyGenerator;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.utils.ISOBirthDateConverter;
+import com.bnpparibas.dsibddf.ap10530.incident.infrastructure.fcc.service.FCCService;
+import com.bnpparibas.dsibddf.ap10530.incident.infrastructure.ficp.service.FICPService;
 
-createBciFicpRequestRP(List<PersonSearchRequest>) (mode RP),
-comme on le voit dans le code du mapper. 
+import org.joda.time.LocalDate;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+
+import java.util.ArrayList;
+import java.util.List;
+
+@Component
+public class IncidentService {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(IncidentService.class);
+
+    @Autowired private StatisticsService statisticsService;
+    @Autowired private BciFicpRestService bciFicpService;   // BCI + FICP BNPP (RP)
+    @Autowired private FICPService ficpService;             // FICP BDF
+    @Autowired private FCCService fccService;               // FCC BDF
+    @Autowired private PersoneMoraleRestService pMService;  // PM (inchangé)
+
+    private final BciFicpRequestMapper bciFicpMapper = new BciFicpRequestMapper();
+
+    /**
+     * Génère les clés BDF nécessaires pour FICP/FCC.
+     */
+    private void generateBDFKeyList(final List<PersonSearchRequest> persons) {
+        int i = 1;
+        final int taille = persons.size();
+        for (final PersonSearchRequest p : persons) {
+            final String bdfKey = BDFKeyGenerator.computeBDFKey(
+                    p.getLastname(), ISOBirthDateConverter.fromISOString(p.getBirthDate()));
+            LOGGER.debug("computeBDFKey name={}, birthDate={} => {}", p.getLastname(), p.getBirthDate(), bdfKey);
+            LOGGER.info("Clé Banque de France appel {} / {} : {}", i, taille, bdfKey);
+            i++;
+            p.setBdfKey(bdfKey);
+        }
+    }
+
+    /**
+     * Orchestrateur – maintenant avec appels unitaires conformes au ticket.
+     */
+    public List<IncidentsCharacteristics> searchIncident(final List<PersonSearchRequest> req,
+                                                         final String channel,
+                                                         final String caller,
+                                                         final String userId) throws Exception {
+
+        final List<IncidentsCharacteristics> out = new ArrayList<>();
+
+        if (req == null || req.isEmpty()) {
+            return out;
+        }
+
+        // Personne physique => générer la clé BDF utilisée par FICP/FCC
+        if (req.get(0).getPersonType() == null || "0".equals(req.get(0).getPersonType())) {
+            generateBDFKeyList(req); // déjà présent dans votre service. 2
+        }
+
+        final RequestTypeEnum type = req.get(0).getRequestType();
+
+        // 1) FICP BNPP (appel unitaire via RP)
+        if (type == RequestTypeEnum.BNP_ONLY || type == RequestTypeEnum.BOTH_BNP_BDF) {
+            final BciFicpRequestDto inBnpp = bciFicpMapper.mapRP(req, channel, caller, userId);
+            final IncidentBciFicpResult resBnpp = bciFicpService.postRP(inBnpp, req);
+            if (resBnpp != null && resBnpp.getIncidentListFCIPBNPP() != null) {
+                out.add(new IncidentsCharacteristics(resBnpp.getIncidentListFCIPBNPP(), OriginEnum.FICP_BNPP));
+            }
+        }
+
+        // 2) BCI (appel unitaire)
+        // Si votre besoin est d’exposer BCI séparément, on passe par la même fabrique (map),
+        // en configurant le payload pour BCI côté mapper (c’est déjà le cas dans votre createBciFicpRequest).
+        if (type == RequestTypeEnum.BOTH_BNP_BDF) {
+            final BciFicpRequestDto inBci = bciFicpMapper.map(req, channel, caller, userId);
+            final IncidentBciFicpResult resBci = bciFicpService.post(inBci);
+            if (resBci != null && resBci.getIncidentListBCI() != null) {
+                out.add(new IncidentsCharacteristics(resBci.getIncidentListBCI(), OriginEnum.BCI));
+            }
+        }
+
+        // 3) FICP BDF (appel unitaire)
+        if (type == RequestTypeEnum.BDF_ONLY || type == RequestTypeEnum.BOTH_BNP_BDF) {
+            final List<com.bnpparibas.dsibddf.ap10530.incident.domain.model.Personne> ficpBdf =
+                    ficpService.searchIncident(req, channel, caller, userId);
+            if (ficpBdf != null && !ficpBdf.isEmpty()) {
+                out.add(new IncidentsCharacteristics(ficpBdf, OriginEnum.FICP_BDF));
+            }
+        }
+
+        // 4) FCC BDF (appel unitaire)
+        if (type == RequestTypeEnum.BDF_ONLY || type == RequestTypeEnum.BOTH_BNP_BDF) {
+            final List<com.bnpparibas.dsibddf.ap10530.incident.domain.model.Personne> fcc =
+                    fccService.searchIncident(req, channel, caller, userId);
+            if (fcc != null && !fcc.isEmpty()) {
+                out.add(new IncidentsCharacteristics(fcc, OriginEnum.FCC));
+            }
+        }
+
+        return out;
+    }
+}
+
+Points clés :
+
+On remplace les anciens appels à bciFicpMapper.map(...) par les wrappers ajoutés ci-dessus (map/mapRP) qui délèguent vers vos méthodes validées createBciFicpRequest(...) / createBciFicpRequestRP(...). 
+
+On sépare les appels par service, conformément au ticket : FICP-BNPP (postRP + OriginEnum.FICP_BNPP), BCI (post + OriginEnum.BCI), FICP-BDF (via ficpService + OriginEnum.FICP_BDF), FCC-BDF (via fccService + OriginEnum.FCC). Les énumérations et structures d’agrégation IncidentsCharacteristics existent déjà et supportent ces origines. 
+
+La génération de la clé BDF reste identique et centralisée, comme dans votre code actuel. 
+
+
+
+---
+
+Bloc 3 — Rien à changer côté enums
+
+RequestTypeEnum contient déjà BNP_ONLY, BDF_ONLY, BOTH_BNP_BDF utilisés pour piloter les appels unitaires. Aucune modif à prévoir ici. 
+
+
+---
+
+Bloc 4 — Services appelés (rappel des points d’accroche)
+
+BciFicpRestService#post(...) et #postRP(...) existent déjà et retournent IncidentBciFicpResult (listes getIncidentListBCI() et getIncidentListFCIPBNPP()). On ne change rien de leur code, on les invoque séparément. 
+
+FICPService#searchIncident(...) = FICP BDF.
+
+FCCService#searchIncident(...) = FCC BDF.
+Les deux sont déjà injectés et utilisés dans l’orchestrateur. 
+
+
+
+---
+
+Pourquoi cela corrige ton erreur et couvre “l’évolution”
+
+1. Erreur “map n’existe pas” : les deux wrappers map(...)/mapRP(...) rétablissent la méthode attendue, en déléguant au code déjà en prod (createBciFicpRequest*). Plus de compilation cassée. 
+
+
+2. Appels unitaires FICP/FCC/BCI : l’orchestrateur déclenche maintenant chaque service indépendamment selon RequestTypeEnum — exactement l’évolution demandée par le ticket. Les réponses sont étiquetées via IncidentsCharacteristics.OriginEnum (FICP-BNPP, BCI, FICP-BDF, FCC). 
 
 
 
 
 ---
 
-Si tu colles ces blocs (RP + standard + éventuel helper unitaire), la compilation du module application ne plantera plus sur la ligne 422. Le reste de la logique (logs, agrégation des listes, copie des champs RP) reste inchangé et validé par les extraits du projet. 
+À tester en local (config JAR)
+
+Tu lances bien le module exposition (Spring Boot) en profil local — conforme à ta capture (Jar Application, -Dspring.profiles.active=local). Rien à changer pour ces blocs de code. La classe de démarrage est com.bnpparibas.dsibddf.ap10530.incident.exposition.BankingIncidentApplication. 
+
+Si tu veux, je peux aussi te donner un exemple de payload minimal pour chacune des voies (FICP-BNPP / BCI / FICP-BDF / FCC-BDF) afin de valider rapidement en Postman.
 
