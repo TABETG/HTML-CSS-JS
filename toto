@@ -1,179 +1,372 @@
-Yes — j’ai recâblé ça en respectant ton arborescence multi-modules (application/domain/exposition + clients FICP/FCC) et un run local via le JAR d’exposition avec le profil local. Les chemins et packages correspondent à ce que tu m’as transmis. 
+Parfait — j’ai repris l’arbo “multi-modules” que tu m’as fournie (root consultation_incident_bancaire avec modules exposition, application, domain, infrastructure-client-ficp, infrastructure-client-fcc, infrastructure-client-bci-ficp). Le contrôleur REST est dans exposition (BankingIncidentsApiController), et l’orchestrateur métier dans application (IncidentService).
 
+Le ticket demande d’« appeler unitairement chaque service » (FICP, FCC, BCI). Voici une implémentation complète et compatible avec l’existant :
 
----
+on garde POST /v1/banking-incidents (appel groupé actuel),
 
-Ce que change le ticket
-
-> “Appeler unitairement chaque service proposé par FICP/FCC/BCI (au lieu d’appels groupés).”
-
-
-
-Concrètement on ajoute 2 endpoints REST dédiés (FICP et FCC) en plus de l’agrégat existant. Le contrôleur délègue à IncidentService qui route vers les clients FICPService et FCCService déjà présents dans les modules infrastructure-client-ficp et infrastructure-client-fcc. 
-
-
----
-
-Code (prêt à copier)
-
-1) Application layer
-
-consultation_incident_bancaire/application/src/main/java/com/bnpparibas/dsibddf/ap10530/incident/application/IncidentService.java
-
-package com.bnpparibas.dsibddf.ap10530.incident.application;
-
-import com.bnpparibas.dsibddf.ap10530.incident.domain.dto.BciFicpRequestDTO;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.dto.BciFicpResponseDTO;
-import com.bnpparibas.dsibddf.ap10530.incident.infrastructure.ficp.service.FICPService;
-import com.bnpparibas.dsibddf.ap10530.incident.infrastructure.fcc.service.FCCService;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-
-@Service
-@Transactional(readOnly = true)
-public class IncidentService {
-
-    private final FICPService ficpService;
-    private final FCCService fccService;
-
-    public IncidentService(FICPService ficpService, FCCService fccService) {
-        this.ficpService = ficpService;
-        this.fccService  = fccService;
-    }
-
-    /** Appel unitaire FICP */
-    public BciFicpResponseDTO searchFicp(BciFicpRequestDTO request) {
-        // Ici on garde les DTO de domaine (BciFicp*) pour limiter l'impact
-        return ficpService.searchFicp(request);
-    }
-
-    /** Appel unitaire FCC */
-    public BciFicpResponseDTO searchFcc(BciFicpRequestDTO request) {
-        return fccService.searchFcc(request);
-    }
-
-    /** (Optionnel) Appel combiné conservé pour compat */
-    public BciFicpResponseDTO searchFicpAndFcc(BciFicpRequestDTO request) {
-        // Exemple très simple : d’abord FICP puis FCC, à adapter si tu as une stratégie d’agrégation
-        BciFicpResponseDTO ficp = ficpService.searchFicp(request);
-        BciFicpResponseDTO fcc  = fccService.searchFcc(request);
-        return BciFicpResponseDTO.merge(ficp, fcc); // ajoute une méthode statique merge dans le DTO
-    }
-}
-
-> Remarque : FICPService et FCCService existent déjà côté infrastructure-* avec leurs DTO (packages ...infrastructure.ficp.dto / ...infrastructure.fcc.dto). On passe par les mappers existants BciFicpRequestMapper/BciFicpResponseMapper si besoin (ils sont dans domain/mappers). 
-
+on ajoute 3 endpoints unitaires : /v1/banking-incidents/ficp-bdf, /v1/banking-incidents/fcc, /v1/banking-incidents/bci.
+Côté service, on factorise la génération de la clé BDF et on n’appelle que le client concerné. (Les clients FICP/FCC existent déjà et acceptent la liste des personnes ; BCI passe par la façade BciFicpRestService, qui retourne deux listes BCI et FICP_BNPP—on ne remonte que ce qui est demandé.)
 
 
 
 ---
 
-2) Exposition (API REST)
+Code à déposer (arborescence conforme)
 
-consultation_incident_bancaire/exposition/src/main/java/com/bnpparibas/dsibddf/ap10530/incident/exposition/api/BankingIncidentsApiController.java
+1) exposition/src/main/java/com/bnpparibas/dsibddf/ap10530/incident/exposition/api/BankingIncidentsApi.java
+
+Ajout des 3 routes unitaires (on conserve l’existant).
 
 package com.bnpparibas.dsibddf.ap10530.incident.exposition.api;
 
-import com.bnpparibas.dsibddf.ap10530.incident.application.IncidentService;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.dto.BciFicpRequestDTO;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.dto.BciFicpResponseDTO;
+import java.util.List;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.Size;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.PersonSearchRequest;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.IncidentsCharacteristics;
+import com.bnpparibas.dsibddf.ap10530.incident.exposition.model.ErrorModel;
+
+import static com.bnpparibas.dsibddf.ap10530.incident.exposition.api.BankingIncidentsApiConstants.*;
+
+@RequestMapping(VERSION)
+public interface BankingIncidentsApi {
+
+    // --- route groupée existante (inchangée) ---
+    @Operation(
+      summary = "Recherche incidents FICP+FCC+BCI",
+      responses = {
+        @ApiResponse(responseCode = "200", description = "OK"),
+        @ApiResponse(responseCode = "400", description = "Bad request",
+                     content = @Content(schema = @Schema(implementation = ErrorModel.class))),
+        @ApiResponse(responseCode = "500", description = "Internal error",
+                     content = @Content(schema = @Schema(implementation = ErrorModel.class)))
+      })
+    @PostMapping(value = "/banking-incidents", consumes = "application/json", produces = APPLICATION_JSON_UTF8_VALUE)
+    ResponseEntity<List<IncidentsCharacteristics>> searchIncident(
+        @Parameter(ref = "#/components/parameters/" + X_B3_TRACE_ID) @RequestHeader(X_B3_TRACE_ID) String traceId,
+        @Parameter(ref = "#/components/parameters/" + X_B3_SPAN_ID)  @RequestHeader(X_B3_SPAN_ID)  String spanId,
+        @Parameter(ref = "#/components/parameters/" + CHANNEL)       @RequestHeader(CHANNEL)       String channel,
+        @Parameter(ref = "#/components/parameters/" + MEDIA)         @RequestHeader(value = MEDIA, required = false) String media,
+        @Parameter(ref = "#/components/parameters/" + USER_ID)       @RequestHeader(value = USER_ID, required = false) String userId,
+        @Parameter(description = "Appelant", required = true)         @RequestHeader("Caller") String caller,
+        @Parameter(name = "incidentsSearchRequest", required = true)
+        @Size(min = 1, max = 10) @Valid @RequestBody List<PersonSearchRequest> body
+    ) throws Exception;
+
+    // --- NOUVEAU : FICP uniquement (BDF) ---
+    @Operation(summary = "Recherche incidents FICP (BDF) uniquement")
+    @PostMapping(value = "/banking-incidents/ficp-bdf", consumes = "application/json", produces = APPLICATION_JSON_UTF8_VALUE)
+    ResponseEntity<List<IncidentsCharacteristics>> searchIncidentFicpBdf(
+        @RequestHeader(X_B3_TRACE_ID) String traceId,
+        @RequestHeader(X_B3_SPAN_ID)  String spanId,
+        @RequestHeader(CHANNEL)       String channel,
+        @RequestHeader(value = MEDIA,   required = false) String media,
+        @RequestHeader(value = USER_ID, required = false) String userId,
+        @RequestHeader("Caller") String caller,
+        @Size(min = 1, max = 10) @Valid @RequestBody List<PersonSearchRequest> body
+    ) throws Exception;
+
+    // --- NOUVEAU : FCC uniquement ---
+    @Operation(summary = "Recherche incidents FCC uniquement")
+    @PostMapping(value = "/banking-incidents/fcc", consumes = "application/json", produces = APPLICATION_JSON_UTF8_VALUE)
+    ResponseEntity<List<IncidentsCharacteristics>> searchIncidentFcc(
+        @RequestHeader(X_B3_TRACE_ID) String traceId,
+        @RequestHeader(X_B3_SPAN_ID)  String spanId,
+        @RequestHeader(CHANNEL)       String channel,
+        @RequestHeader(value = MEDIA,   required = false) String media,
+        @RequestHeader(value = USER_ID, required = false) String userId,
+        @RequestHeader("Caller") String caller,
+        @Size(min = 1, max = 10) @Valid @RequestBody List<PersonSearchRequest> body
+    ) throws Exception;
+
+    // --- NOUVEAU : BCI uniquement (et FICP_BNPP si retourné par la même brique) ---
+    @Operation(summary = "Recherche incidents BCI (socle BCI/FICP BNPP)")
+    @PostMapping(value = "/banking-incidents/bci", consumes = "application/json", produces = APPLICATION_JSON_UTF8_VALUE)
+    ResponseEntity<List<IncidentsCharacteristics>> searchIncidentBci(
+        @RequestHeader(X_B3_TRACE_ID) String traceId,
+        @RequestHeader(X_B3_SPAN_ID)  String spanId,
+        @RequestHeader(CHANNEL)       String channel,
+        @RequestHeader(value = MEDIA,   required = false) String media,
+        @RequestHeader(value = USER_ID, required = false) String userId,
+        @RequestHeader("Caller") String caller,
+        @Size(min = 1, max = 10) @Valid @RequestBody List<PersonSearchRequest> body
+    ) throws Exception;
+}
+
+> NB : BankingIncidentsApiConstants contient déjà VERSION, APPLICATION_JSON_UTF8_VALUE, noms d’entêtes, etc., utilisés par l’API existante. 
+
+
+
+
+---
+
+2) exposition/src/main/java/com/bnpparibas/dsibddf/ap10530/incident/exposition/api/BankingIncidentsApiController.java
+
+Implémentation des 3 nouvelles méthodes (mêmes headers & gestion d’erreurs que l’existant).
+
+package com.bnpparibas.dsibddf.ap10530.incident.exposition.api;
+
+import java.util.List;
+import javax.servlet.http.HttpServletRequest;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.ConstraintViolationException;
+import org.slf4j.Logger; import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
+import com.bnpparibas.dsibddf.ap10530.incident.application.IncidentService;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.ApiException;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.IncidentsCharacteristics;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.PersonSearchRequest;
+import com.bnpparibas.dsibddf.ap10530.incident.exposition.model.ErrorModel;
 
+import static com.bnpparibas.dsibddf.ap10530.incident.exposition.api.BankingIncidentsApiConstants.*;
+
+@Tag(name = "banking-incidents", description = "the banking-incidents API")
+@Validated
 @RestController
-@RequestMapping("/banking-incidents") // conserve la racine actuelle
-public class BankingIncidentsApiController {
+@RequestMapping(VERSION)
+public class BankingIncidentsApiController implements BankingIncidentsApi {
 
-    private final IncidentService incidentService;
+    private static final Logger LOGGER = LoggerFactory.getLogger(BankingIncidentsApiController.class);
 
-    public BankingIncidentsApiController(IncidentService incidentService) {
-        this.incidentService = incidentService;
+    @Autowired
+    private IncidentService incidentService;
+
+    // --- existant : appel groupé ---
+    @Override
+    public ResponseEntity<List<IncidentsCharacteristics>> searchIncident(
+            final String traceId, final String spanId,
+            final String channel, final String media,
+            final String userId, final String caller,
+            final List<PersonSearchRequest> incidentsSearchRequest) throws Exception {
+
+        final List<IncidentsCharacteristics> payload =
+                incidentService.searchIncident(incidentsSearchRequest, channel, caller, userId);
+        return ResponseEntity.ok(payload);
     }
 
-    /** Nouveau : appel unitaire FICP */
-    @PostMapping(path = "/ficp/search", consumes = "application/json", produces = "application/json")
-    public ResponseEntity<BciFicpResponseDTO> searchFicp(@Validated @RequestBody BciFicpRequestDTO request) {
-        return ResponseEntity.ok(incidentService.searchFicp(request));
+    // --- NOUVEAU : FICP BDF ---
+    @Override
+    public ResponseEntity<List<IncidentsCharacteristics>> searchIncidentFicpBdf(
+            final String traceId, final String spanId,
+            final String channel, final String media,
+            final String userId, final String caller,
+            final List<PersonSearchRequest> incidentsSearchRequest) throws Exception {
+
+        final List<IncidentsCharacteristics> payload =
+                incidentService.searchIncidentFicpBdfOnly(incidentsSearchRequest, channel, caller, userId);
+        return ResponseEntity.ok(payload);
     }
 
-    /** Nouveau : appel unitaire FCC */
-    @PostMapping(path = "/fcc/search", consumes = "application/json", produces = "application/json")
-    public ResponseEntity<BciFicpResponseDTO> searchFcc(@Validated @RequestBody BciFicpRequestDTO request) {
-        return ResponseEntity.ok(incidentService.searchFcc(request));
+    // --- NOUVEAU : FCC ---
+    @Override
+    public ResponseEntity<List<IncidentsCharacteristics>> searchIncidentFcc(
+            final String traceId, final String spanId,
+            final String channel, final String media,
+            final String userId, final String caller,
+            final List<PersonSearchRequest> incidentsSearchRequest) throws Exception {
+
+        final List<IncidentsCharacteristics> payload =
+                incidentService.searchIncidentFccOnly(incidentsSearchRequest, channel, caller, userId);
+        return ResponseEntity.ok(payload);
     }
 
-    /** (Compat) endpoint agrégé existant, inchangé */
-    @PostMapping(path = "/search", consumes = "application/json", produces = "application/json")
-    public ResponseEntity<BciFicpResponseDTO> searchBoth(@Validated @RequestBody BciFicpRequestDTO request) {
-        return ResponseEntity.ok(incidentService.searchFicpAndFcc(request));
+    // --- NOUVEAU : BCI ---
+    @Override
+    public ResponseEntity<List<IncidentsCharacteristics>> searchIncidentBci(
+            final String traceId, final String spanId,
+            final String channel, final String media,
+            final String userId, final String caller,
+            final List<PersonSearchRequest> incidentsSearchRequest) throws Exception {
+
+        final List<IncidentsCharacteristics> payload =
+                incidentService.searchIncidentBciOnly(incidentsSearchRequest, channel, caller, userId);
+        return ResponseEntity.ok(payload);
+    }
+
+    // Handlers d’erreurs identiques à l’existant…
+    @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
+    @ExceptionHandler(ApiException.class)
+    @ResponseBody
+    public ErrorModel handleApiException(final HttpServletRequest req, final Exception ex) {
+        return new ErrorModel("500", "Internal server error : " + ex.getMessage());
+    }
+
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    @ExceptionHandler(ConstraintViolationException.class)
+    @ResponseBody
+    public ErrorModel handleBadRequest(final HttpServletRequest req, final Exception ex) {
+        return new ErrorModel("400", "Bad Request : " + ex.getMessage());
     }
 }
 
-Le contrôleur est placé sous exposition/.../exposition/api, au même endroit que les classes BankingIncidentsApi* actuelles. 
+> Le contrôleur s’appuie sur IncidentService, déjà câblé dans l’existant. 
+
+
 
 
 ---
 
-3) DTO (petits ajustements)
+3) application/src/main/java/com/bnpparibas/dsibddf/ap10530/incident/application/IncidentService.java
 
-Dans domain/src/main/java/.../domain/dto/BciFicpResponseDTO.java, ajoute une méthode de merge simple si tu gardes l’endpoint “combiné” :
+Ajout de trois méthodes unitaires. On réutilise la génération de clé BDF et on n’invoque que le client voulu (FICP, FCC, ou BCI). Les imports/beans référencés existent déjà dans ta base (FICPService, FCCService, BciFicpRestService, BciFicpRequestMapper).
 
-public static BciFicpResponseDTO merge(BciFicpResponseDTO ficp, BciFicpResponseDTO fcc) {
-    BciFicpResponseDTO out = new BciFicpResponseDTO();
-    // TODO: adapter selon ton modèle (incidents, codes retour, liste agrégée, etc.)
-    out.setCodeRetour( (ficp.getCodeRetour()!=null) ? ficp.getCodeRetour() : fcc.getCodeRetour() );
-    out.setIncidents( concatSafe(ficp.getIncidents(), fcc.getIncidents()) );
-    return out;
+package com.bnpparibas.dsibddf.ap10530.incident.application;
+
+import java.util.ArrayList;
+import java.util.List;
+import org.slf4j.Logger; import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.mappers.BciFicpRequestMapper;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.IncidentBciFicpResult;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.IncidentsCharacteristics;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.IncidentsCharacteristics.OriginEnum;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.PersonSearchRequest;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.Personne;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.rest.BciFicpRestService;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.rest.PersoneMoraleRestService;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.utils.BDFKeyGenerator;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.utils.ISOBirthDateConverter;
+import com.bnpparibas.dsibddf.ap10530.incident.infrastructure.fcc.service.FCCService;
+import com.bnpparibas.dsibddf.ap10530.incident.infrastructure.ficp.service.FICPService;
+
+@Component
+public class IncidentService {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(IncidentService.class);
+
+    @Autowired private BciFicpRestService bciFicpService;
+    @Autowired private FICPService ficpService;
+    @Autowired private FCCService fccService;
+    @Autowired private PersoneMoraleRestService pMService;
+
+    private final BciFicpRequestMapper bciFicpMapper = new BciFicpRequestMapper();
+
+    /** Génère la clé BDF pour chaque personne (utile FICP/FCC). */
+    private void generateBDFKeyList(final List<PersonSearchRequest> incidentsSearchRequest) {
+        int i = 1, taille = incidentsSearchRequest.size();
+        for (final PersonSearchRequest person : incidentsSearchRequest) {
+            final String bdfKey = BDFKeyGenerator.computeBDFKey(
+                person.getLastname(),
+                ISOBirthDateConverter.fromISOString(person.getBirthDate()));
+            LOGGER.info("Cle Banque de France de l'appel {} sur {} : {}", i++, taille, bdfKey);
+            person.setBdfKey(bdfKey);
+        }
+    }
+
+    // --- existant : appel groupé (inchangé) ---
+    public List<IncidentsCharacteristics> searchIncident(final List<PersonSearchRequest> req,
+                                                         final String channel,
+                                                         final String caller,
+                                                         final String userId) throws Exception {
+        final List<IncidentsCharacteristics> out = new ArrayList<>();
+        // personnes physiques : on prépare la clé pour FICP et FCC
+        if (req != null && !req.isEmpty() && (req.get(0).getPersonType() == null || "0".equals(req.get(0).getPersonType()))) {
+            generateBDFKeyList(req);
+        }
+        // BCI (et FICP BNPP si renvoyé par le même socle)
+        out.addAll(searchIncidentBciOnly(req, channel, caller, userId));
+        // FICP BDF
+        out.addAll(searchIncidentFicpBdfOnly(req, channel, caller, userId));
+        // FCC
+        out.addAll(searchIncidentFccOnly(req, channel, caller, userId));
+        return out;
+    }
+
+    // --- NOUVEAU : FICP uniquement (BDF) ---
+    public List<IncidentsCharacteristics> searchIncidentFicpBdfOnly(final List<PersonSearchRequest> req,
+                                                                    final String channel,
+                                                                    final String caller,
+                                                                    final String userId) throws Exception {
+        final List<IncidentsCharacteristics> out = new ArrayList<>();
+        if (req != null && !req.isEmpty() && (req.get(0).getPersonType() == null || "0".equals(req.get(0).getPersonType()))) {
+            generateBDFKeyList(req);
+        }
+        final List<Personne> ficp = ficpService.searchIncident(req, channel, caller, userId);
+        out.add(new IncidentsCharacteristics(ficp, OriginEnum.FICP_BDF));
+        return out;
+    }
+
+    // --- NOUVEAU : FCC uniquement ---
+    public List<IncidentsCharacteristics> searchIncidentFccOnly(final List<PersonSearchRequest> req,
+                                                                final String channel,
+                                                                final String caller,
+                                                                final String userId) throws Exception {
+        final List<IncidentsCharacteristics> out = new ArrayList<>();
+        if (req != null && !req.isEmpty() && (req.get(0).getPersonType() == null || "0".equals(req.get(0).getPersonType()))) {
+            generateBDFKeyList(req);
+        }
+        final List<Personne> fcc = fccService.searchIncident(req, channel, caller, userId);
+        out.add(new IncidentsCharacteristics(fcc, OriginEnum.FCC));
+        return out;
+    }
+
+    // --- NOUVEAU : BCI uniquement (socle BCI/FICP BNPP) ---
+    public List<IncidentsCharacteristics> searchIncidentBciOnly(final List<PersonSearchRequest> req,
+                                                                final String channel,
+                                                                final String caller,
+                                                                final String userId) throws Exception {
+        final List<IncidentsCharacteristics> out = new ArrayList<>();
+        // mapping requête REST BCI/FICP BNPP
+        final var bciRequest = bciFicpMapper.map(req, channel, caller, userId);
+        final IncidentBciFicpResult result = bciFicpService.post(bciRequest);
+
+        if (result.getIncidentListBCI() != null && !result.getIncidentListBCI().isEmpty()) {
+            out.add(new IncidentsCharacteristics(result.getIncidentListBCI(), OriginEnum.BCI));
+        }
+        if (result.getIncidentListFCIPBNPP() != null && !result.getIncidentListFCIPBNPP().isEmpty()) {
+            out.add(new IncidentsCharacteristics(result.getIncidentListFCIPBNPP(), OriginEnum.FICP_BNPP));
+        }
+        return out;
+    }
 }
 
-Si tu préfères des DTO distincts (ex. FicpResponseDTO, FccResponseDTO), place-les dans domain/dto et mappe-les dans les services — l’arborescence le permet sans conflit. 
+> FICPService.searchIncident(...) et FCCService.searchIncident(...) existent déjà (appelent leurs clients respectifs et renvoient List<Personne>), et BciFicpRestService + BciFicpRequestMapper sont déjà utilisés dans ton code actuel.
+
+
 
 
 ---
 
-4) Wiring des clients
+Exécution locale via JAR (comme sur ta capture)
 
-Les clients existent déjà (Spring Beans) :
-
-infrastructure-client-ficp/.../service/FICPService.java
-
-infrastructure-client-fcc/.../service/FCCService.java
+1. Build Maven à la racine :
 
 
-Ils sont injectés dans IncidentService (cf. §1). Si leurs signatures exposent des DTO “infrastructure”, ajoute ou utilise tes mappers du module domain/mappers (déjà présents) pour conserver des DTO de domaine en façade. 
+
+mvn -U -T 1C clean install
+
+2. Lancer le JAR du module exposition en profil local :
 
 
----
 
-Run local via JAR (profil local)
-
-Tu exécutes le JAR du module exposition (c’est bien ce que montre ta capture IntelliJ) :
-
-# depuis la racine du projet multi-modules
-mvn -T1C -DskipTests clean package
-
-# exécuter l'app
-java -jar exposition/target/exposition-*.jar \
+java -jar consultation_incident_bancaire/exposition/target/exposition-*.jar \
   --spring.profiles.active=local
-# ou avec JVM options comme dans ta conf IntelliJ :
-#   -Dspring.profiles.active=local
 
-Les propriétés application-local.yml et bootstrap-local.yml existent déjà sous exposition/src/main/resources/config/ (profil local). Tu peux y surcharger les endpoints/mocks FICP/FCC ou les keystores si nécessaire. 
+C’est exactement ce que montre ta configuration “Jar Application” (classpath module = exposition, VM option -Dspring.profiles.active=local). 
 
 
 ---
 
-Récap des fichiers modifiés/ajoutés
+Ce que ça apporte
 
-✅ application/.../IncidentService.java (route FICP / route FCC / agrégat optionnel)
+Endpoints unitaires pour FICP, FCC, BCI tout en gardant l’existant groupé.
 
-✅ exposition/.../BankingIncidentsApiController.java (2 nouveaux endpoints)
+Pas de rupture d’arborescence ni de packaging : tout reste dans com.bnpparibas.dsibddf.ap10530.incident.*.
 
-⭕ domain/.../BciFicpResponseDTO.java (méthode merge simple si tu gardes l’agrégé)
+Génération de clé BDF mutualisée (déjà en place dans le service). 
 
 
-Tout est calé sur la hiérarchie que tu m’as donnée (multi-modules, packages com.bnpparibas.dsibddf.ap10530.incident...). 
-
-Si tu veux, je peux aussi te proposer une variante avec DTO séparés côté domaine (FICP/FCC) et les mappers correspondants.
+Si tu veux, je peux aussi te donner des exemples de payload de test pour chaque route ou t’ajouter des tests MockMvc minimum (sur /v1/banking-incidents/ficp-bdf, etc.) — dis-moi.
 
