@@ -1,20 +1,40 @@
+Top, je te livre l’évolution “appels unitaires FICP/FCC/BCI” prête à coller.
+Principe : on garde la compat’ (comportement actuel = “tous les services”), et on ajoute un sélecteur de services. Si l’appelant précise les services demandés, on n’exécute que ceux-ci.
+
+
+---
+
+1) Nouvel enum (domain)
+
+// src/main/java/.../domain/model/enums/TargetServiceEnum.java
+package com.bnpparibas.dsibddf.ap10530.incident.domain.model.enums;
+
+public enum TargetServiceEnum {
+    BCI,           // BCI BNPP (inclut FICP_BNPP dans le wrapper BNPP)
+    FICP_BNPP,     // si tu veux dissocier un jour, on garde la valeur
+    FICP_BDF,      // FICP Banque de France (PP)
+    FCC_BDF,       // FCC Banque de France (PP)
+    FCC_PM,        // FCC Banque de France (PM)
+    RP             // Vue Référentiel Personne (PP ou PM)
+}
+
+
+---
+
+2) IncidentService — bloc unique remplaçant (ajoute la sélection tout en conservant l’API existante)
+
 package com.bnpparibas.dsibddf.ap10530.incident.application;
 
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
-
-import com.bnpparibas.dsibddf.ap10530.incident.domain.dto.StatisticsRequestDto;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.rest.StatisticsService;
-import org.apache.commons.lang.StringUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Component;
 
 import com.bnpparibas.dsibddf.ap10530.incident.domain.dto.IncidentMoralRequestDto;
 import com.bnpparibas.dsibddf.ap10530.incident.domain.dto.IncidentMoralResponseDto;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.dto.StatisticsRequestDto;
 import com.bnpparibas.dsibddf.ap10530.incident.domain.mappers.BciFicpRequestMapper;
 import com.bnpparibas.dsibddf.ap10530.incident.domain.model.IncidentBciFicpResult;
 import com.bnpparibas.dsibddf.ap10530.incident.domain.model.IncidentsCharacteristics;
@@ -25,20 +45,23 @@ import com.bnpparibas.dsibddf.ap10530.incident.domain.model.Personne;
 import com.bnpparibas.dsibddf.ap10530.incident.domain.model.ZCON_FONC_IN;
 import com.bnpparibas.dsibddf.ap10530.incident.domain.model.enums.CTypeImmatEnum;
 import com.bnpparibas.dsibddf.ap10530.incident.domain.model.enums.LegalNameEnum;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.enums.RequestTypeEnum;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.enums.TargetServiceEnum;
 import com.bnpparibas.dsibddf.ap10530.incident.domain.model.pm.ZCON_N_FAM;
 import com.bnpparibas.dsibddf.ap10530.incident.domain.rest.BciFicpRestService;
 import com.bnpparibas.dsibddf.ap10530.incident.domain.rest.PersoneMoraleRestService;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.rest.StatisticsService;
 import com.bnpparibas.dsibddf.ap10530.incident.domain.utils.BDFKeyGenerator;
 import com.bnpparibas.dsibddf.ap10530.incident.domain.utils.DebuggingUtils;
 import com.bnpparibas.dsibddf.ap10530.incident.domain.utils.ISOBirthDateConverter;
 import com.bnpparibas.dsibddf.ap10530.incident.infrastructure.fcc.service.FCCService;
 import com.bnpparibas.dsibddf.ap10530.incident.infrastructure.ficp.service.FICPService;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.model.enums.RequestTypeEnum;
+import org.apache.commons.lang.StringUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
 
-/**
- * Orchestrator service : perform Business logic.
- * (Refactor lisible, sans changement de signatures ni de noms de méthodes)
- */
 @Component
 public class IncidentService {
 
@@ -53,63 +76,91 @@ public class IncidentService {
 
     private final BciFicpRequestMapper bciFicpMapper = new BciFicpRequestMapper();
 
-    /** Transform incoming requests to BDF keys (used by FICP/FCC). */
-    private void generateBDFKeyList(final List<PersonSearchRequest> incidentsSearchRequest) {
-        int i = 1;
-        final int taille = incidentsSearchRequest.size();
-        for (final PersonSearchRequest person : incidentsSearchRequest) {
-            final String bdfKey = BDFKeyGenerator.computeBDFKey(
-                    person.getLastname(),
-                    ISOBirthDateConverter.fromISOString(person.getBirthDate())
-            );
-            LOGGER.debug("computeBDFKey: name {}, birthDate {} = {}", person.getLastname(), person.getBirthDate(), bdfKey);
-            LOGGER.info("Clé Banque de France de l'appel {} sur {} : {}", i, taille, bdfKey);
-            i++;
-            person.setBdfKey(bdfKey);
-        }
-    }
+    /* ===================== API PUBLIQUE ===================== */
 
-    /** Exposeurs inchangés */
-    public FCCService getFccService() { return fccService; }
-    public FICPService getFicpService() { return ficpService; }
-
-    /**
-     * Orchestrateur principal.
-     */
+    /** Compat ascendante : appel “historique” = TOUS les services pertinents. */
     public List<IncidentsCharacteristics> searchIncident(final List<PersonSearchRequest> incidentsSearchRequest,
                                                          final String channel,
                                                          final String caller,
                                                          String userId) throws Exception {
+        return searchIncidentSelective(
+                incidentsSearchRequest, channel, caller, userId, null
+        );
+    }
 
+    /**
+     * Nouveau : sélectionne les services à appeler.
+     * @param targets null ou vide => comportement historique (tous).
+     */
+    public List<IncidentsCharacteristics> searchIncidentSelective(final List<PersonSearchRequest> incidentsSearchRequest,
+                                                                  final String channel,
+                                                                  final String caller,
+                                                                  String userId,
+                                                                  Set<TargetServiceEnum> targets) throws Exception {
+
+        final Set<TargetServiceEnum> wanted = normalizeTargets(incidentsSearchRequest, targets);
         final List<IncidentsCharacteristics> resultList = new ArrayList<>();
 
-        // Cas PP: personType null ou "0"
+        // PP (personType null/"0") vs PM ("1")
         if (isPP(incidentsSearchRequest)) {
             final int typeEntree = determineTypeEntreePP(incidentsSearchRequest);
 
-            // BNPP (BCI / FICP BNPP) selon type d'entrée
-            if (typeEntree == 1) {
-                handleRPFlowPP(incidentsSearchRequest, resultList);
-            } else if (typeEntree == 2) {
-                generateBDFKeyList(incidentsSearchRequest);
-                handleInfoPersonFlowPP(incidentsSearchRequest, resultList);
-            } // typeEntree==0 => données insuffisantes => pas d'appel BNPP
+            // BNPP (BCI/FICP BNPP) si demandé
+            if (includesAny(wanted, TargetServiceEnum.BCI, TargetServiceEnum.FICP_BNPP)) {
+                if (typeEntree == 1) {
+                    final IncidentBciFicpResult wrapper = callBnppRP(incidentsSearchRequest);
+                    if (wanted.contains(TargetServiceEnum.BCI)) {
+                        resultList.add(new IncidentsCharacteristics(wrapper.getIncidentListBCI(), OriginEnum.BCI));
+                    }
+                    if (wanted.contains(TargetServiceEnum.FICP_BNPP)) {
+                        resultList.add(new IncidentsCharacteristics(wrapper.getIncidentListFCIPBNPP(), OriginEnum.FICP_BNPP));
+                    }
 
-            // FICP & FCC (toujours tentés côté PP)
-            addFicpAndFccForPP(incidentsSearchRequest, channel, caller, userId, resultList);
+                    // réinjection pour BDF (clé etc.) + empilement BDF_ONLY
+                    final List<PersonSearchRequest> rpBnpp = new ArrayList<>(wrapper.getIncidentListRPBNPP());
+                    copySupplementalFields(incidentsSearchRequest, rpBnpp);
+                    final List<PersonSearchRequest> bdfOnly = incidentsSearchRequest.stream()
+                            .filter(r -> RequestTypeEnum.BDF_ONLY.equals(r.getRequestType()))
+                            .collect(Collectors.toList());
+                    incidentsSearchRequest.clear();
+                    incidentsSearchRequest.addAll(rpBnpp);
+                    incidentsSearchRequest.addAll(bdfOnly);
 
-            // Ajoute la vue RP si entrée par RP
-            if (typeEntree == 1) {
-                resultList.add(new IncidentsCharacteristics(mapPersonnePhysique(incidentsSearchRequest), OriginEnum.RP));
+                    // Vue RP si demandée
+                    if (wanted.contains(TargetServiceEnum.RP)) {
+                        resultList.add(new IncidentsCharacteristics(mapPersonnePhysique(incidentsSearchRequest), OriginEnum.RP));
+                    }
+                } else if (typeEntree == 2) {
+                    generateBDFKeyList(incidentsSearchRequest);
+                    final IncidentBciFicpResult wrapper = callBnppInfo(incidentsSearchRequest);
+                    if (wanted.contains(TargetServiceEnum.BCI)) {
+                        resultList.add(new IncidentsCharacteristics(wrapper.getIncidentListBCI(), OriginEnum.BCI));
+                    }
+                    if (wanted.contains(TargetServiceEnum.FICP_BNPP)) {
+                        resultList.add(new IncidentsCharacteristics(wrapper.getIncidentListFCIPBNPP(), OriginEnum.FICP_BNPP));
+                    }
+                } // typeEntree==0 : données insuffisantes → pas BNPP
+            }
+
+            // FICP BDF (PP)
+            if (wanted.contains(TargetServiceEnum.FICP_BDF)) {
+                final List<Personne> ficpIncidentList = ficpService.searchIncident(incidentsSearchRequest, channel, caller, userId);
+                resultList.add(new IncidentsCharacteristics(ficpIncidentList, OriginEnum.FICP_BDF));
+            }
+
+            // FCC BDF (PP)
+            if (wanted.contains(TargetServiceEnum.FCC_BDF)) {
+                final List<Personne> fccIncidentList = fccService.searchIncident(incidentsSearchRequest, channel, caller, userId);
+                resultList.add(new IncidentsCharacteristics(fccIncidentList, OriginEnum.FCC));
             }
 
             return resultList;
         }
 
-        // Cas PM: personType == "1"
+        /* -------- PM -------- */
+
         final int typeEntreePM = determineTypeEntreePM(incidentsSearchRequest);
         if (typeEntreePM == 2) {
-            // Si immat fournie mais clé non préparée, la construire
             for (PersonSearchRequest r : incidentsSearchRequest) {
                 if (StringUtils.isNotEmpty(r.getImmatId()) && StringUtils.isNotEmpty(r.getImmatType())) {
                     r.setBdfKey(r.getImmatType() + r.getImmatId());
@@ -117,24 +168,97 @@ public class IncidentService {
             }
         }
 
-        if (typeEntreePM == 1) {
-            // Construire la "vue RP" PM via le service référentiel
+        // Vue RP PM
+        if (typeEntreePM == 1 && wanted.contains(TargetServiceEnum.RP)) {
             final List<Personne> listePM = buildPmFromRP(incidentsSearchRequest);
             resultList.add(new IncidentsCharacteristics(listePM, OriginEnum.RP));
         }
 
-        // FCC PM (toujours côté PM)
-        final List<Personne> fccPm = fccService.searchIncidentMoral(incidentsSearchRequest, channel, caller, userId);
-        LOGGER.debug("{} incident(s) found in FCC BDF database", fccPm.size());
-        resultList.add(new IncidentsCharacteristics(fccPm, OriginEnum.FCC_PM));
+        // FCC PM
+        if (wanted.contains(TargetServiceEnum.FCC_PM)) {
+            final List<Personne> fccPm = fccService.searchIncidentMoral(incidentsSearchRequest, channel, caller, userId);
+            resultList.add(new IncidentsCharacteristics(fccPm, OriginEnum.FCC_PM));
+        }
 
         return resultList;
     }
 
-    /** Mapping "léger" pour l’onglet RP des PP. */
-    private List<Personne> mapPersonnePhysique(final List<PersonSearchRequest> incidentListRPBNPP) {
-        final List<Personne> personneIncidentList = new ArrayList<>();
-        for (final PersonSearchRequest psr : incidentListRPBNPP) {
+    /* ===================== Helpers sélection ===================== */
+
+    private Set<TargetServiceEnum> normalizeTargets(List<PersonSearchRequest> reqs, Set<TargetServiceEnum> targets) {
+        if (targets != null && !targets.isEmpty()) return targets;
+
+        // défaut = comportement historique
+        if (isPP(reqs)) {
+            return EnumSet.of(TargetServiceEnum.BCI, TargetServiceEnum.FICP_BNPP,
+                              TargetServiceEnum.FICP_BDF, TargetServiceEnum.FCC_BDF, TargetServiceEnum.RP);
+        }
+        return EnumSet.of(TargetServiceEnum.FCC_PM, TargetServiceEnum.RP);
+    }
+
+    private static boolean includesAny(Set<TargetServiceEnum> set, TargetServiceEnum... values) {
+        for (TargetServiceEnum v : values) if (set.contains(v)) return true;
+        return false;
+    }
+
+    /* ===================== Impl. existante (ajustée) ===================== */
+
+    private void generateBDFKeyList(final List<PersonSearchRequest> requests) {
+        int i = 1;
+        final int taille = requests.size();
+        for (final PersonSearchRequest person : requests) {
+            final String bdfKey = BDFKeyGenerator.computeBDFKey(
+                    person.getLastname(), ISOBirthDateConverter.fromISOString(person.getBirthDate())
+            );
+            LOGGER.debug("computeBDFKey: {}, {} => {}", person.getLastname(), person.getBirthDate(), bdfKey);
+            LOGGER.info("Clé BDF appel {} / {} : {}", i++, taille, bdfKey);
+            person.setBdfKey(bdfKey);
+        }
+    }
+
+    public FCCService getFccService() { return fccService; }
+    public FICPService getFicpService() { return ficpService; }
+    public void setFccService(final FCCService fccService) { this.fccService = fccService; }
+    public void setFicpService(final FICPService ficpService) { this.ficpService = ficpService; }
+
+    private static boolean isPP(List<PersonSearchRequest> reqs) {
+        return reqs != null && !reqs.isEmpty()
+                && (reqs.get(0).getPersonType() == null || "0".equals(reqs.get(0).getPersonType()));
+    }
+
+    private int determineTypeEntreePP(List<PersonSearchRequest> reqs) {
+        int typeEntree = 1; // RP par défaut
+        for (PersonSearchRequest r : reqs) {
+            if (StringUtils.isEmpty(r.getPersonId())) { typeEntree = 2; break; }
+        }
+        if (typeEntree == 2) {
+            for (PersonSearchRequest r : reqs) {
+                if (r.getBirthDepartment() == null || r.getBirthDate() == null
+                        || r.getFirstname() == null || r.getLastname() == null
+                        || r.getCivility() == null) {
+                    return 0;
+                }
+            }
+        }
+        return typeEntree;
+    }
+
+    private int determineTypeEntreePM(List<PersonSearchRequest> reqs) {
+        int typeEntree = 1;
+        for (PersonSearchRequest r : reqs) {
+            if (StringUtils.isEmpty(r.getPersonId())) { typeEntree = 2; break; }
+        }
+        if (typeEntree == 2) {
+            for (PersonSearchRequest r : reqs) {
+                if (r.getImmatId() == null || r.getImmatType() == null) return 0;
+            }
+        }
+        return typeEntree;
+    }
+
+    private List<Personne> mapPersonnePhysique(final List<PersonSearchRequest> list) {
+        final List<Personne> out = new ArrayList<>();
+        for (final PersonSearchRequest psr : list) {
             if (psr == null) continue;
             final Personne pp = new Personne();
             pp.setFirstname(psr.getFirstname());
@@ -146,12 +270,11 @@ public class IncidentService {
             pp.setBirthCity(psr.getBirthCity());
             pp.setBirthCountry(psr.getBirthCountry());
             pp.setBirthDepartment(psr.getBirthDepartment());
-            personneIncidentList.add(pp);
+            out.add(pp);
         }
-        return personneIncidentList;
+        return out;
     }
 
-    /** Construit la requête PM (RP) telle que dans le code d’origine. */
     private IncidentMoralRequestDto createRestRequest(final PersonSearchRequest input) {
         IncidentMoralRequestDto in = new IncidentMoralRequestDto();
         MSG_IN msgIn = new MSG_IN();
@@ -176,109 +299,24 @@ public class IncidentService {
         return in;
     }
 
-    /** Setters conservés */
-    public void setFccService(final FCCService fccService) { this.fccService = fccService; }
-    public void setFicpService(final FICPService ficpService) { this.ficpService = ficpService; }
-
-    /* ========================== Helpers privés (refactor) ========================== */
-
-    private static boolean isPP(List<PersonSearchRequest> reqs) {
-        return reqs != null && !reqs.isEmpty() && (reqs.get(0).getPersonType() == null || "0".equals(reqs.get(0).getPersonType()));
-    }
-
-    /** typeEntree PP : 1=RP, 2=Infos, 0=insuffisant */
-    private int determineTypeEntreePP(List<PersonSearchRequest> reqs) {
-        // Par défaut RP
-        int typeEntree = 1;
-
-        // S'il manque un personId -> bascule en "Infos personne" (2)
-        for (PersonSearchRequest r : reqs) {
-            if (StringUtils.isEmpty(r.getPersonId())) {
-                typeEntree = 2;
-                break;
-            }
+    private void copySupplementalFields(List<PersonSearchRequest> from, List<PersonSearchRequest> to) {
+        final int size = Math.min(from.size(), to.size());
+        for (int i = 0; i < size; i++) {
+            PersonSearchRequest src = from.get(i), dst = to.get(i);
+            if (src == null || dst == null) continue;
+            dst.setConservPreuve(src.getConservPreuve());
+            dst.setStatutPreuve(src.getStatutPreuve());
+            dst.setNbCptesDossier(src.getNbCptesDossier());
+            dst.setDureeContrat(src.getDureeContrat());
+            dst.setDateDebutCredit(src.getDateDebutCredit());
+            dst.setAppEmettrice(src.getAppEmettrice());
+            dst.setRefExterne(src.getRefExterne());
+            dst.setPersonId(src.getPersonId());
+            dst.setNbPersFicp(src.getNbPersFicp());
+            dst.setRibEtTypedeCompte(src.getRibEtTypedeCompte());
         }
-
-        // Si "Infos personne", vérifier la complétude
-        if (typeEntree == 2) {
-            for (PersonSearchRequest r : reqs) {
-                if (r.getBirthDepartment() == null || r.getBirthDate() == null
-                        || r.getFirstname() == null || r.getLastname() == null
-                        || r.getCivility() == null) {
-                    return 0;
-                }
-            }
-        }
-        return typeEntree;
     }
 
-    /** typeEntree PM : 1=RP (personId), 2=Infos (immat), 0=insuffisant */
-    private int determineTypeEntreePM(List<PersonSearchRequest> reqs) {
-        int typeEntree = 1;
-        for (PersonSearchRequest r : reqs) {
-            if (StringUtils.isEmpty(r.getPersonId())) {
-                typeEntree = 2; // pas d’ID → on vise les infos d’immat
-                break;
-            }
-        }
-        if (typeEntree == 2) {
-            for (PersonSearchRequest r : reqs) {
-                if (r.getImmatId() == null || r.getImmatType() == null) {
-                    return 0;
-                }
-            }
-        }
-        return typeEntree;
-    }
-
-    /* ---------- PP : Flot RP (BNPP postRP) ---------- */
-    private void handleRPFlowPP(List<PersonSearchRequest> reqs, List<IncidentsCharacteristics> resultList) {
-        final IncidentBciFicpResult wrapper = callBnppRP(reqs);
-        LOGGER.debug("{} incident(s) found in BCI database by RP", wrapper.getIncidentListBCI().size());
-        resultList.add(new IncidentsCharacteristics(wrapper.getIncidentListBCI(), OriginEnum.BCI));
-        LOGGER.debug("{} incident(s) found in FICP BNPP database by RP", wrapper.getIncidentListFCIPBNPP().size());
-        resultList.add(new IncidentsCharacteristics(wrapper.getIncidentListFCIPBNPP(), OriginEnum.FICP_BNPP));
-
-        // Préparer la nouvelle liste de requêtes (issues du RP BNPP), puis ré-injecter les champs complémentaires
-        final List<PersonSearchRequest> rpBnpp = new ArrayList<>(wrapper.getIncidentListRPBNPP());
-        copySupplementalFields(reqs, rpBnpp);
-
-        // Empiler les BDF_ONLY originaux en fin de liste
-        final List<PersonSearchRequest> bdfOnly = reqs.stream()
-                .filter(r -> RequestTypeEnum.BDF_ONLY.equals(r.getRequestType()))
-                .collect(Collectors.toList());
-
-        reqs.clear();
-        reqs.addAll(rpBnpp);
-        reqs.addAll(bdfOnly);
-    }
-
-    /* ---------- PP : Flot Info personne (BNPP post) ---------- */
-    private void handleInfoPersonFlowPP(List<PersonSearchRequest> reqs, List<IncidentsCharacteristics> resultList) {
-        final IncidentBciFicpResult wrapper = callBnppInfo(reqs);
-        if (LOGGER.isDebugEnabled()) {
-            LOGGER.debug("Incident(s) found : {}", DebuggingUtils.toJSon(wrapper));
-        }
-        LOGGER.debug("{} incident(s) found in BCI database", wrapper.getIncidentListBCI().size());
-        resultList.add(new IncidentsCharacteristics(wrapper.getIncidentListBCI(), OriginEnum.BCI));
-        LOGGER.debug("{} incident(s) found in FICP BNPP database", wrapper.getIncidentListFCIPBNPP().size());
-        resultList.add(new IncidentsCharacteristics(wrapper.getIncidentListFCIPBNPP(), OriginEnum.FICP_BNPP));
-    }
-
-    /* ---------- PP : Ajout FICP BDF + FCC BDF ---------- */
-    private void addFicpAndFccForPP(List<PersonSearchRequest> reqs,
-                                    String channel, String caller, String userId,
-                                    List<IncidentsCharacteristics> resultList) {
-        final List<Personne> ficpIncidentList = ficpService.searchIncident(reqs, channel, caller, userId);
-        LOGGER.debug("{} incident(s) found in FICP BDF database", ficpIncidentList.size());
-        resultList.add(new IncidentsCharacteristics(ficpIncidentList, OriginEnum.FICP_BDF));
-
-        final List<Personne> fccIncidentList = fccService.searchIncident(reqs, channel, caller, userId);
-        LOGGER.debug("{} incident(s) found in FCC BDF database", fccIncidentList.size());
-        resultList.add(new IncidentsCharacteristics(fccIncidentList, OriginEnum.FCC));
-    }
-
-    /* ---------- BNPP : appels & fusion résultats ---------- */
     private IncidentBciFicpResult callBnppRP(List<PersonSearchRequest> reqs) {
         if (reqs.size() > MAX_BNPP_BATCH) {
             final List<PersonSearchRequest> p1 = reqs.subList(0, MAX_BNPP_BATCH);
@@ -309,84 +347,66 @@ public class IncidentService {
         });
         return w1;
     }
-
-    /** Copie les champs “complémentaires métier” de la liste source vers la liste cible (par indice). */
-    private static void copySupplementalFields(List<PersonSearchRequest> from, List<PersonSearchRequest> to) {
-        final int size = Math.min(from.size(), to.size());
-        for (int i = 0; i < size; i++) {
-            PersonSearchRequest src = from.get(i);
-            PersonSearchRequest dst = to.get(i);
-            if (src == null || dst == null) continue;
-
-            dst.setConservPreuve(src.getConservPreuve());
-            dst.setStatutPreuve(src.getStatutPreuve());
-            dst.setNbCptesDossier(src.getNbCptesDossier());
-            dst.setDureeContrat(src.getDureeContrat());
-            dst.setDateDebutCredit(src.getDateDebutCredit());
-            dst.setAppEmettrice(src.getAppEmettrice());
-            dst.setRefExterne(src.getRefExterne());
-            dst.setPersonId(src.getPersonId());
-            dst.setNbPersFicp(src.getNbPersFicp());
-            dst.setRibEtTypedeCompte(src.getRibEtTypedeCompte());
-        }
-    }
-
-    /* ---------- PM : construction RP via service référentiel PM ---------- */
-    private List<Personne> buildPmFromRP(List<PersonSearchRequest> reqs) {
-        List<Personne> liste = new ArrayList<>();
-        for (PersonSearchRequest req : reqs) {
-            Personne pm = new Personne();
-            pm.setPersonId(req.getPersonId());
-
-            IncidentMoralResponseDto rep = pMService.post(createRestRequest(req));
-
-            // Famille 233 : immatriculation (type + numéro)
-            if (rep.getMsg_out().getzConFoncOu().getzConLReponse().getData_pers().getF233().length > 0) {
-                String num = rep.getMsg_out().getzConFoncOu().getzConLReponse().getData_pers().getF233()[0].getcNumImmtrn();
-                String type = rep.getMsg_out().getzConFoncOu().getzConLReponse().getData_pers().getF233()[0].getcTypeImmtrn();
-                // normaliser le type
-                type = CTypeImmatEnum.fromValue(type).toString();
-
-                req.setImmatId(num);
-                req.setImmatType(type);
-                req.setBdfKey(type + num);
-
-                pm.setBdfkey(req.getBdfKey());
-                pm.setImmatType(type);
-                pm.setImmatID(num);
-            } else {
-                LOGGER.debug("La famille 233 est vide");
-            }
-
-            // Famille 154 : adresse fiscale
-            if (rep.getMsg_out().getzConFoncOu().getzConLReponse().getData_pers().getF154().length > 0) {
-                pm.setFiscalAdress1(rep.getMsg_out().getzConFoncOu().getzConLReponse().getData_pers().getF154()[0].getlAdrFisc1());
-                pm.setFiscalAdress2(rep.getMsg_out().getzConFoncOu().getzConLReponse().getData_pers().getF154()[0].getlAdrFisc2());
-                pm.setFiscalAdress3(rep.getMsg_out().getzConFoncOu().getzConLReponse().getData_pers().getF154()[0].getlAdrFisc3());
-                pm.setPostalCode(rep.getMsg_out().getzConFoncOu().getzConLReponse().getData_pers().getF154()[0].getcAdrpFiscCpost());
-                pm.setVillePM(rep.getMsg_out().getzConFoncOu().getzConLReponse().getData_pers().getF154()[0].getlNomComFisc());
-            } else {
-                LOGGER.debug("La famille 154 est vide");
-            }
-
-            // Famille 178 : raison sociale
-            if (rep.getMsg_out().getzConFoncOu().getzConLReponse().getData_pers().getF178().length > 0) {
-                pm.setBusinessName(rep.getMsg_out().getzConFoncOu().getzConLReponse().getData_pers().getF178()[0].getlRsoc());
-            } else {
-                LOGGER.debug("La famille 178 est vide");
-            }
-
-            // Famille 096 : forme juridique
-            if (rep.getMsg_out().getzConFoncOu().getzConLReponse().getData_pers().getF096().length > 0) {
-                String code = String.valueOf(rep.getMsg_out().getzConFoncOu().getzConLReponse().getData_pers().getF096()[0].getcNjurPrsne());
-                pm.setCodeLegalName(code);
-                pm.setLegalName(LegalNameEnum.fromValue(code).toString());
-            } else {
-                LOGGER.debug("La famille 096 est vide");
-            }
-
-            liste.add(pm);
-        }
-        return liste;
-    }
 }
+
+
+---
+
+3) Contrôleur — patch minimal pour activer la sélection (facultatif si tu veux rester full-service)
+
+On ajoute un header optionnel X-Incident-Services (CSV, ex. FICP_BDF,FCC_BDF), sinon comportement historique.
+
+
+// dans BankingIncidentsApiController (méthode POST existante)
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.enums.TargetServiceEnum;
+
+// ...
+@PostMapping("/banking-incidents")
+public ResponseEntity<List<IncidentsCharacteristics>> search(
+        @RequestBody List<PersonSearchRequest> body,
+        @RequestHeader("channel") String channel,
+        @RequestHeader("Caller") String caller,
+        @RequestHeader(value = "userId", required = false) String userId,
+        @RequestHeader(value = "X-Incident-Services", required = false) String servicesCsv
+) throws Exception {
+
+    Set<TargetServiceEnum> targets = null;
+    if (servicesCsv != null && !servicesCsv.trim().isEmpty()) {
+        targets = Arrays.stream(servicesCsv.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .map(String::toUpperCase)
+                .map(TargetServiceEnum::valueOf)
+                .collect(Collectors.toCollection(() -> EnumSet.noneOf(TargetServiceEnum.class)));
+    }
+
+    final List<IncidentsCharacteristics> out = (targets == null || targets.isEmpty())
+            ? incidentService.searchIncident(body, channel, caller, userId)
+            : incidentService.searchIncidentSelective(body, channel, caller, userId, targets);
+
+    return ResponseEntity.ok(out);
+}
+
+
+---
+
+4) Exemples d’appel
+
+Comportement historique (tous services)
+POST /.../banking-incidents (sans header X-Incident-Services)
+
+Seulement FICP & FCC BDF (PP)
+X-Incident-Services: FICP_BDF,FCC_BDF
+
+Seulement BCI BNPP (PP)
+X-Incident-Services: BCI
+
+PM : Vue RP + FCC PM
+X-Incident-Services: RP,FCC_PM
+
+
+
+---
+
+Si tu veux, je peux te générer le diff git exact (IncidentService, enum + patch contrôleur) ou adapter le sélecteur via query param au lieu du header.
+
