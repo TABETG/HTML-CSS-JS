@@ -1,1 +1,179 @@
-toto
+Yes — j’ai recâblé ça en respectant ton arborescence multi-modules (application/domain/exposition + clients FICP/FCC) et un run local via le JAR d’exposition avec le profil local. Les chemins et packages correspondent à ce que tu m’as transmis. 
+
+
+---
+
+Ce que change le ticket
+
+> “Appeler unitairement chaque service proposé par FICP/FCC/BCI (au lieu d’appels groupés).”
+
+
+
+Concrètement on ajoute 2 endpoints REST dédiés (FICP et FCC) en plus de l’agrégat existant. Le contrôleur délègue à IncidentService qui route vers les clients FICPService et FCCService déjà présents dans les modules infrastructure-client-ficp et infrastructure-client-fcc. 
+
+
+---
+
+Code (prêt à copier)
+
+1) Application layer
+
+consultation_incident_bancaire/application/src/main/java/com/bnpparibas/dsibddf/ap10530/incident/application/IncidentService.java
+
+package com.bnpparibas.dsibddf.ap10530.incident.application;
+
+import com.bnpparibas.dsibddf.ap10530.incident.domain.dto.BciFicpRequestDTO;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.dto.BciFicpResponseDTO;
+import com.bnpparibas.dsibddf.ap10530.incident.infrastructure.ficp.service.FICPService;
+import com.bnpparibas.dsibddf.ap10530.incident.infrastructure.fcc.service.FCCService;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+@Service
+@Transactional(readOnly = true)
+public class IncidentService {
+
+    private final FICPService ficpService;
+    private final FCCService fccService;
+
+    public IncidentService(FICPService ficpService, FCCService fccService) {
+        this.ficpService = ficpService;
+        this.fccService  = fccService;
+    }
+
+    /** Appel unitaire FICP */
+    public BciFicpResponseDTO searchFicp(BciFicpRequestDTO request) {
+        // Ici on garde les DTO de domaine (BciFicp*) pour limiter l'impact
+        return ficpService.searchFicp(request);
+    }
+
+    /** Appel unitaire FCC */
+    public BciFicpResponseDTO searchFcc(BciFicpRequestDTO request) {
+        return fccService.searchFcc(request);
+    }
+
+    /** (Optionnel) Appel combiné conservé pour compat */
+    public BciFicpResponseDTO searchFicpAndFcc(BciFicpRequestDTO request) {
+        // Exemple très simple : d’abord FICP puis FCC, à adapter si tu as une stratégie d’agrégation
+        BciFicpResponseDTO ficp = ficpService.searchFicp(request);
+        BciFicpResponseDTO fcc  = fccService.searchFcc(request);
+        return BciFicpResponseDTO.merge(ficp, fcc); // ajoute une méthode statique merge dans le DTO
+    }
+}
+
+> Remarque : FICPService et FCCService existent déjà côté infrastructure-* avec leurs DTO (packages ...infrastructure.ficp.dto / ...infrastructure.fcc.dto). On passe par les mappers existants BciFicpRequestMapper/BciFicpResponseMapper si besoin (ils sont dans domain/mappers). 
+
+
+
+
+---
+
+2) Exposition (API REST)
+
+consultation_incident_bancaire/exposition/src/main/java/com/bnpparibas/dsibddf/ap10530/incident/exposition/api/BankingIncidentsApiController.java
+
+package com.bnpparibas.dsibddf.ap10530.incident.exposition.api;
+
+import com.bnpparibas.dsibddf.ap10530.incident.application.IncidentService;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.dto.BciFicpRequestDTO;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.dto.BciFicpResponseDTO;
+import org.springframework.http.ResponseEntity;
+import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/banking-incidents") // conserve la racine actuelle
+public class BankingIncidentsApiController {
+
+    private final IncidentService incidentService;
+
+    public BankingIncidentsApiController(IncidentService incidentService) {
+        this.incidentService = incidentService;
+    }
+
+    /** Nouveau : appel unitaire FICP */
+    @PostMapping(path = "/ficp/search", consumes = "application/json", produces = "application/json")
+    public ResponseEntity<BciFicpResponseDTO> searchFicp(@Validated @RequestBody BciFicpRequestDTO request) {
+        return ResponseEntity.ok(incidentService.searchFicp(request));
+    }
+
+    /** Nouveau : appel unitaire FCC */
+    @PostMapping(path = "/fcc/search", consumes = "application/json", produces = "application/json")
+    public ResponseEntity<BciFicpResponseDTO> searchFcc(@Validated @RequestBody BciFicpRequestDTO request) {
+        return ResponseEntity.ok(incidentService.searchFcc(request));
+    }
+
+    /** (Compat) endpoint agrégé existant, inchangé */
+    @PostMapping(path = "/search", consumes = "application/json", produces = "application/json")
+    public ResponseEntity<BciFicpResponseDTO> searchBoth(@Validated @RequestBody BciFicpRequestDTO request) {
+        return ResponseEntity.ok(incidentService.searchFicpAndFcc(request));
+    }
+}
+
+Le contrôleur est placé sous exposition/.../exposition/api, au même endroit que les classes BankingIncidentsApi* actuelles. 
+
+
+---
+
+3) DTO (petits ajustements)
+
+Dans domain/src/main/java/.../domain/dto/BciFicpResponseDTO.java, ajoute une méthode de merge simple si tu gardes l’endpoint “combiné” :
+
+public static BciFicpResponseDTO merge(BciFicpResponseDTO ficp, BciFicpResponseDTO fcc) {
+    BciFicpResponseDTO out = new BciFicpResponseDTO();
+    // TODO: adapter selon ton modèle (incidents, codes retour, liste agrégée, etc.)
+    out.setCodeRetour( (ficp.getCodeRetour()!=null) ? ficp.getCodeRetour() : fcc.getCodeRetour() );
+    out.setIncidents( concatSafe(ficp.getIncidents(), fcc.getIncidents()) );
+    return out;
+}
+
+Si tu préfères des DTO distincts (ex. FicpResponseDTO, FccResponseDTO), place-les dans domain/dto et mappe-les dans les services — l’arborescence le permet sans conflit. 
+
+
+---
+
+4) Wiring des clients
+
+Les clients existent déjà (Spring Beans) :
+
+infrastructure-client-ficp/.../service/FICPService.java
+
+infrastructure-client-fcc/.../service/FCCService.java
+
+
+Ils sont injectés dans IncidentService (cf. §1). Si leurs signatures exposent des DTO “infrastructure”, ajoute ou utilise tes mappers du module domain/mappers (déjà présents) pour conserver des DTO de domaine en façade. 
+
+
+---
+
+Run local via JAR (profil local)
+
+Tu exécutes le JAR du module exposition (c’est bien ce que montre ta capture IntelliJ) :
+
+# depuis la racine du projet multi-modules
+mvn -T1C -DskipTests clean package
+
+# exécuter l'app
+java -jar exposition/target/exposition-*.jar \
+  --spring.profiles.active=local
+# ou avec JVM options comme dans ta conf IntelliJ :
+#   -Dspring.profiles.active=local
+
+Les propriétés application-local.yml et bootstrap-local.yml existent déjà sous exposition/src/main/resources/config/ (profil local). Tu peux y surcharger les endpoints/mocks FICP/FCC ou les keystores si nécessaire. 
+
+
+---
+
+Récap des fichiers modifiés/ajoutés
+
+✅ application/.../IncidentService.java (route FICP / route FCC / agrégat optionnel)
+
+✅ exposition/.../BankingIncidentsApiController.java (2 nouveaux endpoints)
+
+⭕ domain/.../BciFicpResponseDTO.java (méthode merge simple si tu gardes l’agrégé)
+
+
+Tout est calé sur la hiérarchie que tu m’as donnée (multi-modules, packages com.bnpparibas.dsibddf.ap10530.incident...). 
+
+Si tu veux, je peux aussi te proposer une variante avec DTO séparés côté domaine (FICP/FCC) et les mappers correspondants.
+
