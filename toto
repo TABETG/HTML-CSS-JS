@@ -1,125 +1,208 @@
-Parfait 👍 tu as bien fait de me montrer le PDF du log Maven.
-Je vais t’expliquer ce que signifie l’erreur et comment la corriger.
+OK—je te propose une solution concrète et “sans casser l’existant” pour faire passer mvn clean install sur ton multi-module.
+D’après les PDFs que tu m’as fournis, ton projet mélange des tests JUnit 5 (jupiter) et JUnit 4 dans différents modules (imports org.junit.jupiter… et @ExtendWith(MockitoExtension.class) d’un côté, org.junit.Test / RunWith(SpringRunner) de l’autre). C’est la cause la plus fréquente d’échecs ou de tests non exécutés si Surefire n’est pas correctement configuré. Voir par ex. les classes de tests qui utilisent JUnit 5 et Mockito JUnit Jupiter , et celles qui utilisent JUnit 4 .
+Autre point : ton pipeline indique un JDK 17 (variable DOCKERFILE_JDK_VERSION="17")—il faut donc compiler en 17 dans Maven pour être cohérent. 
+
+Voici les blocs à ajouter (ou mettre à jour) dans le POM parent. Tu n’as pas besoin de toucher au code Java ni aux tests existants.
 
 
 ---
 
-⚠️ Analyse du log Maven (PDF)
+1) Parent POM : forcer Java 17 (ou ton niveau cible) et activer JUnit 5 + Vintage
 
-D’après le contenu du log, la compilation échoue sur une erreur de type package does not exist ou cannot find symbol liée à une classe utilisée dans ton IncidentService ou ton BankingIncidentsApiController.
+Ajoute/actualise ceci dans le POM parent (au plus haut niveau du projet) :
 
-Ce type d’erreur Maven indique en général l’un des cas suivants :
+<project>
+  <!-- ... -->
 
-🧩 1. Import manquant / mauvais package
+  <properties>
+    <!-- Aligne Maven sur le JDK utilisé par ta CI -->
+    <maven.compiler.release>17</maven.compiler.release>
+    <maven.compiler.source>17</maven.compiler.source>
+    <maven.compiler.target>17</maven.compiler.target>
 
-Exemple courant :
+    <!-- Versions plugins compatibles JUnit Platform -->
+    <maven.surefire.plugin.version>3.2.5</maven.surefire.plugin.version>
+    <maven.failsafe.plugin.version>3.2.5</maven.failsafe.plugin.version>
 
-import jakarta.validation.Valid;
+    <!-- Versions test -->
+    <junit.jupiter.version>5.10.2</junit.jupiter.version>
+    <junit.vintage.version>5.10.2</junit.vintage.version>
+    <mockito.jupiter.version>5.11.0</mockito.jupiter.version>
+  </properties>
 
-→ Si ton projet utilise javax.validation (et non Jakarta), il faut remplacer par :
+  <dependencyManagement>
+    <dependencies>
+      <!-- Fournit JUnit 5 + Vintage à tous les modules en scope test -->
+      <dependency>
+        <groupId>org.junit.jupiter</groupId>
+        <artifactId>junit-jupiter</artifactId>
+        <version>${junit.jupiter.version}</version>
+        <scope>test</scope>
+        <type>pom</type>
+      </dependency>
+      <dependency>
+        <groupId>org.junit.vintage</groupId>
+        <artifactId>junit-vintage-engine</artifactId>
+        <version>${junit.vintage.version}</version>
+        <scope>test</scope>
+      </dependency>
+      <dependency>
+        <groupId>org.mockito</groupId>
+        <artifactId>mockito-junit-jupiter</artifactId>
+        <version>${mockito.jupiter.version}</version>
+        <scope>test</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
 
-import javax.validation.Valid;
+  <build>
+    <pluginManagement>
+      <plugins>
+        <!-- Compiler en 17 -->
+        <plugin>
+          <artifactId>maven-compiler-plugin</artifactId>
+          <version>3.13.0</version>
+          <configuration>
+            <release>${maven.compiler.release}</release>
+          </configuration>
+        </plugin>
 
-👉 Vérifie dans ton pom.xml si tu es en Spring Boot < 3.0 :
+        <!-- Surefire : exécute JUnit 5 et JUnit 4 (via Vintage) -->
+        <plugin>
+          <artifactId>maven-surefire-plugin</artifactId>
+          <version>${maven.surefire.plugin.version}</version>
+          <configuration>
+            <useModulePath>false</useModulePath>
+            <includes>
+              <include>**/*Test.java</include>
+              <include>**/*Tests.java</include>
+              <include>**/*TestCase.java</include>
+            </includes>
+          </configuration>
+        </plugin>
 
-Spring Boot 2.x = javax.*
+        <!-- (Optionnel) Failsafe pour les IT nommés *IT.java -->
+        <plugin>
+          <artifactId>maven-failsafe-plugin</artifactId>
+          <version>${maven.failsafe.plugin.version}</version>
+          <configuration>
+            <includes>
+              <include>**/*IT.java</include>
+            </includes>
+          </configuration>
+          <executions>
+            <execution>
+              <goals>
+                <goal>integration-test</goal>
+                <goal>verify</goal>
+              </goals>
+            </execution>
+          </executions>
+        </plugin>
+      </plugins>
+    </pluginManagement>
+  </build>
+</project>
 
-Spring Boot 3.x = jakarta.*
+Pourquoi ça marche sans rien casser ?
+
+Surefire ≥ 3.x exécute JUnit Platform (Jupiter) et, avec junit-vintage-engine, tes tests JUnit 4 existants continuent de tourner sans modification. Les imports JUnit 5 vus dans tes tests (org.junit.jupiter…) restent valides, et les tests JUnit 4 annotés @Test / @RunWith sont pris en charge par Vintage.
+
+Le maven-compiler-plugin compile en Java 17, conforme à ta CI. 
+
+
+
+---
+
+2) Dans chaque module (si nécessaire)
+
+Dans les POMs de module qui n’héritent pas déjà des deps de test (par ex. ficp/business/pom.xml que je vois avec spring-boot-starter-test mais sans Jupiter explicite), ajoute uniquement les dépendances test suivantes (pas besoin de version si tu utilises dependencyManagement du parent) :
+
+<dependencies>
+  <!-- …tes deps existantes… -->
+
+  <!-- Tests -->
+  <dependency>
+    <groupId>org.junit.jupiter</groupId>
+    <artifactId>junit-jupiter</artifactId>
+    <scope>test</scope>
+  </dependency>
+  <dependency>
+    <groupId>org.junit.vintage</groupId>
+    <artifactId>junit-vintage-engine</artifactId>
+    <scope>test</scope>
+  </dependency>
+  <dependency>
+    <groupId>org.mockito</groupId>
+    <artifactId>mockito-junit-jupiter</artifactId>
+    <scope>test</scope>
+  </dependency>
+</dependencies>
+
+> Remarque : certains de tes modules utilisent spring-boot-starter-test (qui apporte JUnit Jupiter), mais comme il y a aussi des tests JUnit 4, l’ajout explicite de Vintage garantit l’exécution des deux familles sans toucher au code. Exemple de POM de module : ficp/business/pom.xml. 
+
 
 
 
 ---
 
-🧩 2. Version Java / API non compatible
+3) (Si tu vois une erreur côté settings) – “duplication d’id de repository”
 
-Si tu vois une erreur du style :
+Si ton mvn clean install se plaint de repositories dupliqués dans settings.xml (central/snapshots), nettoie le profil Artifactory en supprimant les IDs dupliqués et en gardant des IDs uniques. Tu as bien un settings.xml custom de pipeline, donc c’est plausible. 
+Exemple minimal (à adapter à ton Artifactory) :
 
-class file for jakarta.validation.ConstraintViolation not found
-
-alors ton pom.xml référence une dépendance javax.validation mais le code a été migré en jakarta.
-
-✅ Solution :
-dans pom.xml, ajoute la bonne dépendance :
-
-<dependency>
-    <groupId>jakarta.validation</groupId>
-    <artifactId>jakarta.validation-api</artifactId>
-    <version>3.0.2</version>
-</dependency>
-
-ou si tu es en Spring Boot 2.x :
-
-<dependency>
-    <groupId>javax.validation</groupId>
-    <artifactId>validation-api</artifactId>
-    <version>2.0.1.Final</version>
-</dependency>
-
-
----
-
-🧩 3. Classe ou méthode non trouvée
-
-Si le log contient :
-
-[ERROR] cannot find symbol
-  symbol: class IncidentService
-
-👉 Vérifie :
-
-que le package de IncidentService est bien com.bnpparibas.dsibddf.ap10530.incident.application
-
-que dans le contrôleur tu as bien :
-
-import com.bnpparibas.dsibddf.ap10530.incident.application.IncidentService;
-
+<settings>
+  <profiles>
+    <profile>
+      <id>artifactory</id>
+      <repositories>
+        <repository>
+          <id>internal-release</id>
+          <url>https://…/maven-release</url>
+        </repository>
+        <repository>
+          <id>internal-snapshot</id>
+          <url>https://…/maven-snapshot</url>
+          <snapshots><enabled>true</enabled></snapshots>
+        </repository>
+      </repositories>
+      <pluginRepositories>
+        <pluginRepository>
+          <id>internal-plugin</id>
+          <url>https://…/plugins-release</url>
+        </pluginRepository>
+      </pluginRepositories>
+    </profile>
+  </profiles>
+  <activeProfiles>
+    <activeProfile>artifactory</activeProfile>
+  </activeProfiles>
+</settings>
 
 
 ---
 
-🧩 4. Erreur de compilation dans une lambda ou un import statique
+4) Commandes utiles pour diagnostiquer proprement
 
-Si tu vois :
+Sans rien modifier d’autre :
 
-cannot find symbol method anyList()
+# Forcer l’output JUnit Platform et voir les tests réellement exécutés
+mvn -q -DtrimStackTrace=false -Dsurefire.printSummary=true clean test
 
-→ Il faut importer :
-
-import static org.mockito.ArgumentMatchers.*;
-
-
----
-
-✅ Étapes pour corriger
-
-1️⃣ Ouvre ton pom.xml
-→ Regarde si tu as jakarta.validation ou javax.validation.
-
-2️⃣ Si Spring Boot < 3.0 :
-🔁 remplace dans les fichiers que je t’ai donnés :
-
-import jakarta.validation.*;
-
-par :
-
-import javax.validation.*;
-
-3️⃣ Relance la compilation :
-
-mvn clean install -DskipTests
-
-4️⃣ Si ça échoue encore : 👉 Envoie-moi les 10–15 dernières lignes du log d’erreur Maven (ou un screenshot clair).
-C’est la partie du log contenant ERROR et le nom exact du fichier en cause — je te dirai ligne par ligne la correction.
+# Build complet avec logs détaillés
+mvn -e -X clean install
 
 
 ---
 
-Souhaites-tu que je te dise exactement quelles lignes remplacer selon ta version Spring (Boot 2.x ou 3.x) ?
-Envoie-moi juste la ligne de version depuis ton pom.xml :
+Résumé
 
-<parent>
-  <groupId>org.springframework.boot</groupId>
-  <artifactId>spring-boot-starter-parent</artifactId>
-  <version>???</version>
-</parent>
+Problème racine probable : coexistence JUnit 5 + JUnit 4 ⇒ configure Surefire 3.x + junit-vintage-engine au parent POM. Tes tests actuels (Jupiter et JUnit 4) vus dans les fichiers continueront de passer sans changer le code.
+
+Aligner Java sur 17 comme dans le pipeline. 
+
+Optionnel : corriger un éventuel settings.xml bruyant (IDs dupliqués). 
+
+
+Si tu me colles maintenant le message d’erreur exact (les 20–30 dernières lignes de la console), je te donne la correction ciblée au caractère près.
 
