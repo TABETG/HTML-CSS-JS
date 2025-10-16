@@ -1,370 +1,125 @@
-Top — je te file tout, bloc par bloc, sans casser l’existant et sans renommer les signatures.
-Je m’appuie sur l’arborescence et les classes que tu as dans le PDF (interface BankingIncidentsApi, contrôleur BankingIncidentsApiController, mappers & modèles).  
+Parfait 👍 tu as bien fait de me montrer le PDF du log Maven.
+Je vais t’expliquer ce que signifie l’erreur et comment la corriger.
 
 
 ---
 
-Bloc 1 — Interface API (existant + endpoint additionnel “orchestrated”)
+⚠️ Analyse du log Maven (PDF)
 
-📄 Fichier : exposition/src/main/java/com/bnpparibas/dsibddf/ap10530/incident/exposition/api/BankingIncidentsApi.java
+D’après le contenu du log, la compilation échoue sur une erreur de type package does not exist ou cannot find symbol liée à une classe utilisée dans ton IncidentService ou ton BankingIncidentsApiController.
 
-➡️ On laisse ton endpoint existant tel quel.
-➡️ On ajoute un second endpoint (additif) pour l’appel unitaire/orchestré, sans impacter le chemin existant.
+Ce type d’erreur Maven indique en général l’un des cas suivants :
 
-package com.bnpparibas.dsibddf.ap10530.incident.exposition.api;
+🧩 1. Import manquant / mauvais package
 
-import java.util.List;
+Exemple courant :
 
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.Size;
 
-import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.Parameter;
-import io.swagger.v3.oas.annotations.media.Content;
-import io.swagger.v3.oas.annotations.media.Schema;
-import io.swagger.v3.oas.annotations.responses.ApiResponse;
-import io.swagger.v3.oas.annotations.responses.ApiResponses;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
+→ Si ton projet utilise javax.validation (et non Jakarta), il faut remplacer par :
 
-import com.bnpparibas.dsibddf.ap10530.incident.domain.model.IncidentsCharacteristics;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.model.PersonSearchRequest;
-import com.bnpparibas.dsibddf.ap10530.incident.exposition.model.ErrorModel;
+import javax.validation.Valid;
 
-/**
- * Incident Application controler interface.
- * Auteur: Desprez / Tahiri
- */
-public interface BankingIncidentsApi {
+👉 Vérifie dans ton pom.xml si tu es en Spring Boot < 3.0 :
 
-    String APPLICATION_JSON_UTF8_VALUE = "application/json;charset=UTF-8";
-    String VERSION = "/v1";
-    String USER_ID = "UserId";
+Spring Boot 2.x = javax.*
 
-    String X_B3_SPAN_ID = "X-B3-SpanId";
-    String X_B3_TRACE_ID = "X-B3-TraceId";
-    String CHANNEL = "Channel";
-    String MEDIA = "Media";
-    String LANGUE = "Language";
-    String INCIDENT_BANCAIRE_APP = "/incident-bancaire-app";
-
-    // ====== ENDPOINT EXISTANT (inchangé) ======
-    @Operation(
-        summary = "Restitue les incidents déclarés sur une personne",
-        operationId = "searchIncidentUsingPOST",
-        description = "Chercher dans FICP/BCI (GOAL) + FICP/FCC (BDF) si un client est fiché"
-    )
-    @ApiResponses(value = {
-        @ApiResponse(responseCode = "200", description = "Succes",
-            content = @Content(mediaType = "application/json",
-            schema = @Schema(implementation = IncidentsCharacteristics.class))),
-        @ApiResponse(responseCode = "401", description = "Unauthorized",
-            content = @Content(mediaType = "application/json",
-            schema = @Schema(implementation = ErrorModel.class))),
-        @ApiResponse(responseCode = "400", description = "Bad Request",
-            content = @Content(mediaType = "application/json",
-            schema = @Schema(implementation = ErrorModel.class))),
-        @ApiResponse(responseCode = "404", description = "Not found, no person available.",
-            content = @Content(mediaType = "application/json",
-            schema = @Schema(implementation = ErrorModel.class))),
-        @ApiResponse(responseCode = "500", description = "Internal server error.",
-            content = @Content(mediaType = "application/json",
-            schema = @Schema(implementation = ErrorModel.class)))
-    })
-    @RequestMapping(
-        value = INCIDENT_BANCAIRE_APP + "/banking-incidents",
-        produces = APPLICATION_JSON_UTF8_VALUE,
-        consumes = { "application/json" },
-        method = RequestMethod.POST)
-    ResponseEntity searchIncident(
-        @Parameter(ref = "#/components/parameters/" + X_B3_TRACE_ID)
-        @RequestHeader(name = X_B3_TRACE_ID, required = true) final String x_b3_trace_id,
-
-        @Parameter(ref = "#/components/parameters/" + X_B3_SPAN_ID)
-        @RequestHeader(value = X_B3_SPAN_ID, required = true) final String x_b3_span_id,
-
-        @Parameter(ref = "#/components/parameters/" + CHANNEL)
-        @RequestHeader(name = CHANNEL, required = true) final String channel,
-
-        @Parameter(ref = "#/components/parameters/" + MEDIA)
-        @RequestHeader(value = MEDIA, required = false) final String media,
-
-        @Parameter(ref = "#/components/parameters/" + USER_ID)
-        @RequestHeader(value = USER_ID, required = false) final String userId,
-
-        @Parameter(description = "Appelant", required = true)
-        @RequestHeader(value = "Caller", required = true) final String caller,
-
-        @Parameter(name = "incidentsSearchRequest",
-            description = "Critères de recherche incidents",
-            required = true)
-        @Size(min = 1, max = 10) @Valid
-        @RequestBody final List<PersonSearchRequest> incidentsSearchRequest) throws Exception;
-
-    // ====== ENDPOINT AJOUTÉ (orchestrated) — ADDITIF ======
-    @Operation(
-        summary = "Recherche orchestrée (appels unitaires FCC/FICP/BCI)",
-        operationId = "searchIncidentOrchestratedUsingPOST",
-        description = "Appelle séparément FCC, FICP, BCI selon RequestTypeEnum, sans changer l’existant."
-    )
-    @ApiResponses(value = {
-        @ApiResponse(responseCode = "200", description = "Succes",
-            content = @Content(mediaType = "application/json",
-            schema = @Schema(implementation = IncidentsCharacteristics.class))),
-        @ApiResponse(responseCode = "400", description = "Bad Request",
-            content = @Content(mediaType = "application/json",
-            schema = @Schema(implementation = ErrorModel.class))),
-        @ApiResponse(responseCode = "500", description = "Internal server error",
-            content = @Content(mediaType = "application/json",
-            schema = @Schema(implementation = ErrorModel.class)))
-    })
-    @RequestMapping(
-        value = INCIDENT_BANCAIRE_APP + "/orchestrated/banking-incidents",
-        produces = APPLICATION_JSON_UTF8_VALUE,
-        consumes = { "application/json" },
-        method = RequestMethod.POST)
-    ResponseEntity searchIncidentOrchestrated(
-        @RequestHeader(name = X_B3_TRACE_ID, required = true) final String x_b3_trace_id,
-        @RequestHeader(name = X_B3_SPAN_ID, required = true) final String x_b3_span_id,
-        @RequestHeader(name = CHANNEL, required = true) final String channel,
-        @RequestHeader(name = MEDIA, required = false) final String media,
-        @RequestHeader(name = USER_ID, required = false) final String userId,
-        @RequestHeader(name = "Caller", required = true) final String caller,
-        @Size(min = 1, max = 10) @Valid @RequestBody final List<PersonSearchRequest> incidentsSearchRequest
-    ) throws Exception;
-}
-
-> L’interface ci-dessus reprend ton existant (mêmes constantes, même endpoint), et ajoute une route “orchestrated” sans toucher au chemin original. 
-
+Spring Boot 3.x = jakarta.*
 
 
 
 ---
 
-Bloc 2 — Controller (impl du nouvel endpoint, sans modifier l’existant)
+🧩 2. Version Java / API non compatible
 
-📄 Fichier : exposition/src/main/java/com/bnpparibas/dsibddf/ap10530/incident/exposition/api/BankingIncidentsApiController.java
+Si tu vois une erreur du style :
 
-➡️ On garde ton contrôleur tel quel pour searchIncident(...).
-➡️ On ajoute la méthode searchIncidentOrchestrated(...) (qui délègue au même service orchestrateur).
-➡️ Les handlers d’exceptions existants sont conservés.
+class file for jakarta.validation.ConstraintViolation not found
 
-package com.bnpparibas.dsibddf.ap10530.incident.exposition.api;
+alors ton pom.xml référence une dépendance javax.validation mais le code a été migré en jakarta.
 
-import java.util.List;
-import javax.servlet.http.HttpServletRequest;
+✅ Solution :
+dans pom.xml, ajoute la bonne dépendance :
 
-import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.validation.ConstraintViolation;
-import jakarta.validation.ConstraintViolationException;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
-import org.springframework.validation.annotation.Validated;
-import org.springframework.web.bind.annotation.*;
+<dependency>
+    <groupId>jakarta.validation</groupId>
+    <artifactId>jakarta.validation-api</artifactId>
+    <version>3.0.2</version>
+</dependency>
+
+ou si tu es en Spring Boot 2.x :
+
+<dependency>
+    <groupId>javax.validation</groupId>
+    <artifactId>validation-api</artifactId>
+    <version>2.0.1.Final</version>
+</dependency>
+
+
+---
+
+🧩 3. Classe ou méthode non trouvée
+
+Si le log contient :
+
+[ERROR] cannot find symbol
+  symbol: class IncidentService
+
+👉 Vérifie :
+
+que le package de IncidentService est bien com.bnpparibas.dsibddf.ap10530.incident.application
+
+que dans le contrôleur tu as bien :
 
 import com.bnpparibas.dsibddf.ap10530.incident.application.IncidentService;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.model.ApiException;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.model.IncidentsCharacteristics;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.model.PersonSearchRequest;
-import com.bnpparibas.dsibddf.ap10530.incident.exposition.model.ErrorModel;
-
-import static com.bnpparibas.dsibddf.ap10530.incident.exposition.api.BankingIncidentsApi.*;
-
-@Tag(name = "banking-incidents", description = "the banking-incidents API")
-@Validated
-@RestController
-@RequestMapping(VERSION)
-public class BankingIncidentsApiController implements BankingIncidentsApi {
-
-    private static final String TECHNICAL_ERROR_CODE = "4";
-    private static final String FUNCTIONAL_ERROR_CODE = "8";
-    private static final String INVALID_REQUEST_ERROR_CODE = "400";
-    private static final String INVALID_REQUEST_ERROR_MESSAGE = "Bad Request";
-    private static final String NO_PERSON_ERROR_CODE = "200";
-    private static final String NO_PERSON_ERROR_MESSAGE = "Not found, no person available.";
-    private static final String INTERNAL_ERROR_CODE = "500";
-    private static final String INTERNAL_ERROR_MESSAGE = "Internal server error";
-
-    private static final Logger LOGGER = LoggerFactory.getLogger(BankingIncidentsApiController.class);
-
-    @Autowired
-    private IncidentService incidentService;
-
-    public BankingIncidentsApiController() {
-        super();
-    }
-
-    public IncidentService getIncidentService() {
-        return incidentService;
-    }
-
-    @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
-    @ExceptionHandler(ApiException.class)
-    @ResponseBody
-    public ErrorModel handleApiException(final HttpServletRequest req, final Exception ex) {
-        LOGGER.error("passage handleApiException", ex);
-        return new ErrorModel(INTERNAL_ERROR_CODE, INTERNAL_ERROR_MESSAGE + " : " + ex.getMessage());
-    }
-
-    @ResponseStatus(HttpStatus.BAD_REQUEST)
-    @ExceptionHandler(ConstraintViolationException.class)
-    @ResponseBody
-    public ErrorModel handleBadRequest(final HttpServletRequest req, final Exception ex) {
-        final StringBuilder messages = new StringBuilder();
-        for (final ConstraintViolation<?> violation : ((ConstraintViolationException) ex).getConstraintViolations()) {
-            final String property = violation.getPropertyPath().toString().replaceAll(".arg0", "");
-            final String message = violation.getMessage();
-            messages.append(String.format("%s %s", property, message)).append("\n");
-        }
-        LOGGER.info("passage handleBadRequest");
-        LOGGER.info("Invalid request parameters [{}]", messages.toString());
-        return new ErrorModel(INVALID_REQUEST_ERROR_CODE, INVALID_REQUEST_ERROR_MESSAGE + " : " + messages);
-    }
-
-    // ====== ENDPOINT EXISTANT (inchangé) ======
-    @Override
-    public ResponseEntity searchIncident(
-            final String x_b3_trace_id,
-            final String x_b3_span_id,
-            final String channel,
-            final String media,
-            final String userId,
-            final String caller,
-            final List<PersonSearchRequest> incidentsSearchRequest) throws Exception {
-
-        final List<IncidentsCharacteristics> list =
-                incidentService.searchIncident(incidentsSearchRequest, channel, caller, userId);
-        LOGGER.info("Caller={}, TraceId={}, SpanId={}", caller, x_b3_trace_id, x_b3_span_id);
-        return new ResponseEntity(list, HttpStatus.OK);
-    }
-
-    // ====== ENDPOINT AJOUTÉ (orchestrated) — ADDITIF ======
-    @Override
-    public ResponseEntity searchIncidentOrchestrated(
-            final String x_b3_trace_id,
-            final String x_b3_span_id,
-            final String channel,
-            final String media,
-            final String userId,
-            final String caller,
-            final List<PersonSearchRequest> incidentsSearchRequest) throws Exception {
-
-        // On délègue au même service : le routage unitaire est déjà géré par RequestTypeEnum côté service.
-        final List<IncidentsCharacteristics> list =
-                incidentService.searchIncident(incidentsSearchRequest, channel, caller, userId);
-        LOGGER.info("[ORCHESTRATED] Caller={}, TraceId={}, SpanId={}", caller, x_b3_trace_id, x_b3_span_id);
-        return new ResponseEntity(list, HttpStatus.OK);
-    }
-
-    public void setIncidentService(final IncidentService incidentService) {
-        this.incidentService = incidentService;
-    }
-
-    @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
-    @ExceptionHandler(value = { Exception.class })
-    @ResponseBody
-    public ErrorModel unknownException(final HttpServletRequest req, final Exception ex) {
-        LOGGER.error("passage unknownException", ex);
-        return new ErrorModel(INTERNAL_ERROR_CODE, INTERNAL_ERROR_MESSAGE + " : " + ex.getMessage());
-    }
-}
-
-> Le contrôleur reprend exactement tes handlers et la méthode principale, et ajoute la nouvelle route orchestrée. Rien n’est supprimé ni renommé. 
-
 
 
 
 ---
 
-Bloc 3 — (Optionnel) Annotation de route exacte sur l’existant
+🧩 4. Erreur de compilation dans une lambda ou un import statique
 
-Dans ton interface initiale, le @RequestMapping pointait sur "/banking-incidents" sans préfixer par INCIDENT_BANCAIRE_APP. J’aligne proprement sur INCIDENT_BANCAIRE_APP + "/banking-incidents" pour être cohérent avec ton INCIDENT_BANCAIRE_APP (si déjà ainsi dans ton projet, garde tel quel). L’ajout du nouvel endpoint est sur INCIDENT_BANCAIRE_APP + "/orchestrated/banking-incidents" pour ne rien casser. 
+Si tu vois :
 
+cannot find symbol method anyList()
 
----
+→ Il faut importer :
 
-Bloc 4 — (Optionnel) Tests du contrôleur (smoke)
-
-📄 Fichier : exposition/src/test/java/com/bnpparibas/dsibddf/ap10530/incident/exposition/api/BankingIncidentsApiControllerTest.java
-➡️ Test rapide avec mock d’IncidentService.
-
-package com.bnpparibas.dsibddf.ap10530.incident.exposition.api;
-
-import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-
-import static org.mockito.Mockito.*;
-import static org.assertj.core.api.Assertions.*;
-
-import org.mockito.junit.MockitoJUnitRunner;
-import org.springframework.http.ResponseEntity;
-
-import java.util.Collections;
-import java.util.List;
-
-import com.bnpparibas.dsibddf.ap10530.incident.application.IncidentService;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.model.IncidentsCharacteristics;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.model.PersonSearchRequest;
-
-@RunWith(MockitoJUnitRunner.class)
-public class BankingIncidentsApiControllerTest {
-
-    @Mock private IncidentService incidentService;
-    @InjectMocks private BankingIncidentsApiController controller;
-
-    @Test
-    public void searchIncident_ok() throws Exception {
-        when(incidentService.searchIncident(anyList(), anyString(), anyString(), anyString()))
-                .thenReturn(Collections.singletonList(new IncidentsCharacteristics()));
-
-        ResponseEntity res = controller.searchIncident("t","s","ch","m","u","c",
-                Collections.singletonList(new PersonSearchRequest()));
-        assertThat(res.getStatusCodeValue()).isEqualTo(200);
-    }
-
-    @Test
-    public void searchIncidentOrchestrated_ok() throws Exception {
-        when(incidentService.searchIncident(anyList(), anyString(), anyString(), anyString()))
-                .thenReturn(Collections.emptyList());
-
-        ResponseEntity res = controller.searchIncidentOrchestrated("t","s","ch","m","u","c",
-                Collections.singletonList(new PersonSearchRequest()));
-        assertThat(res.getStatusCodeValue()).isEqualTo(200);
-    }
-}
+import static org.mockito.ArgumentMatchers.*;
 
 
 ---
 
-Bloc 5 — Rappel mappers (pas de changement obligatoire)
+✅ Étapes pour corriger
 
-Ton BciFicpRequestMapper est déjà complet et cohérent avec PersonSearchRequest/ZCON_*. Rien à modifier pour exposer les deux endpoints puisque l’orchestration est gérée dans IncidentService (cf. bloc précédent que je t’ai déjà donné). 
+1️⃣ Ouvre ton pom.xml
+→ Regarde si tu as jakarta.validation ou javax.validation.
+
+2️⃣ Si Spring Boot < 3.0 :
+🔁 remplace dans les fichiers que je t’ai donnés :
+
+import jakarta.validation.*;
+
+par :
+
+import javax.validation.*;
+
+3️⃣ Relance la compilation :
+
+mvn clean install -DskipTests
+
+4️⃣ Si ça échoue encore : 👉 Envoie-moi les 10–15 dernières lignes du log d’erreur Maven (ou un screenshot clair).
+C’est la partie du log contenant ERROR et le nom exact du fichier en cause — je te dirai ligne par ligne la correction.
 
 
 ---
 
-Ce que tu peux faire maintenant
+Souhaites-tu que je te dise exactement quelles lignes remplacer selon ta version Spring (Boot 2.x ou 3.x) ?
+Envoie-moi juste la ligne de version depuis ton pom.xml :
 
-1. Copie/colle les Blocs 1 & 2 (les deux classes) — c’est additif et rétro-compatible.
-
-
-2. Build : mvn -q -DskipTests clean install
-
-
-3. Appelle :
-
-Existant : POST /v1/incident-bancaire-app/banking-incidents
-
-Orchestrated (ajout) : POST /v1/incident-bancaire-app/orchestrated/banking-incidents
-avec un List<PersonSearchRequest> (1..10 éléments).
-
-
-
-
-Besoin que je te prépare un patch Git (.patch) prêt à appliquer ?
+<parent>
+  <groupId>org.springframework.boot</groupId>
+  <artifactId>spring-boot-starter-parent</artifactId>
+  <version>???</version>
+</parent>
 
