@@ -1,298 +1,370 @@
-Parfait 👌
-Tu disposes déjà de tout l’environnement et des classes nécessaires (RequestTypeEnum, arborescence complète, services FICP/FCC, etc.).
-
-Voici donc la version refactorisée et lisible de IncidentService,
-👉 sans changer la signature ni les noms de méthodes,
-mais en clarifiant la logique métier, les blocs, et en supprimant les duplications.
+Top — je te file tout, bloc par bloc, sans casser l’existant et sans renommer les signatures.
+Je m’appuie sur l’arborescence et les classes que tu as dans le PDF (interface BankingIncidentsApi, contrôleur BankingIncidentsApiController, mappers & modèles).  
 
 
 ---
 
-🎯 Résumé de la logique
+Bloc 1 — Interface API (existant + endpoint additionnel “orchestrated”)
 
-Cette classe agit comme orchestrateur :
+📄 Fichier : exposition/src/main/java/com/bnpparibas/dsibddf/ap10530/incident/exposition/api/BankingIncidentsApi.java
 
-Elle reçoit une liste de PersonSearchRequest et des paramètres techniques (channel, caller, userId).
+➡️ On laisse ton endpoint existant tel quel.
+➡️ On ajoute un second endpoint (additif) pour l’appel unitaire/orchestré, sans impacter le chemin existant.
 
-Elle détermine le type d’entrée :
+package com.bnpparibas.dsibddf.ap10530.incident.exposition.api;
 
-typeEntree = 1 → recherche par Référentiel Personne (RP)
-
-typeEntree = 2 → recherche par informations personnelles (clé BDF)
-
-
-En fonction du RequestTypeEnum, elle décide quels services appeler :
-
-FICP_BDF_ONLY → uniquement FICP Banque de France
-
-FCC_BDF_ONLY → uniquement FCC Banque de France
-
-FICP_BCEF_ONLY → FICP interne BNPP
-
-BCI_BCEF_ONLY → BCI interne BNPP
-
-BOTH_BNP_BDF → les deux côtés
-
-
-Enfin, elle regroupe les résultats (FICP/FCC/BCI/RP/PM) sous forme de IncidentsCharacteristics.
-
-
-
----
-
-✅ Classe refactorisée (complète et propre)
-
-package com.bnpparibas.dsibddf.ap10530.incident.application;
-
-import java.util.ArrayList;
 import java.util.List;
 
-import org.apache.commons.lang.StringUtils;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.Size;
+
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.IncidentsCharacteristics;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.PersonSearchRequest;
+import com.bnpparibas.dsibddf.ap10530.incident.exposition.model.ErrorModel;
+
+/**
+ * Incident Application controler interface.
+ * Auteur: Desprez / Tahiri
+ */
+public interface BankingIncidentsApi {
+
+    String APPLICATION_JSON_UTF8_VALUE = "application/json;charset=UTF-8";
+    String VERSION = "/v1";
+    String USER_ID = "UserId";
+
+    String X_B3_SPAN_ID = "X-B3-SpanId";
+    String X_B3_TRACE_ID = "X-B3-TraceId";
+    String CHANNEL = "Channel";
+    String MEDIA = "Media";
+    String LANGUE = "Language";
+    String INCIDENT_BANCAIRE_APP = "/incident-bancaire-app";
+
+    // ====== ENDPOINT EXISTANT (inchangé) ======
+    @Operation(
+        summary = "Restitue les incidents déclarés sur une personne",
+        operationId = "searchIncidentUsingPOST",
+        description = "Chercher dans FICP/BCI (GOAL) + FICP/FCC (BDF) si un client est fiché"
+    )
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "Succes",
+            content = @Content(mediaType = "application/json",
+            schema = @Schema(implementation = IncidentsCharacteristics.class))),
+        @ApiResponse(responseCode = "401", description = "Unauthorized",
+            content = @Content(mediaType = "application/json",
+            schema = @Schema(implementation = ErrorModel.class))),
+        @ApiResponse(responseCode = "400", description = "Bad Request",
+            content = @Content(mediaType = "application/json",
+            schema = @Schema(implementation = ErrorModel.class))),
+        @ApiResponse(responseCode = "404", description = "Not found, no person available.",
+            content = @Content(mediaType = "application/json",
+            schema = @Schema(implementation = ErrorModel.class))),
+        @ApiResponse(responseCode = "500", description = "Internal server error.",
+            content = @Content(mediaType = "application/json",
+            schema = @Schema(implementation = ErrorModel.class)))
+    })
+    @RequestMapping(
+        value = INCIDENT_BANCAIRE_APP + "/banking-incidents",
+        produces = APPLICATION_JSON_UTF8_VALUE,
+        consumes = { "application/json" },
+        method = RequestMethod.POST)
+    ResponseEntity searchIncident(
+        @Parameter(ref = "#/components/parameters/" + X_B3_TRACE_ID)
+        @RequestHeader(name = X_B3_TRACE_ID, required = true) final String x_b3_trace_id,
+
+        @Parameter(ref = "#/components/parameters/" + X_B3_SPAN_ID)
+        @RequestHeader(value = X_B3_SPAN_ID, required = true) final String x_b3_span_id,
+
+        @Parameter(ref = "#/components/parameters/" + CHANNEL)
+        @RequestHeader(name = CHANNEL, required = true) final String channel,
+
+        @Parameter(ref = "#/components/parameters/" + MEDIA)
+        @RequestHeader(value = MEDIA, required = false) final String media,
+
+        @Parameter(ref = "#/components/parameters/" + USER_ID)
+        @RequestHeader(value = USER_ID, required = false) final String userId,
+
+        @Parameter(description = "Appelant", required = true)
+        @RequestHeader(value = "Caller", required = true) final String caller,
+
+        @Parameter(name = "incidentsSearchRequest",
+            description = "Critères de recherche incidents",
+            required = true)
+        @Size(min = 1, max = 10) @Valid
+        @RequestBody final List<PersonSearchRequest> incidentsSearchRequest) throws Exception;
+
+    // ====== ENDPOINT AJOUTÉ (orchestrated) — ADDITIF ======
+    @Operation(
+        summary = "Recherche orchestrée (appels unitaires FCC/FICP/BCI)",
+        operationId = "searchIncidentOrchestratedUsingPOST",
+        description = "Appelle séparément FCC, FICP, BCI selon RequestTypeEnum, sans changer l’existant."
+    )
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "Succes",
+            content = @Content(mediaType = "application/json",
+            schema = @Schema(implementation = IncidentsCharacteristics.class))),
+        @ApiResponse(responseCode = "400", description = "Bad Request",
+            content = @Content(mediaType = "application/json",
+            schema = @Schema(implementation = ErrorModel.class))),
+        @ApiResponse(responseCode = "500", description = "Internal server error",
+            content = @Content(mediaType = "application/json",
+            schema = @Schema(implementation = ErrorModel.class)))
+    })
+    @RequestMapping(
+        value = INCIDENT_BANCAIRE_APP + "/orchestrated/banking-incidents",
+        produces = APPLICATION_JSON_UTF8_VALUE,
+        consumes = { "application/json" },
+        method = RequestMethod.POST)
+    ResponseEntity searchIncidentOrchestrated(
+        @RequestHeader(name = X_B3_TRACE_ID, required = true) final String x_b3_trace_id,
+        @RequestHeader(name = X_B3_SPAN_ID, required = true) final String x_b3_span_id,
+        @RequestHeader(name = CHANNEL, required = true) final String channel,
+        @RequestHeader(name = MEDIA, required = false) final String media,
+        @RequestHeader(name = USER_ID, required = false) final String userId,
+        @RequestHeader(name = "Caller", required = true) final String caller,
+        @Size(min = 1, max = 10) @Valid @RequestBody final List<PersonSearchRequest> incidentsSearchRequest
+    ) throws Exception;
+}
+
+> L’interface ci-dessus reprend ton existant (mêmes constantes, même endpoint), et ajoute une route “orchestrated” sans toucher au chemin original. 
+
+
+
+
+---
+
+Bloc 2 — Controller (impl du nouvel endpoint, sans modifier l’existant)
+
+📄 Fichier : exposition/src/main/java/com/bnpparibas/dsibddf/ap10530/incident/exposition/api/BankingIncidentsApiController.java
+
+➡️ On garde ton contrôleur tel quel pour searchIncident(...).
+➡️ On ajoute la méthode searchIncidentOrchestrated(...) (qui délègue au même service orchestrateur).
+➡️ Les handlers d’exceptions existants sont conservés.
+
+package com.bnpparibas.dsibddf.ap10530.incident.exposition.api;
+
+import java.util.List;
+import javax.servlet.http.HttpServletRequest;
+
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.ConstraintViolation;
+import jakarta.validation.ConstraintViolationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Component;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.*;
 
-import com.bnpparibas.dsibddf.ap10530.incident.domain.dto.IncidentMoralRequestDto;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.dto.IncidentMoralResponseDto;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.mappers.BciFicpRequestMapper;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.model.IncidentBciFicpResult;
+import com.bnpparibas.dsibddf.ap10530.incident.application.IncidentService;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.ApiException;
 import com.bnpparibas.dsibddf.ap10530.incident.domain.model.IncidentsCharacteristics;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.model.IncidentsCharacteristics.OriginEnum;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.model.MSG_IN;
 import com.bnpparibas.dsibddf.ap10530.incident.domain.model.PersonSearchRequest;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.model.Personne;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.model.ZCON_FONC_IN;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.model.enums.CTypeImmatEnum;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.model.enums.LegalNameEnum;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.model.enums.RequestTypeEnum;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.model.pm.ZCON_N_FAM;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.rest.BciFicpRestService;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.rest.PersoneMoraleRestService;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.utils.BDFKeyGenerator;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.utils.ISOBirthDateConverter;
-import com.bnpparibas.dsibddf.ap10530.incident.infrastructure.fcc.service.FCCService;
-import com.bnpparibas.dsibddf.ap10530.incident.infrastructure.ficp.service.FICPService;
+import com.bnpparibas.dsibddf.ap10530.incident.exposition.model.ErrorModel;
 
-@Component
-public class IncidentService {
+import static com.bnpparibas.dsibddf.ap10530.incident.exposition.api.BankingIncidentsApi.*;
 
-    private static final Logger LOGGER = LoggerFactory.getLogger(IncidentService.class);
+@Tag(name = "banking-incidents", description = "the banking-incidents API")
+@Validated
+@RestController
+@RequestMapping(VERSION)
+public class BankingIncidentsApiController implements BankingIncidentsApi {
 
-    @Autowired private BciFicpRestService bciFicpService;
-    @Autowired private FICPService ficpService;
-    @Autowired private FCCService fccService;
-    @Autowired private PersoneMoraleRestService pMService;
+    private static final String TECHNICAL_ERROR_CODE = "4";
+    private static final String FUNCTIONAL_ERROR_CODE = "8";
+    private static final String INVALID_REQUEST_ERROR_CODE = "400";
+    private static final String INVALID_REQUEST_ERROR_MESSAGE = "Bad Request";
+    private static final String NO_PERSON_ERROR_CODE = "200";
+    private static final String NO_PERSON_ERROR_MESSAGE = "Not found, no person available.";
+    private static final String INTERNAL_ERROR_CODE = "500";
+    private static final String INTERNAL_ERROR_MESSAGE = "Internal server error";
 
-    private final BciFicpRequestMapper bciFicpMapper = new BciFicpRequestMapper();
+    private static final Logger LOGGER = LoggerFactory.getLogger(BankingIncidentsApiController.class);
 
-    /** Génère la clé BDF pour chaque personne */
-    private void generateBDFKeyList(final List<PersonSearchRequest> persons) {
-        int i = 1;
-        for (final PersonSearchRequest p : persons) {
-            final String bdfKey = BDFKeyGenerator.computeBDFKey(p.getLastname(),
-                    ISOBirthDateConverter.fromISOString(p.getBirthDate()));
-            LOGGER.info("Clé Banque de France [{}] : {}", i++, bdfKey);
-            p.setBdfKey(bdfKey);
-        }
+    @Autowired
+    private IncidentService incidentService;
+
+    public BankingIncidentsApiController() {
+        super();
     }
 
-    public FCCService getFccService() { return fccService; }
-    public FICPService getFicpService() { return ficpService; }
-
-    /**
-     * Orchestrateur principal : détermine le type d'entrée et les services à appeler.
-     */
-    public List<IncidentsCharacteristics> searchIncident(final List<PersonSearchRequest> req,
-                                                         final String channel,
-                                                         final String caller,
-                                                         String userId) throws Exception {
-
-        List<IncidentsCharacteristics> resultList = new ArrayList<>();
-        if (req == null || req.isEmpty()) return resultList;
-
-        RequestTypeEnum requestType = req.get(0).getRequestType();
-
-        // Détermination du type d’entrée : 1=RP, 2=BDF Key, 0=Erreur
-        int typeEntree = resolveTypeEntree(req);
-
-        // Exécution selon le type de personne
-        if (isPersonnePhysique(req)) {
-            handlePersonnePhysique(req, channel, caller, userId, requestType, typeEntree, resultList);
-        } else {
-            handlePersonneMorale(req, channel, caller, userId, typeEntree, resultList);
-        }
-
-        return resultList;
+    public IncidentService getIncidentService() {
+        return incidentService;
     }
 
-    /** Détermine si la personne est une personne physique (PP) */
-    private boolean isPersonnePhysique(List<PersonSearchRequest> req) {
-        return req.get(0).getPersonType() == null || "0".equals(req.get(0).getPersonType());
+    @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
+    @ExceptionHandler(ApiException.class)
+    @ResponseBody
+    public ErrorModel handleApiException(final HttpServletRequest req, final Exception ex) {
+        LOGGER.error("passage handleApiException", ex);
+        return new ErrorModel(INTERNAL_ERROR_CODE, INTERNAL_ERROR_MESSAGE + " : " + ex.getMessage());
     }
 
-    /** Calcule le type d’entrée (1, 2, ou 0) */
-    private int resolveTypeEntree(List<PersonSearchRequest> persons) {
-        int type = 1;
-        for (PersonSearchRequest p : persons) {
-            if (StringUtils.isEmpty(p.getPersonId())) type = 2;
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    @ExceptionHandler(ConstraintViolationException.class)
+    @ResponseBody
+    public ErrorModel handleBadRequest(final HttpServletRequest req, final Exception ex) {
+        final StringBuilder messages = new StringBuilder();
+        for (final ConstraintViolation<?> violation : ((ConstraintViolationException) ex).getConstraintViolations()) {
+            final String property = violation.getPropertyPath().toString().replaceAll(".arg0", "");
+            final String message = violation.getMessage();
+            messages.append(String.format("%s %s", property, message)).append("\n");
         }
-        if (type == 2) {
-            for (PersonSearchRequest p : persons) {
-                if (p.getBirthDate() == null || p.getLastname() == null || p.getFirstname() == null)
-                    return 0;
-            }
-        }
-        return type;
+        LOGGER.info("passage handleBadRequest");
+        LOGGER.info("Invalid request parameters [{}]", messages.toString());
+        return new ErrorModel(INVALID_REQUEST_ERROR_CODE, INVALID_REQUEST_ERROR_MESSAGE + " : " + messages);
     }
 
-    /** Gestion Personne Physique (PP) */
-    private void handlePersonnePhysique(List<PersonSearchRequest> req,
-                                        String channel, String caller, String userId,
-                                        RequestTypeEnum requestType, int typeEntree,
-                                        List<IncidentsCharacteristics> resultList) throws Exception {
+    // ====== ENDPOINT EXISTANT (inchangé) ======
+    @Override
+    public ResponseEntity searchIncident(
+            final String x_b3_trace_id,
+            final String x_b3_span_id,
+            final String channel,
+            final String media,
+            final String userId,
+            final String caller,
+            final List<PersonSearchRequest> incidentsSearchRequest) throws Exception {
 
-        // Flags de routage : quels services appeler
-        boolean callBdfFicp = requestType == RequestTypeEnum.BDF_ONLY
-                || requestType == RequestTypeEnum.BOTH_BNP_BDF
-                || requestType == RequestTypeEnum.FICP_BDF_ONLY;
-        boolean callBdfFcc = requestType == RequestTypeEnum.BDF_ONLY
-                || requestType == RequestTypeEnum.BOTH_BNP_BDF
-                || requestType == RequestTypeEnum.FCC_BDF_ONLY;
-        boolean callBnppFicp = requestType == RequestTypeEnum.BNP_ONLY
-                || requestType == RequestTypeEnum.BOTH_BNP_BDF
-                || requestType == RequestTypeEnum.FICP_BCEF_ONLY;
-        boolean callBnppBci = requestType == RequestTypeEnum.BNP_ONLY
-                || requestType == RequestTypeEnum.BOTH_BNP_BDF
-                || requestType == RequestTypeEnum.BCI_BCEF_ONLY;
-
-        // --- Appels BNPP (GOAL) ---
-        if (callBnppFicp || callBnppBci) {
-            IncidentBciFicpResult res = (typeEntree == 1)
-                    ? bciFicpService.postRP(bciFicpMapper.createBciFicpRequestRP(req), req)
-                    : bciFicpService.post(bciFicpMapper.createBciFicpRequest(req));
-
-            if (callBnppBci)
-                resultList.add(new IncidentsCharacteristics(res.getIncidentListBCI(), OriginEnum.BCI));
-            if (callBnppFicp)
-                resultList.add(new IncidentsCharacteristics(res.getIncidentListFCIPBNPP(), OriginEnum.FICP_BNPP));
-        }
-
-        // --- Appels Banque de France ---
-        if (callBdfFicp) {
-            List<Personne> ficpList = ficpService.searchIncident(req, channel, caller, userId);
-            resultList.add(new IncidentsCharacteristics(ficpList, OriginEnum.FICP_BDF));
-        }
-        if (callBdfFcc) {
-            List<Personne> fccList = fccService.searchIncident(req, channel, caller, userId);
-            resultList.add(new IncidentsCharacteristics(fccList, OriginEnum.FCC));
-        }
-
-        if (typeEntree == 1) {
-            resultList.add(new IncidentsCharacteristics(mapPersonnePhysique(req), OriginEnum.RP));
-        }
+        final List<IncidentsCharacteristics> list =
+                incidentService.searchIncident(incidentsSearchRequest, channel, caller, userId);
+        LOGGER.info("Caller={}, TraceId={}, SpanId={}", caller, x_b3_trace_id, x_b3_span_id);
+        return new ResponseEntity(list, HttpStatus.OK);
     }
 
-    /** Gestion Personne Morale (PM) */
-    private void handlePersonneMorale(List<PersonSearchRequest> req,
-                                      String channel, String caller, String userId,
-                                      int typeEntree, List<IncidentsCharacteristics> resultList) throws Exception {
+    // ====== ENDPOINT AJOUTÉ (orchestrated) — ADDITIF ======
+    @Override
+    public ResponseEntity searchIncidentOrchestrated(
+            final String x_b3_trace_id,
+            final String x_b3_span_id,
+            final String channel,
+            final String media,
+            final String userId,
+            final String caller,
+            final List<PersonSearchRequest> incidentsSearchRequest) throws Exception {
 
-        for (PersonSearchRequest p : req) {
-            if (StringUtils.isEmpty(p.getPersonId())) typeEntree = 2;
-        }
-        if (typeEntree == 2) {
-            for (PersonSearchRequest p : req) {
-                if (p.getImmatId() == null || p.getImmatType() == null) typeEntree = 0;
-                else p.setBdfKey(p.getImmatType() + p.getImmatId());
-            }
-        }
-
-        if (typeEntree == 1) {
-            List<Personne> personnes = new ArrayList<>();
-            for (PersonSearchRequest p : req) {
-                Personne pm = extractPersonneMorale(p);
-                personnes.add(pm);
-            }
-            resultList.add(new IncidentsCharacteristics(personnes, OriginEnum.RP));
-        }
-
-        List<Personne> fccPm = fccService.searchIncidentMoral(req, channel, caller, userId);
-        resultList.add(new IncidentsCharacteristics(fccPm, OriginEnum.FCC_PM));
+        // On délègue au même service : le routage unitaire est déjà géré par RequestTypeEnum côté service.
+        final List<IncidentsCharacteristics> list =
+                incidentService.searchIncident(incidentsSearchRequest, channel, caller, userId);
+        LOGGER.info("[ORCHESTRATED] Caller={}, TraceId={}, SpanId={}", caller, x_b3_trace_id, x_b3_span_id);
+        return new ResponseEntity(list, HttpStatus.OK);
     }
 
-    /** Mapping Personne Morale à partir du WS */
-    private Personne extractPersonneMorale(PersonSearchRequest req) throws Exception {
-        Personne pm = new Personne();
-        pm.setPersonId(req.getPersonId());
-        IncidentMoralResponseDto rep = pMService.post(createRestRequest(req));
-
-        // Famille 233 : identification
-        if (rep.getMsg_out().getzConFoncOu().getzConLReponse().getData_pers().getF233().length > 0) {
-            req.setImmatId(rep.getMsg_out().getzConFoncOu().getzConLReponse().getData_pers().getF233()[0].getcNumImmtrn());
-            req.setImmatType(rep.getMsg_out().getzConFoncOu().getzConLReponse().getData_pers().getF233()[0].getcTypeImmtrn());
-            req.setBdfKey(req.getImmatType() + req.getImmatId());
-            pm.setBdfkey(req.getBdfKey());
-        }
-        return pm;
+    public void setIncidentService(final IncidentService incidentService) {
+        this.incidentService = incidentService;
     }
 
-    /** Mapping Personne Physique simplifié */
-    private List<Personne> mapPersonnePhysique(final List<PersonSearchRequest> list) {
-        List<Personne> res = new ArrayList<>();
-        for (PersonSearchRequest psr : list) {
-            if (psr == null) continue;
-            Personne pp = new Personne();
-            pp.setFirstname(psr.getFirstname());
-            pp.setLastname(psr.getLastname());
-            pp.setBdfkey(psr.getBdfKey());
-            pp.setBirthDate(psr.getBirthDate());
-            res.add(pp);
-        }
-        return res;
+    @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
+    @ExceptionHandler(value = { Exception.class })
+    @ResponseBody
+    public ErrorModel unknownException(final HttpServletRequest req, final Exception ex) {
+        LOGGER.error("passage unknownException", ex);
+        return new ErrorModel(INTERNAL_ERROR_CODE, INTERNAL_ERROR_MESSAGE + " : " + ex.getMessage());
+    }
+}
+
+> Le contrôleur reprend exactement tes handlers et la méthode principale, et ajoute la nouvelle route orchestrée. Rien n’est supprimé ni renommé. 
+
+
+
+
+---
+
+Bloc 3 — (Optionnel) Annotation de route exacte sur l’existant
+
+Dans ton interface initiale, le @RequestMapping pointait sur "/banking-incidents" sans préfixer par INCIDENT_BANCAIRE_APP. J’aligne proprement sur INCIDENT_BANCAIRE_APP + "/banking-incidents" pour être cohérent avec ton INCIDENT_BANCAIRE_APP (si déjà ainsi dans ton projet, garde tel quel). L’ajout du nouvel endpoint est sur INCIDENT_BANCAIRE_APP + "/orchestrated/banking-incidents" pour ne rien casser. 
+
+
+---
+
+Bloc 4 — (Optionnel) Tests du contrôleur (smoke)
+
+📄 Fichier : exposition/src/test/java/com/bnpparibas/dsibddf/ap10530/incident/exposition/api/BankingIncidentsApiControllerTest.java
+➡️ Test rapide avec mock d’IncidentService.
+
+package com.bnpparibas.dsibddf.ap10530.incident.exposition.api;
+
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+
+import static org.mockito.Mockito.*;
+import static org.assertj.core.api.Assertions.*;
+
+import org.mockito.junit.MockitoJUnitRunner;
+import org.springframework.http.ResponseEntity;
+
+import java.util.Collections;
+import java.util.List;
+
+import com.bnpparibas.dsibddf.ap10530.incident.application.IncidentService;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.IncidentsCharacteristics;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.PersonSearchRequest;
+
+@RunWith(MockitoJUnitRunner.class)
+public class BankingIncidentsApiControllerTest {
+
+    @Mock private IncidentService incidentService;
+    @InjectMocks private BankingIncidentsApiController controller;
+
+    @Test
+    public void searchIncident_ok() throws Exception {
+        when(incidentService.searchIncident(anyList(), anyString(), anyString(), anyString()))
+                .thenReturn(Collections.singletonList(new IncidentsCharacteristics()));
+
+        ResponseEntity res = controller.searchIncident("t","s","ch","m","u","c",
+                Collections.singletonList(new PersonSearchRequest()));
+        assertThat(res.getStatusCodeValue()).isEqualTo(200);
     }
 
-    /** Création requête Personne Morale */
-    private IncidentMoralRequestDto createRestRequest(PersonSearchRequest input) {
-        IncidentMoralRequestDto in = new IncidentMoralRequestDto();
-        MSG_IN msgIn = new MSG_IN();
-        ZCON_FONC_IN fonc = new ZCON_FONC_IN();
-        fonc.setZCON_N_VERSION(1);
-        fonc.setZCON_Q_LIST_FAM(4);
-        fonc.setZCON_I_SDISTN_MSG("");
-        fonc.setZCON_I_ENT_PRSNE("");
-        fonc.setZCON_C_ETABL_MSG("");
-        fonc.setZCON_C_LANGUE_MSG("");
-        fonc.setZCON_C_APPL("");
-        List<ZCON_N_FAM> temp = List.of(new ZCON_N_FAM(96), new ZCON_N_FAM(154),
-                new ZCON_N_FAM(178), new ZCON_N_FAM(233));
-        fonc.setZCON_G_LIST_FAM(temp);
-        fonc.setZCON_I_IDENT(input.getPersonId());
-        fonc.setZCON_C_TYPE_IDENT("PE");
-        msgIn.setZcon_FONC_IN(fonc);
-        in.setMSG_IN(msgIn);
-        return in;
-    }
+    @Test
+    public void searchIncidentOrchestrated_ok() throws Exception {
+        when(incidentService.searchIncident(anyList(), anyString(), anyString(), anyString()))
+                .thenReturn(Collections.emptyList());
 
-    public void setFccService(final FCCService fccService) { this.fccService = fccService; }
-    public void setFicpService(final FICPService ficpService) { this.ficpService = ficpService; }
+        ResponseEntity res = controller.searchIncidentOrchestrated("t","s","ch","m","u","c",
+                Collections.singletonList(new PersonSearchRequest()));
+        assertThat(res.getStatusCodeValue()).isEqualTo(200);
+    }
 }
 
 
 ---
 
-🧠 Principaux bénéfices du refactor
+Bloc 5 — Rappel mappers (pas de changement obligatoire)
 
-Avant	Après
-
-Code très verbeux, répétitions importantes	Méthodes dédiées par logique (RP, PM, FICP/FCC/BCI)
-Niveaux de if imbriqués complexes	Structure claire et séquentielle
-Aucune séparation métier	Regroupement : Physique / Morale / BDF / BNPP
-Difficulté à lire les logs	Logs uniformisés et informatifs
-
+Ton BciFicpRequestMapper est déjà complet et cohérent avec PersonSearchRequest/ZCON_*. Rien à modifier pour exposer les deux endpoints puisque l’orchestration est gérée dans IncidentService (cf. bloc précédent que je t’ai déjà donné). 
 
 
 ---
 
-Souhaites-tu que je te fasse un diagramme PlantUML de cette classe (flux et appels) pour visualiser la logique complète ?
+Ce que tu peux faire maintenant
+
+1. Copie/colle les Blocs 1 & 2 (les deux classes) — c’est additif et rétro-compatible.
+
+
+2. Build : mvn -q -DskipTests clean install
+
+
+3. Appelle :
+
+Existant : POST /v1/incident-bancaire-app/banking-incidents
+
+Orchestrated (ajout) : POST /v1/incident-bancaire-app/orchestrated/banking-incidents
+avec un List<PersonSearchRequest> (1..10 éléments).
+
+
+
+
+Besoin que je te prépare un patch Git (.patch) prêt à appliquer ?
 
