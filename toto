@@ -1,176 +1,33 @@
-package com.bnpparibas.dsibddf.ap10530.incident.exposition.api;
+Voici l’impact « cible » pour ton JIRA **AER_SOC-1529 – nouvelles modalités d’appel unitaire FICP/FCC/BCI**. En l’état du code, tu devras modifier (au minimum) les classes suivantes :
 
-/*
- * Contrôleur REST d'exposition des incidents bancaires.
- *
- * ⚠️ Demande : ajouter des commentaires sans modifier ni supprimer le code.
- *   - Le code original est intact (signatures, constantes, logs, exceptions, etc.).
- *   - Seul le formatage (indentation) et l'ajout de commentaires pédagogiques ont été faits.
- */
+1. # RequestTypeEnum
 
-import java.util.List;
-import javax.servlet.http.HttpServletRequest;
+Ajouter les nouvelles valeurs demandées par le JIRA :
 
-import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.validation.ConstraintViolation;
-import jakarta.validation.ConstraintViolationException;
+* 4 = **FICP BDF**, 5 = **FCC BDF**, 6 = **FICP BCEF**, 7 = **BCI BCEF**.
+  Aujourd’hui l’enum n’a que `1/2/3 (BNP_ONLY/BDF_ONLY/BOTH_BNP_BDF)`, donc elle ne permet pas les appels unitaires exigés.  
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
-import org.springframework.validation.annotation.Validated;
-import org.springframework.web.bind.annotation.*;
+2. # IncidentService (orchestrateur)
 
-import com.bnpparibas.dsibddf.ap10530.incident.application.IncidentService;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.model.ApiException;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.model.IncidentsCharacteristics;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.model.PersonSearchRequest;
-import com.bnpparibas.dsibddf.ap10530.incident.exposition.model.ErrorModel;
+Adapter la logique d’orchestration pour **n’appeler que** le(s) service(s) visé(s) selon la nouvelle valeur `requestType` :
 
-import static com.bnpparibas.dsibddf.ap10530.incident.exposition.api.BankingIncidentsApi.*;
+* 4 ⇒ appeler **FICPService** uniquement,
+* 5 ⇒ appeler **FCCService** uniquement,
+* 6 ⇒ appeler la partie **FICP BNPP/BCEF** du couple BCI/FICP (via `bciFicpService`),
+* 7 ⇒ appeler la partie **BCI BNPP/BCEF** uniquement.
+  Actuellement, l’orchestrateur appelle systématiquement FICP **et** FCC (et la partie BCI/FICP BNPP), ce qui n’est plus conforme à l’appel unitaire demandé. 
 
-/**
- * Incident Application controller.
- *
- * Expose l'API REST "banking-incidents" (OpenAPI/Swagger).
- * Gère également les exceptions applicatives et techniques via des handlers dédiés.
- *
- * @author Desprez / Tahiri
- */
-@Tag(name = "banking-incidents", description = "the banking-incidents API")
-@Validated
-@RestController
-@RequestMapping(VERSION) // VERSION importé statiquement depuis l'interface BankingIncidentsApi
-public class BankingIncidentsApiController implements BankingIncidentsApi {
+3. # BciFicpRequestMapper
 
-    // Codes/msgs d'erreurs standardisés renvoyés au front
-    // private static final String SUCCESS_CODE = "0"; // (conservé en commentaire comme dans la source)
-    private static final String TECHNICAL_ERROR_CODE = "4";       // (non utilisé ici mais conservé)
-    private static final String FUNCTIONAL_ERROR_CODE = "8";       // (non utilisé ici mais conservé)
+Le mapper conditionne aujourd’hui surtout « BNP vs BDF » (`BDF_ONLY`) et agrège BCI+FICP BNPP. Il faut le faire évoluer pour **construire la requête** en cohérence avec les nouveaux types unitaires (6/7) — et/ou permettre à l’orchestrateur de **sélectionner** la bonne sous-partie de la réponse quand on ne veut que FICP BNPP ou que BCI. 
 
-    private static final String INVALID_REQUEST_ERROR_CODE = "400";
-    private static final String INVALID_REQUEST_ERROR_MESSAGE = "Bad Request";
+4. # (facultatif selon exposition) BankingIncidentsApiController / DTO
 
-    private static final String NO_PERSON_ERROR_CODE = "200";      // (non utilisé ici mais conservé)
-    private static final String NO_PERSON_ERROR_MESSAGE = "Not found, no person available."; // (non utilisé)
+Si l’API expose `requestType`, vérifier que le contrôleur/DTO accepte les **nouvelles valeurs 4–7** (validation Swagger/Bean Validation). Sinon, le front enverra une valeur que l’API rejettera. (Fichier contrôleur fourni avec le lot). 
 
-    private static final String INTERNAL_ERROR_CODE = "500";
-    private static final String INTERNAL_ERROR_MESSAGE = "Internal server error";
+💡 À noter
 
-    private static final Logger LOGGER = LoggerFactory.getLogger(BankingIncidentsApiController.class);
+* **FICPService** et **FCCService** peuvent rester quasi inchangés : ils exécutent déjà leur appel « métier » propre. C’est surtout **l’aiguillage** dans `IncidentService` qui doit empêcher les appels non voulus quand on choisit un mode unitaire.  
+* Le besoin d’appels unitaires et les 4 nouvelles valeurs proviennent explicitement du JIRA. 
 
-    @Autowired
-    private IncidentService incidentService; // Application service orchestrant la recherche d'incidents
-
-    /**
-     * Default Constructor
-     */
-    public BankingIncidentsApiController() {
-        super();
-    }
-
-    /**
-     * @return the incidentService
-     */
-    public IncidentService getIncidentService() {
-        return incidentService;
-    }
-
-    /**
-     * Gestionnaire d'ApiException (erreurs applicatives internes au domaine).
-     * Retourne un ErrorModel avec code 500 + message détaillé.
-     *
-     * @param req requête HTTP
-     * @param ex  ApiException levée en aval
-     * @return ErrorModel sérialisé (JSON)
-     */
-    @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
-    @ExceptionHandler(ApiException.class)
-    @ResponseBody
-    public ErrorModel handleApiException(final HttpServletRequest req, final Exception ex) {
-        LOGGER.error("passage handleApiException");
-        // LOGGER.error(ex.getCause().toString()); // laissé tel quel en commentaire (source)
-        // ASAP514 : ajout du message d'exception dans la réponse
-        return new ErrorModel(INTERNAL_ERROR_CODE, INTERNAL_ERROR_MESSAGE + " : " + ex.getMessage());
-    }
-
-    /**
-     * Gestionnaire d'erreurs de validation (ConstraintViolationException).
-     * Concatène les messages de violations pour rendre l'erreur lisible côté client.
-     *
-     * @param req requête HTTP
-     * @param ex  ConstraintViolationException levée par la validation
-     * @return ErrorModel avec code 400 et liste des champs invalides
-     */
-    @ResponseStatus(HttpStatus.BAD_REQUEST)
-    @ExceptionHandler(ConstraintViolationException.class)
-    @ResponseBody
-    public ErrorModel handleBadRequest(final HttpServletRequest req, final Exception ex) {
-        final StringBuilder messages = new StringBuilder();
-        for (final ConstraintViolation<?> violation : ((ConstraintViolationException) ex).getConstraintViolations()) {
-            // Nettoie le path pour retirer l'artefact ".arg0" souvent ajouté par la validation method-level
-            final String property = violation.getPropertyPath().toString().replaceAll(".arg0", "");
-            final String message = violation.getMessage();
-            messages.append(String.format("%s %s", property, message)).append("\n");
-        }
-        LOGGER.info("passage handleBadRequest");
-        LOGGER.info("Invalid request parameters [{}]", messages.toString());
-        // ASAP514 : ajout du message détaillé en retour
-        return new ErrorModel(INVALID_REQUEST_ERROR_CODE, INVALID_REQUEST_ERROR_MESSAGE + " : " + messages.toString());
-    }
-
-    /**
-     * Endpoint principal : recherche d'incidents.
-     * Délègue au service applicatif IncidentService, puis renvoie la liste des caractéristiques d'incidents.
-     *
-     * @param x_b3_trace_id  tracing distributed (B3) - passé en tête HTTP
-     * @param x_b3_span_id   tracing distributed (B3)
-     * @param channel        canal d'appel (statistiques, audit)
-     * @param media          média (non utilisé ici mais typiquement pour audit)
-     * @param userId         identifiant utilisateur appelant
-     * @param caller         identifiant applicatif appelant (loggé)
-     * @param incidentsSearchRequest payload métier (liste de PersonSearchRequest)
-     */
-    @Override
-    public ResponseEntity searchIncident(
-            final String x_b3_trace_id,
-            final String x_b3_span_id,
-            final String channel,
-            final String media,
-            final String userId,
-            final String caller,
-            final List<PersonSearchRequest> incidentsSearchRequest) throws Exception {
-
-        // Délégation métier
-        final List<IncidentsCharacteristics> list = incidentService.searchIncident(incidentsSearchRequest, channel, caller, userId);
-
-        // Trace de l'appelant (utile pour corrélation)
-        LOGGER.info(caller);
-
-        // 200 OK avec la liste des incidents
-        return new ResponseEntity(list, HttpStatus.OK);
-    }
-
-    /**
-     * Setter d'injection manuelle (utile pour tests unitaires)
-     */
-    public void setIncidentService(final IncidentService incidentService) {
-        this.incidentService = incidentService;
-    }
-
-    /**
-     * Gestionnaire global d'exceptions non typées.
-     * Sécurité : évite l'exposition de stacktraces côté client et renvoie un 500 standardisé.
-     */
-    @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
-    @ExceptionHandler(value = { Exception.class })
-    @ResponseBody
-    public ErrorModel unknownException(final HttpServletRequest req, final Exception ex) {
-        LOGGER.error("passage unknownException");
-        LOGGER.error(ex.getCause().toString());
-        // ASAP514 : ajout du message d'exception dans la réponse
-        return new ErrorModel(INTERNAL_ERROR_CODE, INTERNAL_ERROR_MESSAGE + " : " + ex.getMessage());
-    }
-}
+Si tu veux, je te propose dans le prochain message un diff ciblé (enum + switch dans IncidentService + ajustement du mapper) prêt à coller.
