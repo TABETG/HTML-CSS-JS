@@ -1,7 +1,9 @@
 package com.bnpparibas.dsibddf.ap10530.incident.application;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import org.apache.commons.lang.StringUtils;
 import org.slf4j.Logger;
@@ -30,10 +32,6 @@ import com.bnpparibas.dsibddf.ap10530.incident.domain.utils.DebuggingUtils;
 import com.bnpparibas.dsibddf.ap10530.incident.domain.utils.ISOBirthDateConverter;
 import com.bnpparibas.dsibddf.ap10530.incident.infrastructure.fcc.service.FCCService;
 import com.bnpparibas.dsibddf.ap10530.incident.infrastructure.ficp.service.FICPService;
-
-// >>> imports ajoutés uniquement pour le filtrage final
-import java.util.HashSet;
-import java.util.Set;
 
 /**
  * Orchestrator service : exécute la logique métier pour la recherche d'incidents.
@@ -68,8 +66,8 @@ public class IncidentService {
         int taille = incidentsSearchRequest.size();
         for (final PersonSearchRequest person : incidentsSearchRequest) {
             final String bdfKey = BDFKeyGenerator.computeBDFKey(
-                person.getLastname(),
-                ISOBirthDateConverter.fromISOString(person.getBirthDate())
+                    person.getLastname(),
+                    ISOBirthDateConverter.fromISOString(person.getBirthDate())
             );
             LOGGER.debug("computeBDFKey: name {}, birthDate {} = {}", person.getLastname(), person.getBirthDate(), bdfKey);
             LOGGER.info("Cle Banque de France de lappel {} sur {} : {}", i, taille, bdfKey);
@@ -78,10 +76,21 @@ public class IncidentService {
         }
     }
 
-    public FCCService getFccService() { return fccService; }
-    public FICPService getFicpService() { return ficpService; }
-    public void setFccService(final FCCService fccService) { this.fccService = fccService; }
-    public void setFicpService(final FICPService ficpService) { this.ficpService = ficpService; }
+    public FCCService getFccService() {
+        return fccService;
+    }
+
+    public FICPService getFicpService() {
+        return ficpService;
+    }
+
+    public void setFccService(final FCCService fccService) {
+        this.fccService = fccService;
+    }
+
+    public void setFicpService(final FICPService ficpService) {
+        this.ficpService = ficpService;
+    }
 
     // ------------------------------------------ orchestrateur principal (existant)
     public List<IncidentsCharacteristics> searchIncident(
@@ -324,7 +333,11 @@ public class IncidentService {
                 break;
             case BDF_ONLY:
                 allowed.add(OriginEnum.FICP_BDF);
-                if (isPM) allowed.add(OriginEnum.FCC_PM); else allowed.add(OriginEnum.FCC);
+                if (isPM) {
+                    allowed.add(OriginEnum.FCC_PM);
+                } else {
+                    allowed.add(OriginEnum.FCC);
+                }
                 break;
             case BOTH_BNP_BDF:
                 allowed.add(OriginEnum.BCI);
@@ -338,7 +351,11 @@ public class IncidentService {
                 allowed.add(OriginEnum.FICP_BDF);
                 break;
             case FCC_BDF_ONLY:    // 5
-                if (isPM) allowed.add(OriginEnum.FCC_PM); else allowed.add(OriginEnum.FCC);
+                if (isPM) {
+                    allowed.add(OriginEnum.FCC_PM);
+                } else {
+                    allowed.add(OriginEnum.FCC);
+                }
                 break;
             case FICP_BCEF_ONLY:  // 6
                 allowed.add(OriginEnum.FICP_BNPP);
@@ -363,7 +380,7 @@ public class IncidentService {
 
     // ------------------------------------------ mapping RP (existant)
     private List<Personne> mapPersonnePhysique(final List<PersonSearchRequest> incidentListRPBNPP) {
-        List<Personne> personneIncidentList = new ArrayList<Personne>();
+        List<Personne> personneIncidentList = new ArrayList<>();
         for (final PersonSearchRequest psr : incidentListRPBNPP) {
             if (psr != null) {
                 final Personne pp = new Personne();
