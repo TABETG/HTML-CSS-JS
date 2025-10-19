@@ -1,292 +1,176 @@
-package com.bnpparibas.dsibddf.ap10530.incident.domain.mappers;
+package com.bnpparibas.dsibddf.ap10530.incident.exposition.api;
 
 /*
- * Mapper BCI/FICP → Structures Z/OS
+ * Contrôleur REST d'exposition des incidents bancaires.
  *
- * ⚠️ Demande utilisateur : commenter sans modifier ni supprimer le code.
- *   - Le code d'origine est conservé (y compris doublons, affectations répétées, etc.).
- *   - Seul le formatage et l'ajout de commentaires explicatifs ont été réalisés.
+ * ⚠️ Demande : ajouter des commentaires sans modifier ni supprimer le code.
+ *   - Le code original est intact (signatures, constantes, logs, exceptions, etc.).
+ *   - Seul le formatage (indentation) et l'ajout de commentaires pédagogiques ont été faits.
  */
 
-import java.util.ArrayList;
 import java.util.List;
+import javax.servlet.http.HttpServletRequest;
 
-import org.springframework.util.StringUtils;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.ConstraintViolation;
+import jakarta.validation.ConstraintViolationException;
 
-import com.bnpparibas.dsibddf.ap10530.incident.domain.dto.BciFicpRequestDTO;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.model.MSG_IN;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.*;
+
+import com.bnpparibas.dsibddf.ap10530.incident.application.IncidentService;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.ApiException;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.IncidentsCharacteristics;
 import com.bnpparibas.dsibddf.ap10530.incident.domain.model.PersonSearchRequest;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.model.ZCON_FONC_IN;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.model.ZCON_FONC_INOU;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.model.enums.RequestTypeEnum;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.model.pphy.G_ECV_PPHY;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.model.pphy.G_KPI_REF;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.model.pphy.G_KPI_REF1;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.model.pphy.G_LIST_I_KPI;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.model.pphy.G_LIST_KPI;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.utils.BDFKeyGenerator;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.utils.ISOBirthDateConverter;
+import com.bnpparibas.dsibddf.ap10530.incident.exposition.model.ErrorModel;
+
+import static com.bnpparibas.dsibddf.ap10530.incident.exposition.api.BankingIncidentsApi.*;
 
 /**
- * @author C98744
+ * Incident Application controller.
  *
- * ASAP 608
+ * Expose l'API REST "banking-incidents" (OpenAPI/Swagger).
+ * Gère également les exceptions applicatives et techniques via des handlers dédiés.
+ *
+ * @author Desprez / Tahiri
  */
-public class BciFicpRequestMapper {
+@Tag(name = "banking-incidents", description = "the banking-incidents API")
+@Validated
+@RestController
+@RequestMapping(VERSION) // VERSION importé statiquement depuis l'interface BankingIncidentsApi
+public class BankingIncidentsApiController implements BankingIncidentsApi {
 
-    // Délimiteur de date ISO attendu (yyyy-MM-dd)
-    private static final String ISO_DATE_DELIMITER = "-";
+    // Codes/msgs d'erreurs standardisés renvoyés au front
+    // private static final String SUCCESS_CODE = "0"; // (conservé en commentaire comme dans la source)
+    private static final String TECHNICAL_ERROR_CODE = "4";       // (non utilisé ici mais conservé)
+    private static final String FUNCTIONAL_ERROR_CODE = "8";       // (non utilisé ici mais conservé)
 
-    // Code d'enregistrement pour indiquer BCI + FICP (valeur "3")
-    private static final String BOTH_BCI_FICP = "3";
+    private static final String INVALID_REQUEST_ERROR_CODE = "400";
+    private static final String INVALID_REQUEST_ERROR_MESSAGE = "Bad Request";
+
+    private static final String NO_PERSON_ERROR_CODE = "200";      // (non utilisé ici mais conservé)
+    private static final String NO_PERSON_ERROR_MESSAGE = "Not found, no person available."; // (non utilisé)
+
+    private static final String INTERNAL_ERROR_CODE = "500";
+    private static final String INTERNAL_ERROR_MESSAGE = "Internal server error";
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(BankingIncidentsApiController.class);
+
+    @Autowired
+    private IncidentService incidentService; // Application service orchestrant la recherche d'incidents
 
     /**
-     * BciFicpRequestMapper Constructor
+     * Default Constructor
      */
-    public BciFicpRequestMapper() {
+    public BankingIncidentsApiController() {
         super();
     }
 
     /**
-     * Mapping d'une liste de PersonSearchRequest vers la trame Z/OS standard.
-     *  - Ignore les demandes BDF_ONLY (ne partent pas vers BCI)
-     *  - Alimente G_LIST_KPI (liste d'identités) et G_LIST_I_KPI (liste d'IKPI, ici vide)
+     * @return the incidentService
+     */
+    public IncidentService getIncidentService() {
+        return incidentService;
+    }
+
+    /**
+     * Gestionnaire d'ApiException (erreurs applicatives internes au domaine).
+     * Retourne un ErrorModel avec code 500 + message détaillé.
      *
-     * @param incidentsSearchRequest la liste des requêtes métier en entrée
-     * @return BciFicpRequestDTO prêt à envoyer vers le mainframe
+     * @param req requête HTTP
+     * @param ex  ApiException levée en aval
+     * @return ErrorModel sérialisé (JSON)
      */
-    public BciFicpRequestDTO createBciFicpRequest(final List<PersonSearchRequest> incidentsSearchRequest) {
-        final BciFicpRequestDTO rchIncidRequest = new BciFicpRequestDTO();
-
-        // Enveloppe du message
-        MSG_IN in = new MSG_IN();
-        ZCON_FONC_IN foncin = new ZCON_FONC_IN();
-
-        // Liste des identités (KPI)
-        final G_LIST_KPI gListKpi = new G_LIST_KPI();
-        final List<G_KPI_REF> newList = new ArrayList<G_KPI_REF>();
-
-        int i = 0;
-        for (final PersonSearchRequest person : incidentsSearchRequest) {
-            /** if RequestType = BNP or ALL */
-            if (!person.getRequestType().equals(RequestTypeEnum.BDF_ONLY)) {
-                // Mappe une personne -> G_KPI_REF (identifiants civils)
-                final G_KPI_REF newPerson = mapGKpi(i, person);
-                newList.add(newPerson);
-                i++;
-            }
-        }
-
-        // Nombre d'identifiants PI et collection associée
-        gListKpi.setQ_KPI_REF(i); // Nombre d’identifiants PI
-        gListKpi.setG_KPI_REF(newList);
-
-        // Liste IKPI (ici via méthode dédiée, renvoie une liste vide + Q=0)
-        foncin.setG_LIST_I_KPI(mapGIKpi());
-
-        // Bloc IN/OU (autre structure contenant aussi la liste KPI)
-        ZCON_FONC_INOU foncInOu = new ZCON_FONC_INOU();
-        foncInOu.setG_LIST_KPI(gListKpi);
-
-        // Assemblage du message
-        in.setZcon_FONC_IN(foncin);
-        in.setZcon_fonc_inou(foncInOu);
-        rchIncidRequest.setMSG_IN(in);
-
-        // Traces d'anciennes assignations (laissées en commentaire d'origine)
-        // rchIncidRequest.getMSG_IN().getZcon_FONC_IN().setG_LIST_I_KPI(mapGIKpi());
-        // rchIncidRequest.getMSG_IN().getZcon_FONC_IN().setG_LIST_KPI(gListKpi);
-
-        return rchIncidRequest;
+    @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
+    @ExceptionHandler(ApiException.class)
+    @ResponseBody
+    public ErrorModel handleApiException(final HttpServletRequest req, final Exception ex) {
+        LOGGER.error("passage handleApiException");
+        // LOGGER.error(ex.getCause().toString()); // laissé tel quel en commentaire (source)
+        // ASAP514 : ajout du message d'exception dans la réponse
+        return new ErrorModel(INTERNAL_ERROR_CODE, INTERNAL_ERROR_MESSAGE + " : " + ex.getMessage());
     }
 
     /**
-     * Variante RP ("Recherche par Person Id" + identifiants civils) :
-     *  - Alimente simultanément G_LIST_I_KPI (avec G_KPI_REF1 : type + I_KPI) ET G_LIST_KPI.
-     *  - Ignore aussi les BDF_ONLY.
+     * Gestionnaire d'erreurs de validation (ConstraintViolationException).
+     * Concatène les messages de violations pour rendre l'erreur lisible côté client.
+     *
+     * @param req requête HTTP
+     * @param ex  ConstraintViolationException levée par la validation
+     * @return ErrorModel avec code 400 et liste des champs invalides
      */
-    public BciFicpRequestDTO createBciFicpRequestRP(final List<PersonSearchRequest> incidentsSearchRequest) {
-        final BciFicpRequestDTO rchIncidRequest = new BciFicpRequestDTO();
-
-        MSG_IN in = new MSG_IN();
-        ZCON_FONC_IN foncin = new ZCON_FONC_IN();
-
-        final G_LIST_KPI gListKpi = new G_LIST_KPI();
-        final G_LIST_I_KPI gListIKpi = new G_LIST_I_KPI();
-
-        final List<G_KPI_REF1> newListRP = new ArrayList<G_KPI_REF1>(); // IKPI (par identifiant technique)
-        final List<G_KPI_REF> newList = new ArrayList<G_KPI_REF>();     // KPI (identité civile)
-
-        int i = 0;
-        for (final PersonSearchRequest person : incidentsSearchRequest) {
-            /** if RequestType = BNP or ALL */
-            if (!person.getRequestType().equals(RequestTypeEnum.BDF_ONLY)) {
-                // IKPI (RP)
-                final G_KPI_REF1 newPersonRP = mapGIKpiRP(i, person);
-                newListRP.add(newPersonRP);
-                // KPI (RP)
-                final G_KPI_REF newPerson = mapGKpiRP(i, person);
-                newList.add(newPerson);
-                i++;
-            }
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    @ExceptionHandler(ConstraintViolationException.class)
+    @ResponseBody
+    public ErrorModel handleBadRequest(final HttpServletRequest req, final Exception ex) {
+        final StringBuilder messages = new StringBuilder();
+        for (final ConstraintViolation<?> violation : ((ConstraintViolationException) ex).getConstraintViolations()) {
+            // Nettoie le path pour retirer l'artefact ".arg0" souvent ajouté par la validation method-level
+            final String property = violation.getPropertyPath().toString().replaceAll(".arg0", "");
+            final String message = violation.getMessage();
+            messages.append(String.format("%s %s", property, message)).append("\n");
         }
-
-        // Compteurs et collections
-        gListIKpi.setQ_KPI_REF1(i); // Nombre d’identifiants PI (IKPI)
-        gListIKpi.setG_KPI_REF1(newListRP);
-
-        gListKpi.setQ_KPI_REF(i);   // Nombre d’identifiants PI (KPI)
-        gListKpi.setG_KPI_REF(newList);
-
-        foncin.setG_LIST_I_KPI(gListIKpi);
-
-        ZCON_FONC_INOU foncInOu = new ZCON_FONC_INOU();
-        foncInOu.setG_LIST_KPI(gListKpi);
-
-        in.setZcon_FONC_IN(foncin);
-        in.setZcon_fonc_inou(foncInOu);
-        rchIncidRequest.setMSG_IN(in);
-        return rchIncidRequest;
+        LOGGER.info("passage handleBadRequest");
+        LOGGER.info("Invalid request parameters [{}]", messages.toString());
+        // ASAP514 : ajout du message détaillé en retour
+        return new ErrorModel(INVALID_REQUEST_ERROR_CODE, INVALID_REQUEST_ERROR_MESSAGE + " : " + messages.toString());
     }
 
     /**
-     * Mappe une personne (mode standard) vers G_KPI_REF.
-     * i = position 1‑based (N_ORDRE_LIST_REF)
+     * Endpoint principal : recherche d'incidents.
+     * Délègue au service applicatif IncidentService, puis renvoie la liste des caractéristiques d'incidents.
+     *
+     * @param x_b3_trace_id  tracing distributed (B3) - passé en tête HTTP
+     * @param x_b3_span_id   tracing distributed (B3)
+     * @param channel        canal d'appel (statistiques, audit)
+     * @param media          média (non utilisé ici mais typiquement pour audit)
+     * @param userId         identifiant utilisateur appelant
+     * @param caller         identifiant applicatif appelant (loggé)
+     * @param incidentsSearchRequest payload métier (liste de PersonSearchRequest)
      */
-    private G_KPI_REF mapGKpi(final int i, final PersonSearchRequest person) {
-        final G_KPI_REF newPerson = new G_KPI_REF();
+    @Override
+    public ResponseEntity searchIncident(
+            final String x_b3_trace_id,
+            final String x_b3_span_id,
+            final String channel,
+            final String media,
+            final String userId,
+            final String caller,
+            final List<PersonSearchRequest> incidentsSearchRequest) throws Exception {
 
-        // Date ISO → structure G_ECV_PPHY (AAAA/MM/JJ + séparateurs)
-        G_ECV_PPHY date = mapDateISO(person.getBirthDate());
-        newPerson.setG_ECV_PPHY(date);
+        // Délégation métier
+        final List<IncidentsCharacteristics> list = incidentService.searchIncident(incidentsSearchRequest, channel, caller, userId);
 
-        // Nom / Prénoms
-        newPerson.setL_CP_NOMPI(person.getLastname());
-        newPerson.setL_CP_NOMPI(person.getLastname()); // (doublon présent dans le code d'origine)
-        newPerson.setL_CP_NOMPI_PR(person.getFirstname());
+        // Trace de l'appelant (utile pour corrélation)
+        LOGGER.info(caller);
 
-        // Clé BDF calculée à partir du nom + date de naissance
-        newPerson.setL_CLE_BDF(BDFKeyGenerator.computeBDFKey(person.getLastname(), ISOBirthDateConverter.fromISOString(person.getBirthDate())));
-
-        // Civilité (enum → Integer)
-        newPerson.setN_SEXE_REF(Integer.valueOf((person.getCivility().toString())));
-
-        // INSEE + nom marital (si fournis)
-        newPerson.setC_INSEE(person.getInseeCode());
-        newPerson.setL_CP_NOM_MARIE(person.getMarriedName());
-
-        // Ville de naissance (si null → "")
-        if(person.getBirthCity()== null){
-            newPerson.setL_NOM_ZGEO_COM("");
-        }
-
-        // Département / Pays de naissance
-        newPerson.setL_NOM_ZGEO_DEPT(person.getBirthDepartment());
-        newPerson.setL_NOM_ZGEO_PAYS(person.getBirthCountry());
-
-        // Enregistrement "BCI+FICP"
-        newPerson.setC_ENREG_INCID(BOTH_BCI_FICP);
-
-        // Ordre dans la liste (1‑based)
-        newPerson.setN_ORDRE_LIST_REF(i + 1);
-        return newPerson;
+        // 200 OK avec la liste des incidents
+        return new ResponseEntity(list, HttpStatus.OK);
     }
 
     /**
-     * Construit une liste IKPI vide (Q=0) — conforme à l'appel standard.
+     * Setter d'injection manuelle (utile pour tests unitaires)
      */
-    private G_LIST_I_KPI mapGIKpi() {
-        final G_LIST_I_KPI newPerson = new G_LIST_I_KPI();
-        List<G_KPI_REF1> refKpi = new ArrayList<G_KPI_REF1>();
-        newPerson.setQ_KPI_REF1(0);
-        newPerson.setG_KPI_REF1(refKpi);
-        return newPerson;
+    public void setIncidentService(final IncidentService incidentService) {
+        this.incidentService = incidentService;
     }
 
     /**
-     * Mappe une personne (variante RP) vers G_KPI_REF côté KPI (identité civile).
+     * Gestionnaire global d'exceptions non typées.
+     * Sécurité : évite l'exposition de stacktraces côté client et renvoie un 500 standardisé.
      */
-    private G_KPI_REF mapGKpiRP(final int i, final PersonSearchRequest person) {
-        final G_KPI_REF newPerson = new G_KPI_REF();
-
-        newPerson.setC_ENREG_INCID(BOTH_BCI_FICP);
-        newPerson.setN_ORDRE_LIST_REF(i + 1);
-
-        // Nom (si null → "")
-        if (person.getLastname() == null) {
-            newPerson.setL_CP_NOMPI("");
-        } else {
-            newPerson.setL_CP_NOMPI(person.getLastname());
-        }
-
-        // Ville / Département / Pays (null → "")
-        if (person.getBirthCity() == null ) {
-            newPerson.setL_NOM_ZGEO_COM("");
-        } else {
-            newPerson.setL_NOM_ZGEO_COM(person.getBirthCity());
-        }
-        if (person.getBirthDepartment() == null) {
-            newPerson.setL_NOM_ZGEO_DEPT("");
-        } else {
-            newPerson.setL_NOM_ZGEO_DEPT(person.getBirthDepartment());
-        }
-        if (person.getBirthCountry() == null) {
-            newPerson.setL_NOM_ZGEO_PAYS("");
-        } else {
-            newPerson.setL_NOM_ZGEO_PAYS((person.getBirthCountry()));
-        }
-
-        // Prénom, INSEE, nom marital si présents
-        if (person.getFirstname() != null) {
-            newPerson.setL_CP_NOMPI_PR(person.getFirstname());
-        }
-        if (person.getInseeCode() != null) {
-            newPerson.setC_INSEE(person.getInseeCode());
-        }
-        if (person.getMarriedName() != null) {
-            newPerson.setL_CP_NOM_MARIE(person.getMarriedName());
-        }
-
-        // Date de naissance et clé BDF uniquement si les champs requis sont fournis
-        if (person.getBirthDate() != null) {
-            newPerson.setG_ECV_PPHY(mapDateISO(person.getBirthDate()));
-        }
-        if (person.getBirthDate() != null && person.getLastname() != null) {
-            newPerson.setL_CLE_BDF(BDFKeyGenerator.computeBDFKey(person.getLastname(), ISOBirthDateConverter.fromISOString(person.getBirthDate())));
-        }
-
-        // Civilité
-        if (person.getCivility() != null) {
-            newPerson.setN_SEXE_REF(Integer.valueOf((person.getCivility().toString())));
-        }
-
-        return newPerson;
-    }
-
-    /**
-     * Mappe une personne (variante RP) vers G_KPI_REF1 côté IKPI.
-     * - N_TYPE_I_KPI=34 : type d'identifiant utilisé
-     * - I_KPI_NON_SIGFT : identifiant non significatif (ici personId)
-     */
-    private G_KPI_REF1 mapGIKpiRP(final int i, final PersonSearchRequest person) {
-        final G_KPI_REF1 newPerson = new G_KPI_REF1();
-        newPerson.setN_TYPE_I_KPI(34);
-        newPerson.setI_KPI_NON_SIGFT(person.getPersonId());
-        return newPerson;
-    }
-
-    /**
-     * Convertit une date ISO (yyyy-MM-dd) en structure G_ECV_PPHY (ISO AAAA-K1-MM-K2-JJ).
-     * Hypothèse : birthDate non nul et bien formé (conforme au code d'origine).
-     */
-    private G_ECV_PPHY mapDateISO(final String birthDate) {
-        final G_ECV_PPHY tdDIso = new G_ECV_PPHY();
-        final String[] splittedDate = StringUtils.delimitedListToStringArray(birthDate, ISO_DATE_DELIMITER);
-        tdDIso.setN_ISO_AAAA(Integer.parseInt(splittedDate[0]));
-        tdDIso.setI_ISO_K1(ISO_DATE_DELIMITER);
-        tdDIso.setN_ISO_MM(Integer.parseInt(splittedDate[1]));
-        tdDIso.setI_ISO_K2(ISO_DATE_DELIMITER);
-        tdDIso.setN_ISO_JJ(Integer.parseInt(splittedDate[2]));
-        return tdDIso;
+    @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
+    @ExceptionHandler(value = { Exception.class })
+    @ResponseBody
+    public ErrorModel unknownException(final HttpServletRequest req, final Exception ex) {
+        LOGGER.error("passage unknownException");
+        LOGGER.error(ex.getCause().toString());
+        // ASAP514 : ajout du message d'exception dans la réponse
+        return new ErrorModel(INTERNAL_ERROR_CODE, INTERNAL_ERROR_MESSAGE + " : " + ex.getMessage());
     }
 }
