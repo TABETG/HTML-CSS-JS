@@ -1,192 +1,62 @@
-package com.bnpparibas.dsibddf.ap10530.incident.infrastructure.ficp.service;
+package com.bnpparibas.dsibddf.ap10530.incident.domain.model.enums;
 
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.net.URL;
-import java.net.URLEncoder;
-import java.net.HttpURLConnection;
-import java.util.Base64;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.beans.factory.config.ConfigurableBeanFactory;
-import org.springframework.context.annotation.Scope;
-import org.springframework.stereotype.Component;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.model.ApiException;
-import com.bnpparibas.dsibddf.ap10530.incident.infrastructure.ficp.dto.FICPResponse;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import javax.net.ssl.HttpsURLConnection;
-import javax.net.ssl.SSLSocketFactory;
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonValue;
 
 /**
- * PobiFicp Client Web Service.
- * 
- * Cette classe permet d'effectuer des appels REST HTTPS vers le web service FICP de la Banque de France.
- * Elle utilise une authentification Basic avec un profil et des données utilisateur configurées.
- * Les réponses JSON sont désérialisées en objets FICPResponse.
+ * Enumération représentant le type de requête ou la source d'accès utilisée
+ * lors des appels de recherche d'incidents.
+ *
+ * Les codes sont normalisés selon les valeurs suivantes :
+ * <ul>
+ *   <li><b>1</b> → BNP_ONLY : la requête concerne uniquement les données internes BNP Paribas</li>
+ *   <li><b>2</b> → BDF_ONLY : la requête concerne uniquement les données Banque de France</li>
+ *   <li><b>3</b> → BOTH_BNP_BDF : la requête combine les deux sources</li>
+ * </ul>
  */
-@Component
-@Scope(ConfigurableBeanFactory.SCOPE_PROTOTYPE) // Création d'une nouvelle instance à chaque injection
-public class PobiFicpClient {
+public enum RequestTypeEnum {
 
-    private static final Logger LOGGER = LoggerFactory.getLogger(PobiFicpClient.class);
+    // Type de requête : uniquement BNP
+    BNP_ONLY("1"),
 
-    // Adresse de base du service REST FICP (provenant du fichier application.properties)
-    @Value("${ficp.ws.resturl}")
-    private String address;
+    // Type de requête : uniquement Banque de France
+    BDF_ONLY("2"),
 
-    // Identifiant du profil d'utilisateur utilisé pour s'authentifier sur le service
-    @Value("${ficp.ws.login.idprofil}")
-    private String idProfil;
+    // Type de requête : à la fois BNP et Banque de France
+    BOTH_BNP_BDF("3");
 
-    // Données d'authentification associées au profil utilisateur
-    @Value("${ficp.ws.login.userdata}")
-    private String userData;
-
-    // Fabrique SSL permettant d'établir la connexion sécurisée HTTPS
-    @Autowired
-    @Qualifier("zosSSLFactory")
-    SSLSocketFactory sslFactory;
+    // Valeur réelle associée à l'enum (utilisée dans les échanges JSON et les logs)
+    private final String value;
 
     /**
-     * Getter de l'adresse du service FICP
+     * Constructeur privé pour initialiser la valeur associée.
      */
-    public String getAddress() { return address; }
-
-    /**
-     * Setter de l'adresse du service FICP
-     */
-    public void setAddress(final String address) { this.address = address; }
-
-    /**
-     * Getter de l'identifiant du profil
-     */
-    public String getIdProfil() { return idProfil; }
-
-    /**
-     * Setter de l'identifiant du profil
-     */
-    public void setIdProfil(final String idProfil) { this.idProfil = idProfil; }
-
-    /**
-     * Getter des données utilisateur
-     */
-    public String getUserData() { return userData; }
-
-    /**
-     * Setter des données utilisateur
-     */
-    public void setUserData(final String userData) { this.userData = userData; }
-
-    /**
-     * Construit la chaîne d'identifiants encodée pour l'authentification Basic HTTP.
-     * Exemple : "user:password" -> Base64.encode(user:password)
-     */
-    private String getCredentials() {
-        final StringBuilder creds = new StringBuilder();
-        creds.append(URLEncoder.encode(idProfil)); // encode le profil
-        creds.append(':');
-        creds.append(URLEncoder.encode(userData)); // encode les données utilisateur
-        return creds.toString();
+    RequestTypeEnum(final String value) {
+        this.value = value;
     }
 
     /**
-     * Envoie une requête HTTPS au service FICP et renvoie la réponse désérialisée.
-     *
-     * @param path chemin spécifique de l'API (ex: /ficp/pp/global)
-     * @param req contenu de la requête (paramètres encodés)
-     * @return un objet FICPResponse contenant la réponse JSON du service
+     * Méthode utilisée par Jackson pour désérialiser la valeur depuis une chaîne JSON.
+     * Si la valeur reçue correspond à une des valeurs définies ("1", "2" ou "3"),
+     * elle renvoie l'enum correspondante ; sinon, retourne <code>null</code>.
      */
-    private FICPResponse ficpSend(final String path, final String req) {
-        HttpsURLConnection conn = null; // connexion HTTP sécurisée
-        FICPResponse result = null; // objet résultat (null par défaut)
-
-        final String fullAddress = address + path; // URL complète du service appelé
-        LOGGER.debug("URL = " + fullAddress);
-
-        try {
-            // Ouvre la connexion HTTPS
-            final URL url = new URL(fullAddress);
-            conn = (HttpsURLConnection) url.openConnection();
-
-            // Applique la configuration SSL spécifique
-            conn.setSSLSocketFactory(sslFactory);
-
-            // Prépare les en-têtes HTTP
-            final String creds = Base64.getEncoder().encodeToString(getCredentials().getBytes("ISO8859-1"));
-            conn.setDoOutput(true); // autorise l'envoi de données (POST)
-            conn.setRequestProperty("Authorization", "Basic " + creds); // Authentification Basic
-            conn.setRequestProperty("Accept", "application/json"); // format attendu de la réponse
-
-            // Envoi du corps de la requête
-            try (final OutputStream os = conn.getOutputStream()) {
-                os.write(req.getBytes("ISO8859-1"));
-            }
-
-            // Lecture du code HTTP de la réponse
-            final int responseCode = conn.getResponseCode();
-            if (responseCode != HttpURLConnection.HTTP_OK) {
-                throw new ApiException(1, "Invalid HTTP response code");
-            }
-
-            // Lecture du flux de réponse JSON
-            try (final InputStream is = conn.getInputStream()) {
-                final ObjectMapper mapper = new ObjectMapper();
-                mapper.enable(DeserializationFeature.ACCEPT_SINGLE_VALUE_AS_ARRAY); // gère les tableaux unitaires
-                result = mapper.readValue(is, FICPResponse.class); // convertit JSON -> objet Java
-                conn = null; // libère la connexion
-                return result;
-            }
-
-        } catch (Exception e) {
-            // En cas d'erreur, journalise le message et retourne le résultat (souvent null)
-            LOGGER.error(String.format("Error during call to REST service %s, message : %s", fullAddress, e.getMessage()), e);
-            return result;
-
-        } finally {
-            // Ferme la connexion en cas d'erreur ou après traitement
-            if (conn != null) {
-                conn.disconnect();
+    @JsonCreator
+    public static RequestTypeEnum fromValue(final String text) {
+        for (final RequestTypeEnum b : RequestTypeEnum.values()) {
+            if (String.valueOf(b.value).equals(text)) {
+                return b;
             }
         }
+        return null; // Valeur non reconnue
     }
 
     /**
-     * Exécute l'opération globalePersonnePhysique du web service FICP.
-     *
-     * @param bdfKey clé Banque de France identifiant la personne physique
-     * @param motif motif de la consultation
-     * @param cibEtc identifiant de l'entité appelante (code audit)
-     * @param typeCredit type de crédit concerné
-     * @return la réponse du web service désérialisée sous forme d'un objet FICPResponse
+     * Méthode utilisée par Jackson pour sérialiser l'enum vers sa valeur JSON.
+     * @return la valeur sous forme de chaîne ("1", "2" ou "3")
      */
-    public FICPResponse searchGlobalPP(final String bdfKey, final String motif, final String cibEtc, final String typeCredit) {
-        LOGGER.debug("Requesting FICP GlobalePersonnePhysique for {}", bdfKey);
-        //LOGGER.info("Input for FICP {} - {} - {} - {}", bdfKey, motif, cibEtc, typeCredit);
-
-        // Construction de la requête sous forme de paramètres encodés
-        final StringBuilder req = new StringBuilder();
-        req.append("cleBdf=").append(URLEncoder.encode(bdfKey));
-        req.append("&motifConsult=").append(URLEncoder.encode(motif));
-        req.append("&typeCredit=").append(URLEncoder.encode(typeCredit));
-        req.append("&cibEtc=").append(URLEncoder.encode(cibEtc));
-
-        // Appel du service et récupération de la réponse
-        final FICPResponse response = ficpSend("/ficp/pp/global", req.toString());
-
-        // Journalisation de la réponse JSON en mode debug
-        if (LOGGER.isDebugEnabled()) {
-            try {
-                ObjectMapper mapper = new ObjectMapper();
-                LOGGER.debug("response {}", mapper.writeValueAsString(response));
-            } catch (JsonProcessingException jpe) {
-                LOGGER.debug("Failed to serialize response as JSON", jpe);
-            }
-        }
-        return response;
+    @Override
+    @JsonValue
+    public String toString() {
+        return String.valueOf(value);
     }
 }
