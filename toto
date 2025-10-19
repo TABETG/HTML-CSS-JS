@@ -1,62 +1,574 @@
-package com.bnpparibas.dsibddf.ap10530.incident.domain.model.enums;
+package com.bnpparibas.dsibddf.ap10530.incident.infrastructure.ficp.service;
 
-import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonValue;
+/*
+ * Service d'orchestration FICP (consultation du FICP Banque de France)
+ *
+ * ⚠️ Demande utilisateur : commenter le code sans le modifier ni supprimer des lignes.
+ *   - Le code d'origine est conservé tel quel (y compris imports redondants, noms, logs commentés, etc.).
+ *   - Seul le formatage (retours à la ligne/indentation) et l'ajout de commentaires ont été faits.
+ *
+ * Rôle global de la classe :
+ *   - Encapsuler l'appel au client POBI FICP pour rechercher des incidents sur une personne (BDF key).
+ *   - Mapper la réponse technique (DTO FICP) vers le modèle métier "Personne" et "Incident".
+ *   - Déclencher la conservation de preuve (ConservPreuve) si nécessaire.
+ *   - Publier des statistiques d'usage vers un service dédié.
+ */
+
+import java.text.SimpleDateFormat;
+import java.util.*;
+
+import com.bnpparibas.dsibddf.ap10530.incident.domain.dto.StatisticsRequestDto;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.rest.BciFicpRestService;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.rest.StatisticsService;
+import jakarta.validation.ConstraintViolationException;
+import org.apache.commons.lang3.StringUtils;
+import org.joda.time.LocalDate;
+import org.joda.time.LocalDateTime;
+import org.joda.time.format.DateTimeFormat;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+
+import com.bnpparibas.dsibddf.ap10530.incident.domain.custom.type.ISOBirthDate;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.dto.ConservPreuveRequestDTO;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.*;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.cp.ComptesDossier;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.cp.G_COMPTES_DOSSIER;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.cp.G_PREUV;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.cp.L_REPON_BDF;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.enums.AppEmettriceEnum;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.enums.RequestTypeEnum;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.enums.SexEnum;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.rest.ConservPreuveRestService;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.utils.BDFKeyGenerator;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.utils.ISOBirthDateConverter;
+import com.bnpparibas.dsibddf.ap10530.incident.infrastructure.ficp.dto.FICPResponse;
+import com.bnpparibas.dsibddf.ap10530.incident.infrastructure.ficp.dto.Global;
+import com.bnpparibas.dsibddf.ap10530.incident.infrastructure.ficp.dto.Naissance;
+import com.bnpparibas.dsibddf.ap10530.incident.infrastructure.ficp.dto.PersonneBdf;
+import com.bnpparibas.dsibddf.ap10530.incident.infrastructure.ficp.dto.PersonnePhysique;
+import com.bnpparibas.dsibddf.ap10530.incident.infrastructure.ficp.dto.*;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.commons.lang3.StringUtils; // (doublon provenant du code source d'origine)
+import org.joda.time.LocalDate; // (doublon)
+import org.joda.time.format.DateTimeFormat; // (doublon)
+import org.slf4j.Logger; // (doublon)
+import org.slf4j.LoggerFactory; // (doublon)
+import org.springframework.beans.factory.annotation.Autowired; // (doublon)
+import org.springframework.stereotype.Component; // (doublon)
+import java.util.ArrayList; // (doublon)
+import java.util.List; // (doublon)
 
 /**
- * Enumération représentant le type de requête ou la source d'accès utilisée
- * lors des appels de recherche d'incidents.
+ * WebService FICP Orchestrator Service
  *
- * Les codes sont normalisés selon les valeurs suivantes :
- * <ul>
- *   <li><b>1</b> → BNP_ONLY : la requête concerne uniquement les données internes BNP Paribas</li>
- *   <li><b>2</b> → BDF_ONLY : la requête concerne uniquement les données Banque de France</li>
- *   <li><b>3</b> → BOTH_BNP_BDF : la requête combine les deux sources</li>
- * </ul>
+ * @author Desprez / Tahiri
  */
-public enum RequestTypeEnum {
+@Component
+public class FICPService {
 
-    // Type de requête : uniquement BNP
-    BNP_ONLY("1"),
+    // Logger SLF4J
+    private static final Logger LOGGER = LoggerFactory.getLogger(FICPService.class);
 
-    // Type de requête : uniquement Banque de France
-    BDF_ONLY("2"),
+    // Codes sexe FICP (1 = masculin, 2 = féminin)
+    private static final String MASCULIN = "1";
+    private static final String FEMININ = "2";
 
-    // Type de requête : à la fois BNP et Banque de France
-    BOTH_BNP_BDF("3");
+    // Clients et services injectés (Spring)
+    @Autowired
+    private PobiFicpClient ficpClient;              // Client POBI pour interroger le FICP
 
-    // Valeur réelle associée à l'enum (utilisée dans les échanges JSON et les logs)
-    private final String value;
+    @Autowired
+    private BciFicpRestService bciFicpService;      // Non utilisé directement dans ce fichier, laissé tel quel
 
-    /**
-     * Constructeur privé pour initialiser la valeur associée.
-     */
-    RequestTypeEnum(final String value) {
-        this.value = value;
+    @Autowired
+    private ConservPreuveRestService cpService;     // Service d'appel au SI de conservation de preuve
+
+    @Autowired
+    private StatisticsService statisticsService;    // Service d'envoi des statistiques d'usage
+
+    public void setStatisticsService(StatisticsService statisticsService) {
+        this.statisticsService = statisticsService;
     }
 
     /**
-     * Méthode utilisée par Jackson pour désérialiser la valeur depuis une chaîne JSON.
-     * Si la valeur reçue correspond à une des valeurs définies ("1", "2" ou "3"),
-     * elle renvoie l'enum correspondante ; sinon, retourne <code>null</code>.
+     * @return the ficpClient
      */
-    @JsonCreator
-    public static RequestTypeEnum fromValue(final String text) {
-        for (final RequestTypeEnum b : RequestTypeEnum.values()) {
-            if (String.valueOf(b.value).equals(text)) {
-                return b;
-            }
+    public PobiFicpClient getFicpClient() {
+        return ficpClient;
+    }
+
+    /**
+     * @param ficpClient the ficpClient to set
+     */
+    public void setFicpClient(final PobiFicpClient ficpClient) {
+        this.ficpClient = ficpClient;
+    }
+
+    /**
+     * Mapping du type de sexe FICP (String) vers l'énum métier SexEnum.
+     * @param sexe valeur FICP ("1" ou "2")
+     * @return SexEnum correspondant, ou null si inconnu
+     */
+    private static SexEnum mapFICPSexType(final String sexe) {
+        if (MASCULIN.equals(sexe)) {
+            return SexEnum.MASCULIN;
+        } else if (FEMININ.equals(sexe)) {
+            return SexEnum.FEMININ;
         }
-        return null; // Valeur non reconnue
+        return null;
     }
 
     /**
-     * Méthode utilisée par Jackson pour sérialiser l'enum vers sa valeur JSON.
-     * @return la valeur sous forme de chaîne ("1", "2" ou "3")
+     * Mapping des informations "Global" FICP vers le modèle métier Personne + Incident.
+     * - Calcule/positionne le nombre d'incidents et ajoute un Incident dans la liste de la Personne.
+     * - Renseigne statut/mesure/motif de l'incident et la date.
+     * @param global dto FICP "Global"
+     * @param pp     entité métier Personne (en sortie)
      */
-    @Override
-    @JsonValue
-    public String toString() {
-        return String.valueOf(value);
+    private static void mapGlobal(final Global global, final Personne pp) {
+        if (!StringUtils.isEmpty(global.getRelIncident().getNbIncid())) {
+            final Integer nbr = Integer.valueOf(global.getRelIncident().getNbIncid());
+            pp.setNumberOfIncident(nbr);
+        } else {
+            pp.setNumberOfIncident(Integer.valueOf(0));
+        }
+
+        if (LOGGER.isInfoEnabled()) {
+            /* Logs conservés tels quels, volontairement commentés. */
+        }
+
+        // Création et ajout d'un incident au dossier de la personne
+        final Incident incident = new Incident();
+        pp.addIncidentsItem(incident);
+
+        // Nombre de déclarants (nettoyage des espaces non-breakable)
+        if (!StringUtils.isEmpty(global.getRelIncident().getNbDeclar())) {
+            incident.setNumberOfDeclarers(
+                Integer.parseInt(global.getRelIncident().getNbDeclar().replaceAll("\\s+", ""))
+            );
+        }
+
+        // OriginCode = taille courante de la liste d'incidents (semble servir d'index)
+        final int numIncident = pp.getIncidents().size();
+        incident.setOriginCode(String.valueOf(numIncident));
+
+        // Date d'incident (format dd.MM.yyyy)
+        incident.setIncidentDate(mapLocalDate(global.getRelIncident().getDateRadInc()));
+
+        // Statut incident selon indicateurs MesureSur (codes "1" = vrai)
+        if ("1".equals(StringUtils.defaultString(global.getMesureSur().getDossRecevbl().getCode()))) {
+            incident.setIncidentStatus("Existence d'au moins un dossier de recevabilité");
+        } else if ("1".equals(StringUtils.defaultString(global.getMesureSur().getDossReexam().getCode()))) {
+            incident.setIncidentStatus("Existence d'un dossier en réexamen après suspension d'exigibilité des créances");
+        } else if ("1".equals(StringUtils.defaultString(global.getMesureSur().getDossEnCoursInstr().getCode()))) {
+            incident.setIncidentStatus("Existence d'un dossier en cours d'instruction");
+        } else {
+            incident.setIncidentStatus("Pas d'existence de dossier");
+        }
+
+        // Agence/donnée libre (ici DateRadSur copiée dans IncidentAgency)
+        incident.setIncidentAgency(StringUtils.defaultString(global.getMesureSur().getDateRadSur()));
+
+        // Motif incident = code + libellé concaténés
+        final StringBuilder sb = new StringBuilder();
+        sb.append(StringUtils.defaultString(global.getRelIncident().getNatCred().getCode()));
+        sb.append(" ");
+        sb.append(StringUtils.defaultString(global.getRelIncident().getNatCred().getLibelle()));
+        incident.setIncidentMotif(sb.toString());
+
+        // Type/dernière mesure
+        incident.setMesureType(StringUtils.defaultString(global.getMesureSur().getNatMesure().getLibelle()));
+        incident.setLastMesure(StringUtils.defaultString(global.getMesureSur().getObligComp().getLibelle()));
+    }
+
+    /**
+     * Parse une date au format "dd.MM.yyyy" vers LocalDate JodaTime.
+     */
+    private static LocalDate mapLocalDate(final String stringDate) {
+        if (StringUtils.isEmpty(stringDate)) {
+            return null;
+        }
+        return LocalDate.parse(stringDate, DateTimeFormat.forPattern("dd.MM.yyyy"));
+    }
+
+    /**
+     * Mapping d'une réponse FICP GlobalePersonnePhysique vers une liste de Personne métier.
+     * Boucle sur chaque PersonneBdf, mappe la partie PP (identité) puis Global (incidents).
+     */
+    private static List<Personne> mapGlobalePersonnePhysiquetoPersonnePhysique(final FICPResponse gppi) {
+        final List<Personne> result = new ArrayList<Personne>();
+        final List<PersonneBdf> list = gppi.getMessage().getReponse().getPersonnes();
+        if (list == null) {
+            return result;
+        }
+        for (final PersonneBdf personneType : list) {
+            final Personne pp = new Personne();
+            mapPersonnePhysique(personneType.getPP(), pp);
+            mapGlobal(personneType.getGlobal(), pp);
+            /* Trace PP.FRUP conservée en commentaire */
+            result.add(pp);
+        }
+        return result;
+    }
+
+    /**
+     * Mapping du bloc Naissance (FICP) vers la Personne métier.
+     * Gère : date (ISO), ville (code + libellé si dispo), département, pays.
+     */
+    private static void mapNaissance(final Naissance naissanceType, final Personne pp) {
+        if (naissanceType != null) {
+            final ISOBirthDate isoBirthDate = ISOBirthDateConverter.fromDotString(naissanceType.getDateNaiss());
+            pp.setBirthDate(isoBirthDate.toFormatedString());
+
+            String communeCode = "";
+            StringBuilder sBuffer = new StringBuilder(communeCode);
+
+            if (null != naissanceType.getCommune().getCode() && null != naissanceType.getCommune().getLibelle()) {
+                sBuffer.append(naissanceType.getCommune().getCode()).append(" ").append(naissanceType.getCommune().getLibelle());
+                communeCode = sBuffer.toString();
+            } else if (null != naissanceType.getCommune().getCode()) {
+                communeCode = naissanceType.getCommune().getCode();
+            } else if (null != naissanceType.getCommune().getLibelle()) {
+                communeCode = naissanceType.getCommune().getLibelle();
+            }
+
+            pp.setBirthCity(communeCode);
+            final String birthDepCode = naissanceType.getDepartement().getCode();
+            pp.setBirthDepartment(birthDepCode);
+            final String birthCountryCode = naissanceType.getPays().getCode();
+            pp.setBirthCountry(birthCountryCode);
+        }
+    }
+
+    /**
+     * Mapping de l'identité PersonnePhysique (dto FICP) vers l'entité Personne métier.
+     * Renseigne nom/prénoms/civilité/nom marital/FRUP et clé BDF calculée.
+     */
+    private static void mapPersonnePhysique(final PersonnePhysique ppType, final Personne pp) {
+        if (ppType != null) {
+            pp.setLastname(ppType.getNom());
+            pp.setFirstname(ppType.getPrenoms());
+            pp.setCivility(mapFICPSexType(ppType.getSexe()));
+            pp.setMarriedName(ppType.getNomMarital());
+            pp.setUsuIDFICP(ppType.getFRUP().getLibelle());
+            mapNaissance(ppType.getNaissance(), pp);
+            pp.setBdfkey(BDFKeyGenerator.computeBDFKey(pp.getLastname(), ISOBirthDateConverter.fromISOString(pp.getBirthDate())));
+        }
+    }
+
+    /**
+     * Méthode principale d'orchestration :
+     *   1) Pour chaque PersonSearchRequest : prépare les indicateurs (motif consultation, type crédit…),
+     *   2) Appelle le FICP (ficpClient.searchGlobalPP),
+     *   3) Mappe la réponse en Personne/Incident, collecte les résultats,
+     *   4) Publie des statistiques,
+     *   5) Déclenche la Conservation de preuve si motifConsult = "O".
+     *
+     * @param incidentsSearchRequest liste des recherches à effectuer (BDF Key ou identité)
+     * @param channel canal appelant (statistiques)
+     * @param caller  identifiant de l'appelant (statistiques)
+     * @param userId  utilisateur initiateur (statistiques)
+     */
+    public List<Personne> searchIncident(final List<PersonSearchRequest> incidentsSearchRequest,
+                                         final String channel,
+                                         final String caller,
+                                         String userId) throws Exception {
+        final List<Personne> result = new ArrayList<Personne>();
+
+        // Paramètres de consultation FICP (motif et CIB/ETC)
+        String motifConsult = "N";
+        String cibEtc = "";
+
+        try {
+            for (final PersonSearchRequest personSearchRequest : incidentsSearchRequest) {
+                // Log JSON de la requête (informative)
+                final ObjectMapper mapper = new ObjectMapper();
+                String res = mapper.writeValueAsString(personSearchRequest);
+
+                // Par défaut, type de crédit vide (renseigné plus bas en fonction de l'app émettrice)
+                personSearchRequest.setTypeCredit("");
+
+                // Si conservation de preuve demandée (champ ConservPreuve == "1")
+                if (personSearchRequest.getConservPreuve() != null && "1".equals(personSearchRequest.getConservPreuve())) {
+                    motifConsult = "O";     // Octroi
+                    cibEtc = "30004";       // Code métier FICP
+
+                    // Cas particulier : si app émettrice IZF02, préfixe RIB par "00" pour chaque compte
+                    if (personSearchRequest.getRibEtTypedeCompte() != null && AppEmettriceEnum.fromValue(personSearchRequest.getAppEmettrice()) != null) {
+                        if (personSearchRequest.getAppEmettrice().equals("IZF02")) {
+                            for (ComptesDossier ribEtTypeCompte : personSearchRequest.getRibEtTypedeCompte()) {
+                                if (ribEtTypeCompte.getRib() != null && ribEtTypeCompte.getTypeCompte() != null) {
+                                    ribEtTypeCompte.setRib("00" + ribEtTypeCompte.getRib());
+                                }
+                            }
+                        }
+                    }
+
+                    // Validation de l'application émettrice (abonnement au service)
+                    if (AppEmettriceEnum.fromValue(personSearchRequest.getAppEmettrice()) == null) {
+                        throw new ConstraintViolationException("Application émettrice non abonnée au service de consultation", null);
+                    }
+
+                    // Déduction du type de crédit depuis l'énum AppEmettrice
+                    personSearchRequest.setTypeCredit(String.valueOf(AppEmettriceEnum.fromValue(personSearchRequest.getAppEmettrice())));
+                }
+
+                // Si la requête n'est pas limitée côté BNP (donc consultation BDF autorisée)
+                if (!personSearchRequest.getRequestType().equals(RequestTypeEnum.BNP_ONLY)) {
+                    // Appel au service FICP POBI
+                    final FICPResponse gppr = ficpClient.searchGlobalPP(personSearchRequest.getBdfKey(), motifConsult, cibEtc, personSearchRequest.getTypeCredit());
+
+                    // Publication statistiques (try/catch interne)
+                    callStaticsService(channel, caller, personSearchRequest, gppr, userId);
+
+                    // Mapping et agrégation des résultats
+                    result.addAll(mapGlobalePersonnePhysiquetoPersonnePhysique(gppr));
+
+                    // Conservation de preuve si motif = Octroi ("O")
+                    if (("O").equals(motifConsult)) {
+                        cpService.post(createRestRequest(
+                                personSearchRequest,
+                                gppr.getMessage().getReponse().getNotarisation().getHorodat(),
+                                gppr.getMessage().getReponse().getNotarisation().getNumConsobli(),
+                                gppr.getMessage().getReponse().getDateHeure(),
+                                res));
+                    }
+                }
+            }
+            return result;
+        } catch (final ApiException apie) {
+            // Remontée des erreurs d'API FICP
+            LOGGER.error("API Exception", apie);
+            throw new ApiException(1, apie.getMessage());
+        } catch (final Exception e) {
+            // Sécurité : toute autre erreur de service
+            LOGGER.error("Service Call Exception", e);
+            throw new ApiException(1, e.getMessage());
+        }
+    }
+
+    /**
+     * Publication d'une statistique d'appel FICP.
+     * - Construit un StatisticsRequestDto avec diverses informations d'appel.
+     * - Envoie via statisticsService.post(...).
+     * - Renvoie "OK"/"KO" en fonction du succès local (les erreurs sont loggées).
+     */
+    private String callStaticsService(String channel, String caller, PersonSearchRequest personSearchRequest, FICPResponse gppr, String userId) throws Exception {
+        try {
+            StatisticsRequestDto statisticsRequestDto = new StatisticsRequestDto();
+
+            // Clé BDF : soit fournie, soit reconstituée depuis date de naissance + 5 premières lettres du nom
+            if(StringUtils.isNotBlank(personSearchRequest.getBdfKey())){
+                statisticsRequestDto.setiCleBdf(personSearchRequest.getBdfKey());
+            } else{
+                String dateCle = "";
+                if (StringUtils.isNotBlank(personSearchRequest.getBirthDate())) {
+                    String[] split = personSearchRequest.getBirthDate().split("-");
+                    dateCle = new StringBuilder()
+                            .append(split[2])
+                            .append(split[1])
+                            .append(split[0].substring(2))
+                            .toString();
+                }
+                String cleBdf = new StringBuilder()
+                        .append(dateCle)
+                        .append(!StringUtils.isNotBlank(personSearchRequest.getLastname())?"" : personSearchRequest.getLastname().length() < 5 ? personSearchRequest.getLastname() : personSearchRequest.getLastname().substring(0, 5))
+                        .toString();
+                statisticsRequestDto.setiCleBdf(cleBdf);
+            }
+
+            statisticsRequestDto.setCcanalOri(channel);
+            statisticsRequestDto.setcTypeAppel("FICP");
+
+            // Tronque le caller à 8 caractères si nécessaire
+            String tempCaller=caller;
+            if(StringUtils.isNotBlank(caller) && caller.length()>8){
+                tempCaller=caller.substring(0,8);
+            }
+            statisticsRequestDto.setcTransApp(tempCaller);
+
+            // Identifiants et compteurs divers
+            statisticsRequestDto.setiIkpi(Optional.ofNullable(personSearchRequest.getPersonId()).orElse(""));
+            statisticsRequestDto.setnCptes(StringUtils.isNotBlank(personSearchRequest.getNbCptesDossier()) ? Integer.valueOf(personSearchRequest.getNbCptesDossier()) : 0);
+            statisticsRequestDto.setnPersFicp(StringUtils.isNotBlank(personSearchRequest.getNbPersFicp()) ? Integer.valueOf(personSearchRequest.getNbPersFicp()) : 0);
+            statisticsRequestDto.setcReqTyp(personSearchRequest.getRequestType().toString());
+            statisticsRequestDto.setiUserId(userId);
+
+            // Code erreur issu de la réponse FICP (0 si pas d'erreur)
+            String error="500";
+            if (gppr != null) {
+                error=Optional.ofNullable(gppr.getMessage())
+                        .map(e -> Optional.ofNullable(e.getErreur())
+                                .map(f -> f.getErrCode()).orElse("0")).orElse("0");
+            }
+            statisticsRequestDto.setcErrorCode(error);
+
+            // Dates d'insertion
+            String pattern = "yyyyMMdd";
+            SimpleDateFormat simpleDateFormat = new SimpleDateFormat(pattern);
+            String date = simpleDateFormat.format(new Date());
+            statisticsRequestDto.setdInsert(date.toString());
+            statisticsRequestDto.setdTimeStamp(LocalDateTime.now().toString());
+
+            // Envoi
+            statisticsService.post(statisticsRequestDto);
+
+            if(gppr==null){
+                throw new ApiException(1, "pobicall error");
+            }
+            return "OK";
+        } catch (final Exception e) {
+            LOGGER.error("Statistic Service Call Exception", e);
+            return "KO";
+        }
+    }
+
+    /**
+     * Mappe la liste métier ComptesDossier -> structure Z/OS G_COMPTES_DOSSIER.
+     */
+    private static List<G_COMPTES_DOSSIER> mapComptesDossier(List<ComptesDossier> comptesDossier) {
+        List<G_COMPTES_DOSSIER> listComptes = new ArrayList<>();
+        for (ComptesDossier compteDossier : comptesDossier) {
+            G_COMPTES_DOSSIER gCompteDossier = new G_COMPTES_DOSSIER();
+            if (compteDossier.getTypeCompte() != null) {
+                gCompteDossier.setC_TYPE_CPT(compteDossier.getTypeCompte());
+            }
+            if (compteDossier.getRib() != null) {
+                gCompteDossier.setI_RIB(compteDossier.getRib());
+            }
+            listComptes.add(gCompteDossier);
+        }
+        return listComptes;
+    }
+
+    /**
+     * Helpers pour séparer date et heure à partir d'un champ daté "dd.MM.yyyy - HH:mm:ss".
+     */
+    private static String getDateFromDateheu(String datheu) {
+        final String[] test = datheu.replaceAll("\\h", "").split("-");
+        final String[] testD = test[0].trim().split("\\.");
+        return String.format("%s-%s-%s", testD[2], testD[1], testD[0]);
+    }
+
+    private static String getHeureFromDateheu(String datheu) {
+        final String[] test = datheu.replaceAll("\\h", "").split("-");
+        if (test.length > 1) {
+            return test[1];
+        }
+        return "";
+    }
+
+    /**
+     * Construit la requête ConservPreuveRequestDTO à partir des entrées de recherche et de la réponse FICP.
+     * - Alimente les blocs ZCON_FONC_IN et G_PREUV (contenu de preuve),
+     * - Gère les cas applicatifs (IZF02 vs autres),
+     * - Segmente la charge XML si > 50 000 caractères (L_REPON_BDF_01/_02).
+     */
+    private static ConservPreuveRequestDTO createRestRequest(PersonSearchRequest input, String horodBdf, String idtConsultBdf, String dateHeure, String gpprLogOld) throws Exception {
+        ConservPreuveRequestDTO in = new ConservPreuveRequestDTO();
+        MSG_IN msgIn = new MSG_IN();
+        ZCON_FONC_IN fonc = new ZCON_FONC_IN();
+        List<G_PREUV> listPreuve = new ArrayList<>();
+        G_PREUV preuve = new G_PREUV();
+
+        // Application émettrice
+        fonc.setI_APPL_EMET(input.getAppEmettrice());
+        LOGGER.info("AppEmettrice : {}", input.getAppEmettrice());
+
+        if (input.getAppEmettrice().equals("IZF02")) {
+            LOGGER.info("nombre de dossier", input.getNbCptesDossier());
+            try {
+                fonc.setQ_NBR_CPT_DOS(Integer.parseInt(input.getNbCptesDossier()));
+                if (input.getRibEtTypedeCompte() != null && input.getRibEtTypedeCompte().size() != 0) {
+                    if (input.getRibEtTypedeCompte().size() > 10) {
+                        throw new Exception("La taille de G_COMPTES_DOSSIER est > 10");
+                    }
+                    fonc.setQ_COMPTES_DOSSIER(input.getRibEtTypedeCompte().size());
+                    fonc.setG_COMPTES_DOSSIER(mapComptesDossier(input.getRibEtTypedeCompte()));
+                } else {
+                    fonc.setQ_COMPTES_DOSSIER(Integer.valueOf(0));
+                }
+            } catch (Exception e) {
+                LOGGER.info(String.format("error to parse nbCptesDossier because it is not integer", input.getNbCptesDossier()), e);
+                fonc.setQ_COMPTES_DOSSIER(Integer.valueOf(0));
+            }
+
+            fonc.setI_STATUS_PREUV(input.getStatutPreuve());
+            fonc.setD_DEB_CRED(input.getDateDebutCredit());
+            try {
+                fonc.setQ_DUREE_CONS(Integer.parseInt(input.getDureeContrat()));
+            } catch (Exception e) {
+                LOGGER.info(String.format("error to parse dureeCrontrat because it is not integer", input.getDureeContrat()));
+                fonc.setQ_DUREE_CONS(0);
+            }
+
+            preuve.setC_REF_EXTNE(input.getRefExterne());
+            LOGGER.info("Q_NBR_CPT_DOS : {} | Q_COMPTES_DOSSIER : {} | I_STATUS_PREUVE : {} | D_DEB_CRED : {} | Q_DUREE_CONS : {}",
+                    fonc.getQ_NBR_CPT_DOS(), fonc.getQ_COMPTES_DOSSIER(), fonc.getI_STATUS_PREUV(), fonc.getD_DEB_CRED(), fonc.getQ_DUREE_CONS());
+        }
+
+        // Le statut preuve est forcé à "C" (changement pour personne fichée 0)
+        fonc.setI_STATUS_PREUV("C");
+
+        // Nombre de personnes FICP dans le foyer
+        if (input.getNbPersFicp() != null) {
+            preuve.setQ_PPHY(input.getNbPersFicp());
+        } else {
+            preuve.setQ_PPHY(String.valueOf(0));
+        }
+
+        // Découpage date/heure de la réponse FICP
+        preuve.setD_HR_REPON_XML(getHeureFromDateheu(dateHeure));
+        preuve.setD_REPON_XML(getDateFromDateheu(dateHeure));
+
+        // Identifiants/Clés
+        preuve.setI_IDENT_RP(input.getPersonId());
+        preuve.setL_CLE_BDF(input.getBdfKey());
+        preuve.setD_HOROD_BDF(horodBdf);
+        preuve.setI_CONSULT_BDF(idtConsultBdf);
+
+        // Action CP (Conservation Preuve)
+        fonc.setC_ACTION("CP");
+        LOGGER.info("L_CLE_BDF : {} | I_IDENT_RP : {} | Q_PPHY : {} | D_REPON_XML : {} | D_HORD_BDF : {} | I_CONSULT_BDF : {} | C_ACTION : {}",
+                input.getBdfKey(), input.getPersonId(), preuve.getQ_PPHY(), preuve.getD_REPON_XML(), preuve.getD_HR_REPON_XML(), preuve.getI_CONSULT_BDF(), fonc.getC_ACTION());
+
+        // Construction du payload XML de réponse BDF (ici un exemple statique)
+        L_REPON_BDF reponBdf = new L_REPON_BDF();
+        final String gpprLog = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" +
+                "<soapenv:Envelope xmlns:soapenv=\"http://schemas.xmlsoap.org/soap/envelope/\" xmlns:soapenc=\"http://schemas.xmlsoap.org/soap/encoding/\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\">" +
+                "<soapenv:Body><n0:GlobalePersonnePhysiqueResponse xmlns:n0=\"http://ficp.pobi.ws.frontal.twinsoft.com\">" +
+                "<response connector=\"ficp\" context=\"default\" contextId=\"20BD9CDE632E1345A53364F8C3761868_default\" fromStub=\"false\" " +
+                "fromcache=\"false\" generated=\"Tue Oct 15 12:57:32 CEST 2019\" project=\"PobiFicp\" sequence=\"\" signature=\"1571137052203\" " +
+                "transaction=\"GlobalePersonnePhysique\" version=\"7.4.4 (build 42940)\"><FICP>" +
+                "<p0:IDFCOR xmlns:p0=\"http://portail.banque-france.org/ficp\">080851SGPCU0</p0:IDFCOR><DEMANDE>" +
+                "<p0:MOTIFCONSULT xmlns:p0=\"http://portail.banque-france.org/ficp\">O</p0:MOTIFCONSULT><p0:TYPECREDIT xmlns:p0=\"http://portail.banque-france.org/ficp\">I</p0:TYPECREDIT>" +
+                "<p0:CIBETC xmlns:p0=\"http://portail.banque-france.org/ficp\">30004</p0:CIBETC><CLEBDF>080851SGPCU</CLEBDF></DEMANDE><REPONSE DATHEU=\"15.10.2019 - 12:57:32\" NBP=\"0\"><p0:NOTARISATION xmlns:p0=\"http://portail.banque-france.org/ficp\"><p0:MOTIFCONSULT LIB=\"OCTROI\">O</p0:MOTIFCONSULT><p0:TYPECREDIT LIB=\"IMMOBILIER\">I</p0:TYPECREDIT><p0:CIBETC>30004</p0:CIBETC><CLEBDF>080851SGPCU</CLEBDF><NUMCONSOBLI>192880083290</NUMCONSOBLI><HORODAT>2019-10-15-12.57.32</HORODAT></p0:NOTARISATION></REPONSE></FICP></response></n0:GlobalePersonnePhysiqueResponse></soapenv:Body></soapenv:Envelope>\n";
+
+        // Découpage en 2 champs si > 50 000 caractères
+        if (gpprLog.length() < 50000) {
+            reponBdf.setL_REPON_BDF_01(gpprLog);
+            reponBdf.setL_REPON_BDF_02("");
+        } else {
+            reponBdf.setL_REPON_BDF_01(gpprLog.substring(0, 50000));
+            reponBdf.setL_REPON_BDF_02(gpprLog.substring(50000));
+        }
+
+        // Assemblage de la structure de preuve
+        preuve.setL_REPON_BDF(reponBdf);
+        listPreuve.add(preuve);
+        fonc.setG_PREUV(listPreuve);
+
+        // Contrôle des cardinalités
+        if (listPreuve.size() > 5) {
+            throw new Exception("La taille de G_PREUV est > 5");
+        }
+        fonc.setQ_PREUV(listPreuve.size());
+
+        // Finalisation du message d'entrée
+        msgIn.setZcon_FONC_IN(fonc);
+        in.setMSG_IN(msgIn);
+        return in;
     }
 }
