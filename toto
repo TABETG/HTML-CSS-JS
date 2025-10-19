@@ -1,503 +1,177 @@
-package com.bnpparibas.dsibddf.ap10530.incident.infrastructure.fcc.service;
+package com.bnpparibas.dsibddf.ap10530.incident.infrastructure.ficp.service;
 
-// Import Java standards
-import java.text.SimpleDateFormat; // utilisé dans callStaticsService
-import java.util.ArrayList;
-import java.util.Date; // utilisé dans callStaticsService
-import java.util.List;
-import java.util.Optional;
+// --- Imports standards Java / réseau / encodage ---
+import java.io.InputStream; // lecture de la réponse HTTP
+import java.io.OutputStream; // écriture du corps de requête
+import java.net.URL; // construction de l'URL d'appel
+import java.net.URLEncoder; // encodage des paramètres de requête et credentials
+import java.net.HttpURLConnection; // codes HTTP et constantes
+import java.util.Base64; // encodage Basic Auth
 
-// Statistiques (appelé dans callStaticsService)
-import com.bnpparibas.dsibddf.ap10530.incident.domain.dto.StatisticsRequestDto;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.rest.StatisticsService;
+// --- Logs / Spring ---
+import org.slf4j.Logger; // logging
+import org.slf4j.LoggerFactory; // logging
+import org.springframework.beans.factory.annotation.Autowired; // injection de dépendances
+import org.springframework.beans.factory.annotation.Qualifier; // sélectionner le bean SSL
+import org.springframework.beans.factory.annotation.Value; // propriétés externes (application.properties)
+import org.springframework.beans.factory.config.ConfigurableBeanFactory; // portée de bean
+import org.springframework.context.annotation.Scope; // définir la portée prototype
+import org.springframework.stereotype.Component; // stéréotype Spring
 
-// Libs externes
-import org.apache.commons.lang3.StringUtils; // utilitaires de chaînes (version lang3)
-import org.joda.time.LocalDate; // pour parser dates FCC (dd.MM.yyyy)
-import org.joda.time.LocalDateTime; // timestamp stats
-import org.joda.time.format.DateTimeFormat; // formatteur de dates "dd.MM.yyyy"
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Component;
+// --- Modèle / DTO / JSON ---
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.ApiException; // exception métier standardisée
+import com.bnpparibas.dsibddf.ap10530.incident.infrastructure.ficp.dto.FICPResponse; // DTO réponse FICP
+import com.fasterxml.jackson.core.JsonProcessingException; // sérialisation logging debug
+import com.fasterxml.jackson.databind.DeserializationFeature; // options de désérialisation
+import com.fasterxml.jackson.databind.ObjectMapper; // JSON <-> objets
 
-// Modèle domaine
-import com.bnpparibas.dsibddf.ap10530.incident.domain.model.ApiException; // exception custom
-import com.bnpparibas.dsibddf.ap10530.incident.domain.model.Incident; // incident agrégé dans Personne
-import com.bnpparibas.dsibddf.ap10530.incident.domain.model.PersonSearchRequest; // entrée (clé BDF, infos...)
-import com.bnpparibas.dsibddf.ap10530.incident.domain.model.Personne; // sortie (physique/morale)
-import com.bnpparibas.dsibddf.ap10530.incident.domain.model.enums.RequestTypeEnum; // filtre de routing (BNP_ONLY, etc.)
-import com.bnpparibas.dsibddf.ap10530.incident.domain.model.enums.SexEnum; // civilité M/F
-import com.bnpparibas.dsibddf.ap10530.incident.domain.utils.BDFKeyGenerator; // (non utilisé ici)
-import com.bnpparibas.dsibddf.ap10530.incident.domain.utils.ISOBirthDateConverter; // (non utilisé ici)
-
-// DTOs FCC (structures de réponse côté BDF FCC)
-import com.bnpparibas.dsibddf.ap10530.incident.infrastructure.fcc.dto.Compte;
-import com.bnpparibas.dsibddf.ap10530.incident.infrastructure.fcc.dto.Detail; // (non utilisé, mapping commenté)
-import com.bnpparibas.dsibddf.ap10530.incident.infrastructure.fcc.dto.Global;
-import com.bnpparibas.dsibddf.ap10530.incident.infrastructure.fcc.dto.Naissance;
-import com.bnpparibas.dsibddf.ap10530.incident.infrastructure.fcc.dto.PersonneBdf;
-import com.bnpparibas.dsibddf.ap10530.incident.infrastructure.fcc.dto.PersonneMorale;
-import com.bnpparibas.dsibddf.ap10530.incident.infrastructure.fcc.dto.PersonnePhysique;
-import com.bnpparibas.dsibddf.ap10530.incident.infrastructure.fcc.dto.FCCResponse;
+// --- HTTPS ---
+import javax.net.ssl.HttpsURLConnection; // connexion HTTPS spécifique
+import javax.net.ssl.SSLSocketFactory; // fabrique de sockets SSL (Z/OS certs, etc.)
 
 /**
- * WebService FCC Orchestrator Service
+ * PobiFicp Client Web Service.
  *
- * Rôle : appeler le client FCC (POBI) pour récupérer les incidents côté BDF
- * et les mapper vers le modèle interne (Personne + Incident). Gère aussi
- * l'envoi de métriques via StatisticsService.
+ * Rôle : gérer les appels HTTP(S) REST vers le service FICP (Banque de France) via POBI,
+ * en construisant la requête (Basic Auth + query params) et en désérialisant la réponse JSON.
  */
 @Component
-public class FCCService {
+@Scope(ConfigurableBeanFactory.SCOPE_PROTOTYPE) // ASAP 523 : bean instancié à chaque injection
+public class PobiFicpClient {
 
-    // Constantes pour mapping du sexe FCC -> SexEnum
-    private static final String FEMININ = "F";
-    private static final String MASCULIN = "M";
+    private static final Logger LOGGER = LoggerFactory.getLogger(PobiFicpClient.class);
 
-    private static final Logger LOGGER = LoggerFactory.getLogger(FCCService.class);
+    // URL racine du service (ex: https://host:port/context)
+    @Value("${ficp.ws.resturl}")
+    private String address;
 
-    // Service de stats (injection Spring)
+    // Identifiant de profil pour l'authentification Basic (partie login)
+    @Value("${ficp.ws.login.idprofil}")
+    private String idProfil;
+
+    // Données utilisateur pour l'authentification Basic (partie mot de passe / user data)
+    @Value("${ficp.ws.login.userdata}")
+    private String userData;
+
+    // Fabrique de sockets SSL (certificats / protocole TLS) fournie par la conf Z/OS
     @Autowired
-    private StatisticsService statisticsService;
+    @Qualifier("zosSSLFactory")
+    SSLSocketFactory sslFactory;
 
-    // Client HTTP/POBI pour FCC (injection Spring)
-    @Autowired
-    private PobiFccClient fccClient;
+    /** @return the address */
+    public String getAddress() { return address; }
 
-    /**
-     * @return the fccClient
-     */
-    public PobiFccClient getFccClient() {
-        return fccClient;
+    /** @param address the address to set */
+    public void setAddress(final String address) { this.address = address; }
+
+    /** @return the idProfil */
+    public String getIdProfil() { return idProfil; }
+
+    /** @param idProfil the idProfil to set */
+    public void setIdProfil(final String idProfil) { this.idProfil = idProfil; }
+
+    /** @return the userData */
+    public String getUserData() { return userData; }
+
+    /** @param userData the userData to set */
+    public void setUserData(final String userData) { this.userData = userData; }
+
+    // Construit la chaîne "idProfil:userData" encodée URL pour l'entête Basic Auth (puis Base64)
+    private String getCredentials() {
+        final StringBuilder creds = new StringBuilder();
+        // NB: URLEncoder.encode utilise le charset par défaut (JDK), ici cohérent avec getBytes("ISO8859-1") plus loin
+        creds.append(URLEncoder.encode(idProfil));
+        creds.append(':');
+        creds.append(URLEncoder.encode(userData));
+        return creds.toString();
     }
 
-    /**
-     * @param fccClient the fccClient to set
-     */
-    public void setFccClient(final PobiFccClient fccClient) {
-        this.fccClient = fccClient;
-    }
-
-    // ---------------------------------------------------------------------
-    // Mapping DETAIL -> Personne (commenté faute de spécs)
-    // ---------------------------------------------------------------------
-    ///**
-    // * Do the mapping between an an incoming DETAILType and a outcomming PersonnePhysique.
-    // *
-    // * @param detail
-    // * an incoming DETAILType
-    // * @param pp
-    // * a filled PersonnePhysique
-    // */
-    //private void mapDetail(final Detail detail, final Personne pp) {
-    //    // TODO en attente d'information sur le mapping
-    //    // final String dateOfSubmission = detail.getDetailIJ().getDateExpIJ();
-    //    // pp.setDateOfSubmission(LocalDate.parse(dateOfSubmission));
-    //    // final String detaiIncident = detail.getDetailIncident().getIncCheque().getNumEnreg();
-    //    // pp.setNumberOfIncident(Integer.parseInt(detaiIncident));
-    //    // final String natjirudiction = detail.getDetailIJ().getNatJuridiction();
-    //    // final String sigeJuridiqic = detail.getDetailIJ().getSiegeJuridic();
-    //    // final String refparq = detail.getDetailIJ().getREFPARQ();
-    //    // final String dateEcij = detail.getDetailIJ().getDateDecIJ();
-    //    // final String dateExpij = detail.getDetailIJ().getDateExpIJ();
-    //}
-
-    // ---------------------------------------------------------------------
-    // Mapping utilitaires : SexType FCC -> SexEnum
-    // ---------------------------------------------------------------------
-    /**
-     * Mappe une chaîne FCC ("M"/"F") vers SexEnum.
-     * @param sexe an incoming SexType (M or F)
-     * @return a SexEnum value
-     */
-    private SexEnum mapFCCSexType(final String sexe) {
-        if (MASCULIN.equals(sexe)) {
-            return SexEnum.MASCULIN;
-        } else if (FEMININ.equals(sexe)) {
-            return SexEnum.FEMININ;
-        }
-        return null; // inconnu/non renseigné
-    }
-
-    // ---------------------------------------------------------------------
-    // Mapping GLOBAL -> Personne (Physique)
-    // ---------------------------------------------------------------------
-    /**
-     * Mappe un bloc Global FCC vers le modèle interne Personne (physique) + Incident.
-     * Règle métier notable : si pas de comptes, on déduit numberOfIncident à 0 ou 1
-     * selon la présence de dates (DerRCB/ExpIB/ExpIJ) – cf. commentaire ISO bug.
-     */
-    private void mapGlobal(final Global global, final Personne pp) {
-        final Incident incident = new Incident();
-        pp.addIncidentsItem(incident); // on crée au moins un incident pour remplir les métadonnées
-
-        if (null == global.getComptes() || global.getComptes().isEmpty()) {
-            //<ISO bug 0.2.28.26 (NumberOfIncident ne vaut jamais 0...)>
-            global.setDateDerRCB(StringUtils.defaultString(global.getDateDerRCB()));
-            //</ISO bug>
-
-            // Si aucune des dates n'est renseignée => 0 incident, sinon 1
-            if (global.getDateDerRCB() == null && global.getDateExpIB() == null && global.getDateExpIJ() == null) {
-                pp.setNumberOfIncident(Integer.valueOf(0));
-            } else {
-                pp.setNumberOfIncident(Integer.valueOf(1));
-            }
-
-            // Alimente les champs Incident si présents
-            if (global.getDateDerRCB() != null) {
-                incident.setIncidentStatus(global.getDateDerRCB());
-            }
-            if (global.getDateExpIB() != null) {
-                incident.setDateEffect(mapLocalDate(global.getDateExpIB()));
-            }
-            if (global.getDateExpIJ() != null) {
-                incident.setIncidentDate(mapLocalDate(global.getDateExpIJ()));
-            }
-        } else {
-            // Au moins un compte : on prend le premier (règle actuelle)
-            final Compte compte = global.getComptes().get(0);
-
-            // Nombre d'incidents déclaré = NbChq, sinon 0
-            if (!StringUtils.isEmpty(compte.getNbChq())) {
-                pp.setNumberOfIncident(Integer.valueOf(compte.getNbChq()));
-            } else {
-                pp.setNumberOfIncident(Integer.valueOf(0));
-            }
-
-            // Index d'origine (numéro technique d'incident)
-            final int numIncident = pp.getIncidents().size();
-            incident.setOriginCode(String.valueOf(numIncident));
-
-            // Dates + statut
-            incident.setDateEffect(mapLocalDate(global.getDateExpIB()));
-            incident.setIncidentDate(mapLocalDate(global.getDateExpIJ()));
-            incident.setIncidentStatus(global.getDateDerRCB());
-
-            // Informations compte
-            incident.setIncidentUO(compte.getNbCpte());
-
-            // Nettoyage des espaces avant parse int
-            if (!StringUtils.isEmpty(compte.getNbChq())) {
-                incident.setNumberOfIncidentDeclared(Integer.parseInt(compte.getNbChq().replaceAll("\\s+", "")));
-            }
-            if (!StringUtils.isEmpty(compte.getMtInsufCum())) {
-                incident.setNumberOfDeclarers(Integer.parseInt(compte.getMtInsufCum().replaceAll("\\s+", "")));
-            }
-            incident.setCompteType(compte.getType());
-        }
-    }
-
-    // ---------------------------------------------------------------------
-    // Mapping GLOBAL -> Personne (Morale)
-    // ---------------------------------------------------------------------
-    /**
-     * ASAP514
-     * Mappe un bloc Global FCC vers Personne (morale) + Incident (spécifique PM).
-     */
-    private void mapGlobalMorale(final Global global, final Personne pm) {
-        final Incident inc = new Incident();
-        // Champs spécifiques PM (noms des setters côté modèle)
-        inc.setAccountType(global.getComptes().get(0).getType());
-        inc.setDateFinINB(global.getDateExpIB());
-        inc.setDateFinING(global.getDateExpIJ());
-        inc.setLastCardWithdraw(global.getDateDerRCB());
-        inc.setComptesPM(global.getComptes().get(0).getNbCpte());
-        inc.setChequesPM(global.getComptes().get(0).getNbChq());
-        inc.setRetraitCBPM(global.getComptes().get(0).getNbRCB());
-        pm.addIncidentsItem(inc);
-    }
-
-    // ---------------------------------------------------------------------
-    // Utilitaire parsing de date FCC (format dd.MM.yyyy)
-    // ---------------------------------------------------------------------
-    private LocalDate mapLocalDate(final String stringDate) {
-        if (StringUtils.isEmpty(stringDate)) {
-            return null;
-        }
-        return LocalDate.parse(stringDate, DateTimeFormat.forPattern("dd.MM.yyyy"));
-    }
-
-    // ---------------------------------------------------------------------
-    // Mapping Naissance -> Personne (fix format sans siècle, copie ville/département)
-    // ---------------------------------------------------------------------
-    /**
-     * Mappe le bloc Naissance en corrigeant la date (si FCC l'envoie sans siècle),
-     * et en copiant les infos de commune et département dans Personne.
-     */
-    private void mapNaissance(final Naissance naissanceType, final Personne pp, final PersonSearchRequest psr) {
-        if (naissanceType != null) {
-            if (LOGGER.isDebugEnabled()) {
-                LOGGER.debug("received birthDate without century", naissanceType.getDateNaiss());
-                LOGGER.debug("replaced by request birthDate", psr.getBirthDate());
-            }
-            // On conserve la date de la requête (psr) pour éviter l'ambiguïté de siècle
-            pp.setBirthDate(psr.getBirthDate());
-
-            // Construction d'un code/label pour la ville de naissance
-            String communeCode = "";
-            if (null != naissanceType.getCommune().getCode() && null != naissanceType.getCommune().getLibelle()) {
-                communeCode = String.format("%s %s", naissanceType.getCommune().getCode(), naissanceType.getCommune().getLibelle());
-            } else if (null != naissanceType.getCommune().getCode()) {
-                communeCode = naissanceType.getCommune().getCode();
-            } else if (null != naissanceType.getCommune().getLibelle()) {
-                communeCode = naissanceType.getCommune().getLibelle();
-            }
-            pp.setBirthCity(communeCode);
-            // LOGGER.info("nouvelle info FCC - COMM().getCode() : " + naissanceType.getCommune().getCode());
-            // LOGGER.info("nouvelle info FCC - COMM().getVALUE() : " + naissanceType.getCommune().getLibelle());
-
-            final String birthDepCode = naissanceType.getDepartement().getCode();
-            pp.setBirthDepartment(birthDepCode);
-        }
-    }
-
-    // ---------------------------------------------------------------------
-    // Mapping PersonnePhysique FCC -> Personne (modèle interne)
-    // ---------------------------------------------------------------------
-    /**
-     * Mappe une PersonnePhysique FCC vers Personne (interne), en complétant
-     * la civilité, noms, FRUP, naissance, et en fixant la bdfKey depuis la requête.
-     */
-    private void mapPersonnePhysique(final PersonnePhysique ppType, final Personne pp, final PersonSearchRequest psr) {
-        if (ppType != null) {
-            pp.setLastname(ppType.getNom());
-            pp.setFirstname(ppType.getPrenoms());
-            pp.setCivility(mapFCCSexType(ppType.getSexe()));
-            pp.setMarriedName(ppType.getNomMarital());
-            pp.setUsuIDFCC(ppType.getFRUP().getLibelle());
-            mapNaissance(ppType.getNaissance(), pp, psr);
-            // bdfKey : on reprend celle fournie dans la requête (psr)
-            // pp.setBdfkey(BDFKeyGenerator.computeBDFKey(pp.getLastname(), ISOBirthDateConverter.fromISOString(pp.getBirthDate())));
-            pp.setBdfkey(psr.getBdfKey());
-        }
-    }
-
-    // ---------------------------------------------------------------------
-    // Mapping PersonneMorale FCC -> Personne (modèle interne)
-    // ---------------------------------------------------------------------
-    // ASAP 514
-    /**
-     * Mappe une PersonneMorale FCC vers Personne (interne), en remplissant
-     * Raison sociale, catégorie juridique, adresse, et immatriculation.
-     */
-    private void mapPersonneMorale(final PersonneMorale pmType, final Personne pm) {
-        if (pmType != null) {
-            pm.setBusinessName(pmType.getDenom());
-            pm.setLegalName(pmType.getCatJur().getLibelle());
-            pm.setCodeLegalName(pmType.getCatJur().getCode());
-            pm.setPostalCode(pmType.getAdresse().getCP());
-            pm.setFiscalAdress1(pmType.getAdresse().getLig1());
-            pm.setFiscalAdress2(pmType.getAdresse().getLig2());
-            pm.setFiscalAdress3(pmType.getAdresse().getLig3());
-            pm.setImmatID(pmType.getNumImmat());
-            pm.setImmatType(pmType.getNatImmat());
-        }
-    }
-
-    // ---------------------------------------------------------------------
-    // Mapping de la réponse FCC -> liste Personne (PP)
-    // ---------------------------------------------------------------------
-    /**
-     * Transforme la réponse FCC (globale personne physique) en liste de Personne.
-     */
-    private List<Personne> mapFCCResponsePP(final FCCResponse gppi, final PersonSearchRequest psr) {
-        final List<Personne> result = new ArrayList<Personne>();
-        final List<PersonneBdf> list = gppi.getMessage().getReponse().getPersonnes();
-        if (list == null) {
-            return result;
-        }
-        for (final PersonneBdf personneType : list) {
-            final Personne pp = new Personne();
-            mapPersonnePhysique(personneType.getPP(), pp, psr);
-            mapGlobal(personneType.getGlobal(), pp);
-            // mapDetail(personneType.getDetail(), pp);
-            result.add(pp);
-        }
-        return result;
-    }
-
-    // ---------------------------------------------------------------------
-    // Mapping de la réponse FCC -> liste Personne (PM)
-    // ---------------------------------------------------------------------
-    /**
-     * ASAP514
-     * Transforme la réponse FCC (globale personne morale) en liste de Personne.
-     */
-    private List<Personne> mapFCCResponsePM(final FCCResponse gppi, final PersonSearchRequest psr) {
-        final List<Personne> result = new ArrayList<Personne>();
-        final List<PersonneBdf> list = gppi.getMessage().getReponse().getPersonnes();
-        if (list == null) {
-            return result;
-        }
-        for (final PersonneBdf personneType : list) {
-            final Personne pm = new Personne();
-            pm.setBdfkey(psr.getBdfKey());
-            pm.setPersonId(psr.getPersonId());
-            mapPersonneMorale(personneType.getPM(), pm);
-            mapGlobalMorale(personneType.getGlobal(), pm);
-            // mapDetail(personneType.getDETAIL(), pm);
-            result.add(pm);
-        }
-        return result;
-    }
-
-    // ---------------------------------------------------------------------
-    // Orchestration d'appel FCC (PP)
-    // ---------------------------------------------------------------------
-    /**
-     * Orchestrateur PP :
-     * <pre>
-     * 1. (login si nécessaire côté client) – implicite dans PobiFccClient
-     * 2. boucle sur la liste et appel searchGlobalPP(bdfKey)
-     * 3. envoi statistique par appel
-     * 4. (logout si nécessaire) – implicite
-     * </pre>
-     */
-    public List<Personne> searchIncident(final List<PersonSearchRequest> incidentsSearchRequest,
-                                         final String channel,
-                                         final String caller,
-                                         String userId) {
-        final List<Personne> result = new ArrayList<Personne>();
+    // Exécute l'appel HTTPS : construit l'URL complète, pose les en-têtes, envoie le corps "req" et parse la réponse JSON
+    private FICPResponse ficpSend(final String path, final String req) {
+        HttpsURLConnection conn = null; // connexion HTTPS (fermée en finally si erreur)
+        FICPResponse result = null;     // résultat (reste null si erreur avant lecture)
+        final String fullAddress = address + path; // URL complète
+        LOGGER.debug("URL = " + fullAddress);
         try {
-            for (final PersonSearchRequest personSearchRequest : incidentsSearchRequest) {
-                // if RequestType = BDF or ALL (exclut BNP_ONLY)
-                if (!personSearchRequest.getRequestType().equals(RequestTypeEnum.BNP_ONLY)) {
-                    final FCCResponse gppi = fccClient.searchGlobalPP(personSearchRequest.getBdfKey());
-                    callStaticsService(channel, caller, personSearchRequest, gppi, userId);
-                    result.addAll(mapFCCResponsePP(gppi, personSearchRequest));
-                }
+            // Ouverture de la connexion HTTPS
+            final URL url = new URL(fullAddress);
+            conn = (HttpsURLConnection) url.openConnection();
+            conn.setSSLSocketFactory(sslFactory); // impose la factory SSL fournie (certs, ciphers)
+
+            // Prépare les en-têtes HTTP (Basic Auth + Accept JSON)
+            final String creds = Base64.getEncoder().encodeToString(getCredentials().getBytes("ISO8859-1"));
+            conn.setDoOutput(true); // on va écrire un corps de requête
+            conn.setRequestProperty("Authorization", "Basic " + creds);
+            conn.setRequestProperty("Accept", "application/json");
+
+            // Envoi du corps de requête (form-urlencoded, construit par l'appelant)
+            try (final OutputStream os = conn.getOutputStream()) {
+                os.write(req.getBytes("ISO8859-1")); // envoi en ISO-8859-1 côté POBI
             }
+
+            // Vérifie le code HTTP
+            final int responseCode = conn.getResponseCode();
+            if (responseCode != HttpURLConnection.HTTP_OK) {
+                // On lève une ApiException si le code n'est pas 200
+                throw new ApiException(1, "Invalid HTTP response code");
+            }
+
+            // Lecture et désérialisation de la réponse JSON
+            try (final InputStream is = conn.getInputStream()) {
+                final ObjectMapper mapper = new ObjectMapper();
+                // Certaines réponses peuvent renvoyer un champ unique au lieu d'un tableau
+                mapper.enable(DeserializationFeature.ACCEPT_SINGLE_VALUE_AS_ARRAY);
+                result = mapper.readValue(is, FICPResponse.class);
+                conn = null; // marque la connexion comme "consommée" pour éviter disconnect inutile
+                return result;
+            }
+        } catch (Exception e) {
+            // Log complet + message d'erreur contextualisé, on renvoie (potentiellement) null
+            LOGGER.error(String.format("Error during call to REST service %s, message : %s", fullAddress, e.getMessage()), e);
             return result;
-        } catch (final ApiException apie) {
-            LOGGER.error("API Exception", apie);
-            throw new ApiException(1, apie.getMessage());
-        } catch (final Exception e) {
-            LOGGER.error("Service Call Exception", e);
-            throw new ApiException(1, e.getMessage());
+        } finally {
+            if (conn != null) {
+                // Quelque chose s'est mal passé pendant la requête, on coupe la connexion
+                conn.disconnect();
+            }
         }
     }
 
-    // ---------------------------------------------------------------------
-    // Appel service de statistiques (robustifié, renvoie OK/KO)
-    // ---------------------------------------------------------------------
-    private String callStaticsService(String channel,
-                                     String caller,
-                                     PersonSearchRequest personSearchRequest,
-                                     FCCResponse gppi,
-                                     String userId) throws Exception {
-        try {
-            StatisticsRequestDto statisticsRequestDto = new StatisticsRequestDto();
-
-            // iCleBdf : priorité à celle de la requête, sinon reconstruction (date + début du nom)
-            if(StringUtils.isNotBlank(personSearchRequest.getBdfKey())){
-                statisticsRequestDto.setiCleBdf(personSearchRequest.getBdfKey());
-            } else{
-                String dateCle = "";
-                if (StringUtils.isNotBlank(personSearchRequest.getBirthDate())) {
-                    String[] split = personSearchRequest.getBirthDate().split("-");
-                    dateCle = new StringBuilder()
-                            .append(split[2])
-                            .append(split[1])
-                            .append(split[0].substring(2))
-                            .toString();
-                }
-                String cleBdf = new StringBuilder()
-                        .append(dateCle)
-                        .append(!StringUtils.isNotBlank(personSearchRequest.getLastname())?"" :
-                                personSearchRequest.getLastname().length() < 5 ? personSearchRequest.getLastname() : personSearchRequest.getLastname().substring(0, 5))
-                        .toString();
-                statisticsRequestDto.setiCleBdf(cleBdf);
-            }
-
-            // Métadonnées canal/type
-            statisticsRequestDto.setCcanalOri(channel);
-            statisticsRequestDto.setcTypeAppel("FCC");
-
-            // Tronque caller à 8 caractères si besoin
-            String tempCaller = caller;
-            if(StringUtils.isNotBlank(caller) && caller.length()>8){
-                tempCaller = caller.substring(0,8);
-            }
-            statisticsRequestDto.setcTransApp(tempCaller);
-
-            // Autres champs numériques (tolère vides)
-            statisticsRequestDto.setiIkpi(Optional.ofNullable(personSearchRequest.getPersonId()).orElse("")); // todo
-            statisticsRequestDto.setnCptes(StringUtils.isNotBlank(personSearchRequest.getNbCptesDossier()) ? Integer.valueOf(personSearchRequest.getNbCptesDossier()) : 0);
-            statisticsRequestDto.setnPersFicp(StringUtils.isNotBlank(personSearchRequest.getNbPersFicp()) ? Integer.valueOf(personSearchRequest.getNbPersFicp()) : 0);
-            statisticsRequestDto.setcReqTyp(personSearchRequest.getRequestType().toString());
-            statisticsRequestDto.setiUserId(userId);
-
-            // Code erreur renvoyé par FCC (0 si pas d'erreur)
-            String error="500"; // défaut si pas de réponse
-            if (gppi != null) {
-                error = Optional.ofNullable(gppi.getMessage())
-                        .map(e -> Optional.ofNullable(e.getErreur())
-                                .map(f -> f.getErrCode()).orElse("0")).orElse("0");
-            }
-            statisticsRequestDto.setcErrorCode(error);
-
-            // Dates d'insert (yyyyMMdd) et timestamp
-            String pattern = "yyyyMMdd";
-            SimpleDateFormat simpleDateFormat = new SimpleDateFormat(pattern);
-            String date = simpleDateFormat.format(new Date());
-            statisticsRequestDto.setdInsert(date.toString());
-            statisticsRequestDto.setdTimeStamp(LocalDateTime.now().toString());
-
-            // Envoi
-            statisticsService.post(statisticsRequestDto);
-
-            // Robustesse : si aucune réponse FCC
-            if(gppi==null){
-                throw new ApiException(1, "pobicall error");
-            }
-            return "OK";
-        } catch (final Exception e) {
-            LOGGER.error("Statistic Service Call Exception", e);
-            return "KO";
-        }
-    }
-
-    // ---------------------------------------------------------------------
-    // Orchestration d'appel FCC (PM)
-    // ---------------------------------------------------------------------
-    // ASAP 514
     /**
-     * Appel FCC pour Personnes Morales.
-     * Retourne la liste mappée vers le modèle interne. Gère aussi l'appel stats.
+     * Effectue l'opération WS "globalePersonnePhysique" côté FICP.
+     *
+     * Construit les paramètres de requête (clé BDF, motif, type crédit, CIB/ETC),
+     * puis appelle ficpSend sur le chemin "/ficp/pp/global".
+     *
+     * @param bdfKey    Clé BDF de la personne physique
+     * @param motif     Motif de consultation
+     * @param cibEtc    Code CIB/ETC (audit/traçabilité)
+     * @param typeCredit Type de crédit
+     * @return FICPResponse désérialisée (peut être null si erreur en amont)
      */
-    public List<Personne> searchIncidentMoral(final List<PersonSearchRequest> incidentsSearchRequest,
-                                              final String channel,
-                                              final String caller,
-                                              String userId) {
-        final List<Personne> result = new ArrayList<Personne>();
-        try {
-            for (final PersonSearchRequest personSearchRequest : incidentsSearchRequest) {
-                final FCCResponse gppi = fccClient.searchGlobalPM(
-                        personSearchRequest.getBdfKey(),
-                        personSearchRequest.getImmatType(),
-                        personSearchRequest.getImmatId());
-                callStaticsService(channel, caller, personSearchRequest, gppi, userId);
-                result.addAll(mapFCCResponsePM(gppi, personSearchRequest));
+    public FICPResponse searchGlobalPP(final String bdfKey, final String motif, final String cibEtc, final String typeCredit) {
+        LOGGER.debug("Requesting FICP GlobalePersonnePhysique for {}", bdfKey);
+        // LOGGER.info("Input for FICP {} - {} - {} - {}", bdfKey, motif, cibEtc, typeCredit);
+
+        // Construction du corps (clé=valeur encodées) attendu par le service FICP
+        final StringBuilder req = new StringBuilder();
+        req.append("cleBdf=").append(URLEncoder.encode(bdfKey));
+        req.append("&motifConsult=").append(URLEncoder.encode(motif));
+        req.append("&typeCredit=").append(URLEncoder.encode(typeCredit));
+        req.append("&cibEtc=").append(URLEncoder.encode(cibEtc));
+
+        // Envoi via HTTPS et parsing JSON
+        final FICPResponse response = ficpSend("/ficp/pp/global", req.toString());
+
+        // Si debug activé, on tente de logguer la réponse JSON complète (à manipuler prudemment en prod)
+        if (LOGGER.isDebugEnabled()) {
+            try {
+                ObjectMapper mapper = new ObjectMapper();
+                LOGGER.debug("response {}", mapper.writeValueAsString(response));
+            } catch (JsonProcessingException jpe) {
+                LOGGER.debug("Failed to serialize response as JSON", jpe);
             }
-            return result;
-        } catch (final ApiException apie) {
-            LOGGER.error("API Exception", apie);
-            // Validation et messages explicites si paramètres manquants
-            for (final PersonSearchRequest personSearchRequest : incidentsSearchRequest) {
-                if (personSearchRequest.getBdfKey() == null) {
-                    throw new ApiException(1, "BDF KEY est obligatoire ou mal renseignée pour faire l'appel FCC PM");
-                } else if (personSearchRequest.getImmatType() == null) {
-                    throw new ApiException(1, "Type Immatriculation est obligatoire ou mal renseignée faire l'appel FCC PM");
-                } else if (personSearchRequest.getImmatId() == null) {
-                    throw new ApiException(1, "Id Immatriculation est obligatoire ou mal renseignée faire l'appel FCC PM");
-                }
-            }
-            // Si tout est renseigné, on propage l'erreur FCC
-            throw new ApiException(1, apie.getMessage());
-        } catch (final Exception e) {
-            LOGGER.error("Service Call Exception", e);
-            throw new ApiException(1, e.getMessage());
         }
+        return response;
     }
 }
