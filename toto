@@ -184,7 +184,9 @@ public class IncidentService {
                         incidentListRPBNPP.get(i).setNbPersFicp(incidentsSearchRequest.get(i).getNbPersFicp());
                         incidentListRPBNPP.get(i).setRibEtTypedeCompte(incidentsSearchRequest.get(i).getRibEtTypedeCompte());
                     }
-                    List<PersonSearchRequest> incidentListBDFOnly = new ArrayList<>();
+
+                    // ✅ FIX: réutiliser la variable déjà déclarée plus haut
+                    incidentListBDFOnly.clear();
                     for (int j = 0; j < incidentsSearchRequest.size(); j++) {
                         if (incidentsSearchRequest.get(j).getRequestType().equals(RequestTypeEnum.BDF_ONLY)) {
                             incidentListBDFOnly.add(incidentsSearchRequest.get(j));
