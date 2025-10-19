@@ -1,33 +1,45 @@
-Voici l’impact « cible » pour ton JIRA **AER_SOC-1529 – nouvelles modalités d’appel unitaire FICP/FCC/BCI**. En l’état du code, tu devras modifier (au minimum) les classes suivantes :
+Merci — voici la version corrigée avec le nom exact Ferdinand Tchoundeu :
 
-1. # RequestTypeEnum
 
-Ajouter les nouvelles valeurs demandées par le JIRA :
+---
 
-* 4 = **FICP BDF**, 5 = **FCC BDF**, 6 = **FICP BCEF**, 7 = **BCI BCEF**.
-  Aujourd’hui l’enum n’a que `1/2/3 (BNP_ONLY/BDF_ONLY/BOTH_BNP_BDF)`, donc elle ne permet pas les appels unitaires exigés.  
+Objet : Blocage technique sur certificat + arbitrage de priorités
 
-2. # IncidentService (orchestrateur)
+Bonjour [Prénom],
 
-Adapter la logique d’orchestration pour **n’appeler que** le(s) service(s) visé(s) selon la nouvelle valeur `requestType` :
+Je voulais vous informer que j’ai bien avancé sur le développement, mais je suis actuellement bloqué pour tester mon code.
+Le problème semble lié à des autorisations ou certificats manquants.
+J’ai bien téléchargé le certificat, mais l’installation ne fonctionne pas, probablement à cause de droits d’accès ou d’un mot de passe spécifique au projet (voire de compétences mainframe ou d’un contexte EquipOps).
 
-* 4 ⇒ appeler **FICPService** uniquement,
-* 5 ⇒ appeler **FCCService** uniquement,
-* 6 ⇒ appeler la partie **FICP BNPP/BCEF** du couple BCI/FICP (via `bciFicpService`),
-* 7 ⇒ appeler la partie **BCI BNPP/BCEF** uniquement.
-  Actuellement, l’orchestrateur appelle systématiquement FICP **et** FCC (et la partie BCI/FICP BNPP), ce qui n’est plus conforme à l’appel unitaire demandé. 
+J’ai déjà essayé de résoudre le problème avec :
 
-3. # BciFicpRequestMapper
+EquipOps (sans succès)
 
-Le mapper conditionne aujourd’hui surtout « BNP vs BDF » (`BDF_ONLY`) et agrège BCI+FICP BNPP. Il faut le faire évoluer pour **construire la requête** en cohérence avec les nouveaux types unitaires (6/7) — et/ou permettre à l’orchestrateur de **sélectionner** la bonne sous-partie de la réponse quand on ne veut que FICP BNPP ou que BCI. 
+Cédric Crevier (équipe EquipOps)
 
-4. # (facultatif selon exposition) BankingIncidentsApiController / DTO
+Ferdinand Tchoundeu, mais je reste bloqué.
 
-Si l’API expose `requestType`, vérifier que le contrôleur/DTO accepte les **nouvelles valeurs 4–7** (validation Swagger/Bean Validation). Sinon, le front enverra une valeur que l’API rejettera. (Fichier contrôleur fourni avec le lot). 
 
-💡 À noter
+Je pense qu’il me faudrait l’aide de quelqu’un ayant déjà configuré le projet et les certificats pour pouvoir avancer sur les tests.
 
-* **FICPService** et **FCCService** peuvent rester quasi inchangés : ils exécutent déjà leur appel « métier » propre. C’est surtout **l’aiguillage** dans `IncidentService` qui doit empêcher les appels non voulus quand on choisit un mode unitaire.  
-* Le besoin d’appels unitaires et les 4 nouvelles valeurs proviennent explicitement du JIRA. 
+Par ailleurs, je suis également affecté sur le batch, avec un objectif de couverture à 50 %.
+Les deux tâches ayant la même deadline, je crains de ne pas pouvoir livrer les deux correctement sans arbitrage.
 
-Si tu veux, je te propose dans le prochain message un diff ciblé (enum + switch dans IncidentService + ajustement du mapper) prêt à coller.
+Pouvez-vous m’indiquer :
+
+1. Quelle tâche prioriser (certificat / batch) ?
+
+
+2. Et si possible, une personne de référence pouvant m’aider à installer/configurer le certificat pour débloquer les tests ?
+
+
+
+Merci d’avance pour votre aide et vos précisions,
+Bien cordialement,
+[Ton prénom + nom]
+
+
+---
+
+Souhaites-tu que je te le reformule en version courte pour Teams (ex : message instantané à ton manager) ?
+
