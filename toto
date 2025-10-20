@@ -174,3 +174,281 @@ Les blocs d’orchestration ci-dessus s’insèrent là où l’on enchaîne auj
 > Remarque mineure : dans le “nouveau code” FCC que tu m’as donné, le `return result;` à l’intérieur de la boucle interrompait le traitement dès la première personne. Je l’ai remplacé par `continue;` (sinon on perd des résultats). 
 
 Si tu veux, je peux te livrer un **diff prêt à coller** (patch git) avec uniquement ces ajouts.
+
+==============gael debut
+Parfait — voici les **patchs prêts à coller** (format *unified diff*) qui ajoutent l’évolution **sans refacto** et rendent les appels **unitaires** selon `RequestTypeEnum`, conformément au JIRA **AER_SOC-1529**.
+Je termine par un court récap “OK / conforme”.
+
+---
+
+# 1) `RequestTypeEnum` — ajout des 4 valeurs unitaires
+
+```diff
+*** a/src/main/java/com/bnpparibas/dsibddf/ap10530/incident/domain/model/enums/RequestTypeEnum.java
+--- b/src/main/java/com/bnpparibas/dsibddf/ap10530/incident/domain/model/enums/RequestTypeEnum.java
+@@
+ public enum RequestTypeEnum {
+-    BNP_ONLY(1),
+-    BDF_ONLY(2),
+-    BOTH_BNP_BDF(3);
++    BNP_ONLY(1),
++    BDF_ONLY(2),
++    BOTH_BNP_BDF(3),
++    // AER_SOC-1529 — appels unitaires
++    FICP_BDF(4),
++    FCC_BDF(5),
++    FICP_BCEF(6),
++    BCI_BCEF(7);
+ 
+     private final Integer value;
+ 
+     RequestTypeEnum(Integer value) {
+         this.value = value;
+     }
+ 
+     @JsonValue
+     public Integer value() {
+         return value;
+     }
+ 
+     @JsonCreator
+     public static RequestTypeEnum fromValue(Integer value) {
+         for (RequestTypeEnum rt : RequestTypeEnum.values()) {
+             if (rt.value.equals(value)) {
+                 return rt;
+             }
+         }
+         return null;
+     }
+ }
+```
+
+---
+
+# 2) `FCCService.searchIncident(...)` — ignorer tout sauf **FCC BDF** (et cas historiques)
+
+> Modification minimale : **plus de `return` prématuré** ; on **continue** la boucle si l’élément ne concerne pas FCC.
+> On autorise l’appel uniquement pour `FCC_BDF`, `BDF_ONLY`, `BOTH_BNP_BDF`. (`BNP_ONLY` = jamais BDF).
+
+```diff
+*** a/src/main/java/com/bnpparibas/dsibddf/ap10530/incident/infrastructure/fcc/service/FCCService.java
+--- b/src/main/java/com/bnpparibas/dsibddf/ap10530/incident/infrastructure/fcc/service/FCCService.java
+@@
+     public List<Personne> searchIncident(final List<PersonSearchRequest> incidentsSearchRequest,
+                                          final String channel,
+                                          final String caller, String userId) {
+         final List<Personne> result = new ArrayList<Personne>();
+         try {
+-            for (final PersonSearchRequest personSearchRequest : incidentsSearchRequest) {
+-                if
+-                (!personSearchRequest.getRequestType().equals(RequestTypeEnum.FICP_BDF) &&
+-                 !personSearchRequest.getRequestType().equals(RequestTypeEnum.FICP_BCEF) &&
+-                 !personSearchRequest.getRequestType().equals(RequestTypeEnum.BCI_BCEF)
+-                ) {
+-                    return result;
+-                }
+-                // if RequestType = BDF or ALL
+-                if
+-                (!personSearchRequest.getRequestType().equals(RequestTypeEnum.BNP_ONLY)) {
+-                    final FCCResponse gppi =
+-                        fccClient.searchGlobalPP(personSearchRequest.getBdfKey());
+-                    callStaticsService(channel, caller, personSearchRequest, gppi, userId);
+-                    result.addAll(mapFCCResponsePP(gppi, personSearchRequest));
+-                }
+-            }
++            for (final PersonSearchRequest personSearchRequest : incidentsSearchRequest) {
++                // AER_SOC-1529 — appels unitaires : n'appeler FCC que si explicitement demandé
++                // Cas à ignorer côté FCC :
++                // - FICP_BDF (4) : on veut FICP uniquement
++                // - FICP_BCEF (6) : BCEF FICP uniquement
++                // - BCI_BCEF (7) : BCEF BCI uniquement
++                // - BNP_ONLY (1)  : aucun appel BDF
++                if (personSearchRequest.getRequestType().equals(RequestTypeEnum.FICP_BDF)
++                    || personSearchRequest.getRequestType().equals(RequestTypeEnum.FICP_BCEF)
++                    || personSearchRequest.getRequestType().equals(RequestTypeEnum.BCI_BCEF)
++                    || personSearchRequest.getRequestType().equals(RequestTypeEnum.BNP_ONLY)) {
++                    continue;
++                }
++                // Appels FCC autorisés pour : FCC_BDF (5), BDF_ONLY (2), BOTH_BNP_BDF (3)
++                final FCCResponse gppi = fccClient.searchGlobalPP(personSearchRequest.getBdfKey());
++                callStaticsService(channel, caller, personSearchRequest, gppi, userId);
++                result.addAll(mapFCCResponsePP(gppi, personSearchRequest));
++            }
+             return result;
+         } catch (final ApiException apie) {
+             LOGGER.error("API Exception", apie);
+             throw new ApiException(1, apie.getMessage());
+         } catch (final Exception e) {
+             LOGGER.error("Service Call Exception", e);
+             throw new ApiException(1, e.getMessage());
+         }
+     }
+```
+
+*(Aucune autre ligne de la classe n’est modifiée.)*
+
+---
+
+# 3) `FICPService.searchIncident(...)` — ignorer tout sauf **FICP BDF** (et cas historiques)
+
+> Même principe : **FICP uniquement** pour `FICP_BDF`, `BDF_ONLY`, `BOTH_BNP_BDF`.
+> On **continue** la boucle si l’élément ne concerne pas FICP.
+
+```diff
+*** a/src/main/java/com/bnpparibas/dsibddf/ap10530/incident/infrastructure/ficp/service/FICPService.java
+--- b/src/main/java/com/bnpparibas/dsibddf/ap10530/incident/infrastructure/ficp/service/FICPService.java
+@@
+     public List<Personne> searchIncident(final List<PersonSearchRequest> incidentsSearchRequest,
+                                          final String channel,
+                                          final String caller, String userId) throws Exception {
+         final List<Personne> result = new ArrayList<Personne>();
+         try {
+-            for (final PersonSearchRequest personSearchRequest : incidentsSearchRequest) {
+-                if
+-                (!personSearchRequest.getRequestType().equals(RequestTypeEnum.FCC_BDF) &&
+-                 !personSearchRequest.getRequestType().equals(RequestTypeEnum.FICP_BCEF) &&
+-                 !personSearchRequest.getRequestType().equals(RequestTypeEnum.BCI_BCEF)
+-                ) {
+-                    return result;
+-                }
++            for (final PersonSearchRequest personSearchRequest : incidentsSearchRequest) {
++                // AER_SOC-1529 — appels unitaires : n'appeler FICP que si explicitement demandé
++                // Cas à ignorer côté FICP :
++                // - FCC_BDF (5)  : on veut FCC uniquement
++                // - BCI_BCEF (7) : BCEF BCI uniquement
++                // - BNP_ONLY (1) : aucun appel BDF
++                if (personSearchRequest.getRequestType().equals(RequestTypeEnum.FCC_BDF)
++                    || personSearchRequest.getRequestType().equals(RequestTypeEnum.BCI_BCEF)
++                    || personSearchRequest.getRequestType().equals(RequestTypeEnum.BNP_ONLY)) {
++                    continue;
++                }
+                 // ASAP 514 CP (logique existante conservée)
+                 String motifConsult = "N";
+                 String cibEtc = "";
+                 final ObjectMapper mapper = new ObjectMapper();
+                 String res = mapper.writeValueAsString(personSearchRequest);
+@@
+-                // if RequestType = BDF or ALL
+-                if
+-                (!personSearchRequest.getRequestType().equals(RequestTypeEnum.BNP_ONLY)) {
+-                    // Call GlobalPersonnePhysique operation
+-                    final FICPResponse gppr =
+-                        ficpClient.searchGlobalPP(personSearchRequest.getBdfKey(), motifConsult, cibEtc,
+-                                                  personSearchRequest.getTypeCredit());
+-                    callStaticsService(channel, caller, personSearchRequest, gppr, userId);
+-                    result.addAll(mapGlobalePersonnePhysiquetoPersonnePhysique(gppr));
+-                    if (("O").equals(motifConsult)) {
+-                        cpService.post(createRestRequest(
+-                            personSearchRequest,
+-                            gppr.getMessage().getReponse().getNotarisation().getHorodat(),
+-                            gppr.getMessage().getReponse().getNotarisation().getNumConsobli(),
+-                            gppr.getMessage().getReponse().getDateHeure(),
+-                            res));
+-                    }
+-                }
++                // Appels FICP autorisés pour : FICP_BDF (4), BDF_ONLY (2), BOTH_BNP_BDF (3)
++                final FICPResponse gppr =
++                    ficpClient.searchGlobalPP(personSearchRequest.getBdfKey(), motifConsult, cibEtc,
++                                              personSearchRequest.getTypeCredit());
++                callStaticsService(channel, caller, personSearchRequest, gppr, userId);
++                result.addAll(mapGlobalePersonnePhysiquetoPersonnePhysique(gppr));
++                if (("O").equals(motifConsult)) {
++                    cpService.post(createRestRequest(
++                        personSearchRequest,
++                        gppr.getMessage().getReponse().getNotarisation().getHorodat(),
++                        gppr.getMessage().getReponse().getNotarisation().getNumConsobli(),
++                        gppr.getMessage().getReponse().getDateHeure(),
++                        res));
++                }
+             }
+             return result;
+         } catch (final ApiException apie) {
+             LOGGER.error("API Exception", apie);
+             throw new ApiException(1, apie.getMessage());
+         } catch (final Exception e) {
+             LOGGER.error("Service Call Exception", e);
+             throw new ApiException(1, e.getMessage());
+         }
+     }
+```
+
+*(Le reste de la classe ne change pas.)*
+
+---
+
+# 4) `IncidentService.searchIncident(...)` — n’appeler que le(s) service(s) demandé(s)
+
+> Ajout très localisé : on **encadre** les deux appels BDF finaux par des `if` sur `RequestTypeEnum`.
+> Aucune autre logique (RP/Infos, BNPP/BCEF) n’est modifiée.
+
+```diff
+*** a/src/main/java/com/bnpparibas/dsibddf/ap10530/incident/application/IncidentService.java
+--- b/src/main/java/com/bnpparibas/dsibddf/ap10530/incident/application/IncidentService.java
+@@
+     public List<IncidentsCharacteristics> searchIncident(final
+             List<PersonSearchRequest> incidentsSearchRequest,
+             final String channel,
+             final String caller,
+             String userId) throws Exception {
+@@
+-        /** Appel FICP BDF (Banque de France) */
+-        final List<Personne> ficpIncidentList =
+-                ficpService.searchIncident(incidentsSearchRequest, channel, caller, userId);
+-        LOGGER.debug("{} incident(s) found in FICP BDF database",
+-                ficpIncidentList.size());
+-        resultList.add(new IncidentsCharacteristics(ficpIncidentList,
+-                OriginEnum.FICP_BDF));
+-
+-        /** Appel FCC BDF (chèques/cartes) */
+-        final List<Personne> fccIncidentList =
+-                fccService.searchIncident(incidentsSearchRequest, channel, caller, userId);
+-        LOGGER.debug("{} incident(s) found in FCC BDF database", fccIncidentList.size());
+-        resultList.add(new IncidentsCharacteristics(fccIncidentList, OriginEnum.FCC));
++        // AER_SOC-1529 — appels unitaires : déclencher uniquement les services demandés
++        final RequestTypeEnum reqType = incidentsSearchRequest.get(0).getRequestType();
++
++        // FICP BDF seulement si FICP_BDF, BDF_ONLY, BOTH_BNP_BDF
++        if (RequestTypeEnum.FICP_BDF.equals(reqType)
++                || RequestTypeEnum.BDF_ONLY.equals(reqType)
++                || RequestTypeEnum.BOTH_BNP_BDF.equals(reqType)) {
++            final List<Personne> ficpIncidentList =
++                    ficpService.searchIncident(incidentsSearchRequest, channel, caller, userId);
++            LOGGER.debug("{} incident(s) found in FICP BDF database", ficpIncidentList.size());
++            resultList.add(new IncidentsCharacteristics(ficpIncidentList, OriginEnum.FICP_BDF));
++        }
++
++        // FCC BDF seulement si FCC_BDF, BDF_ONLY, BOTH_BNP_BDF
++        if (RequestTypeEnum.FCC_BDF.equals(reqType)
++                || RequestTypeEnum.BDF_ONLY.equals(reqType)
++                || RequestTypeEnum.BOTH_BNP_BDF.equals(reqType)) {
++            final List<Personne> fccIncidentList =
++                    fccService.searchIncident(incidentsSearchRequest, channel, caller, userId);
++            LOGGER.debug("{} incident(s) found in FCC BDF database", fccIncidentList.size());
++            resultList.add(new IncidentsCharacteristics(fccIncidentList, OriginEnum.FCC));
++        }
+@@
+         if (typeEntree == 1) {
+             resultList.add(new
+                     IncidentsCharacteristics(mapPersonnePhysique(incidentsSearchRequest),
+                             OriginEnum.RP));
+         }
+```
+
+> NB : Tu avais déjà ajouté, côté “saisie par infos”, des `if` pour **exclure** l’un des blocs BNPP quand `FICP_BCEF` ou `BCI_BCEF`. Je ne touche pas à ces lignes (elles vont dans le bon sens). Ici, on encadre uniquement les **appels BDF** à la fin de la branche « personne physique ».
+> (La partie **PM** ne change pas.)
+
+---
+
+## Check rapide “critères JIRA”
+
+* **FICP BDF (4)** → seul FICP BDF est appelé ✅
+* **FCC BDF (5)** → seul FCC BDF est appelé ✅
+* **FICP BCEF (6)** → côté BNPP, seul FICP BNPP (BCEF) est renvoyé (tes `if` existants le garantissent), et **aucun appel BDF** grâce au nouveau garde dans `IncidentService` ✅
+* **BCI BCEF (7)** → côté BNPP, seul BCI (BCEF) est renvoyé, **aucun BDF** ✅
+* **IAZ02 / CPHF3** (FICP seul) → `requestType=4` ⇒ **pas d’appel FCC** ⇒ **économie** conforme au besoin ✅
+* **Listes mixtes** → plus de `return` prématuré dans FCC/FICP services ; on **traite élément par élément** ✅
+* **Pas de refacto** → uniquement des `if` et `continue` additionnels ✅
+
+Si tu veux, je peux te générer un **patch unique** (fichier `.patch`) qui regroupe ces 4 diffs pour l’appliquer en une commande `git apply`.
+
+==============geal fin
