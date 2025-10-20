@@ -639,3 +639,362 @@ this.ficpService = ficpService;
   * `BOTH_BNP_BDF (3)` → tous les blocs comme avant.
 
 Si tu veux, je te fournis ensuite les versions complètes de `FICPService` et `FCCService` avec les mêmes garde-fous (comme on a fait ici) pour verrouiller totalement les appels en profondeur.
+
+===========201020251501 debut
+Parfait — voici les **corrections complètes** (ajouts uniquement, sans suppression ni refactor) pour activer les **appels unitaires** selon AER_SOC-1529.
+J’ai simplement **ajouté des drapeaux** qui conditionnent l’exécution des appels vers la BDF, en respectant les valeurs :
+
+* `FICP_BDF (4)` → autorise **seulement FICP BDF**
+* `FCC_BDF (5)` → autorise **seulement FCC BDF** (y compris PM)
+* `BDF_ONLY (2)` et `BOTH_BNP_BDF (3)` → autorisent **FICP BDF et FCC BDF**
+* `BNP_ONLY (1)` → **aucun appel BDF** (déjà géré, conservé)
+
+---
+
+### `FICPService` (ajouts marqués `// AER_SOC-1529`)
+
+```java
+package com.bnpparibas.dsibddf.ap10530.incident.infrastructure.ficp.service; 
+import java.text.SimpleDateFormat; 
+import java.util.*; 
+import com.bnpparibas.dsibddf.ap10530.incident.domain.dto.StatisticsRequestDto; 
+import com.bnpparibas.dsibddf.ap10530.incident.domain.rest.BciFicpRestService; 
+import com.bnpparibas.dsibddf.ap10530.incident.domain.rest.StatisticsService; 
+import jakarta.validation.ConstraintViolationException; 
+import org.apache.commons.lang3.StringUtils; 
+import org.joda.time.LocalDate; 
+import org.joda.time.LocalDateTime; 
+import org.joda.time.format.DateTimeFormat; 
+import org.slf4j.Logger; 
+import org.slf4j.LoggerFactory; 
+import org.springframework.beans.factory.annotation.Autowired; 
+import org.springframework.stereotype.Component; 
+import com.bnpparibas.dsibddf.ap10530.incident.domain.custom.type.ISOBirthDate; 
+import 
+com.bnpparibas.dsibddf.ap10530.incident.domain.dto.ConservPreuveRequestDTO; 
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.*; 
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.cp.ComptesDossier; 
+import 
+com.bnpparibas.dsibddf.ap10530.incident.domain.model.cp.G_COMPTES_DOSSIER; 
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.cp.G_PREUV; 
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.cp.L_REPON_BDF; 
+import 
+com.bnpparibas.dsibddf.ap10530.incident.domain.model.enums.AppEmettriceEnum; 
+import 
+com.bnpparibas.dsibddf.ap10530.incident.domain.model.enums.RequestTypeEnum; 
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.enums.SexEnum; 
+import 
+com.bnpparibas.dsibddf.ap10530.incident.domain.rest.ConservPreuveRestService; 
+import com.bnpparibas.dsibddf.ap10530.incident.domain.utils.BDFKeyGenerator; 
+import com.bnpparibas.dsibddf.ap10530.incident.domain.utils.ISOBirthDateConverter; 
+import 
+com.bnpparibas.dsibddf.ap10530.incident.infrastructure.ficp.dto.FICPResponse; 
+import com.bnpparibas.dsibddf.ap10530.incident.infrastructure.ficp.dto.Global; 
+import com.bnpparibas.dsibddf.ap10530.incident.infrastructure.ficp.dto.Naissance; 
+import com.bnpparibas.dsibddf.ap10530.incident.infrastructure.ficp.dto.PersonneBdf; 
+import 
+com.bnpparibas.dsibddf.ap10530.incident.infrastructure.ficp.dto.PersonnePhysique; 
+import com.bnpparibas.dsibddf.ap10530.incident.infrastructure.ficp.dto.*; 
+import com.fasterxml.jackson.databind.ObjectMapper; 
+import org.apache.commons.lang3.StringUtils; 
+import org.joda.time.LocalDate; 
+import org.joda.time.format.DateTimeFormat; 
+import org.slf4j.Logger; 
+import org.slf4j.LoggerFactory; 
+import org.springframework.beans.factory.annotation.Autowired; 
+import org.springframework.stereotype.Component; 
+import java.util.ArrayList; 
+import java.util.List; 
+/** 
+* WebService FICP Orchestrator Service 
+* 
+* @author Desprez / Tahiri 
+*/ 
+@Component 
+public class FICPService { 
+private static final Logger LOGGER = LoggerFactory.getLogger(FICPService.class); 
+private static final String MASCULIN = "1"; 
+private static final String FEMININ = "2"; 
+@Autowired 
+private PobiFicpClient ficpClient; 
+@Autowired 
+private BciFicpRestService bciFicpService; 
+@Autowired 
+private ConservPreuveRestService cpService; 
+@Autowired 
+private StatisticsService statisticsService; 
+public void setStatisticsService(StatisticsService statisticsService) { 
+ this.statisticsService = statisticsService; 
+} 
+/** 
+* @return the ficpClient 
+*/ 
+public PobiFicpClient getFicpClient() { 
+return ficpClient; 
+} 
+/** 
+* @param ficpClient the ficpClient to set 
+*/ 
+public void setFicpClient(final PobiFicpClient ficpClient) { 
+this.ficpClient = ficpClient; 
+} 
+/** ... (le reste inchangé jusqu’à searchIncident) ... */
+
+/** 
+* Perform the call orchestration for FICPService. 
+* 
+* @param incidentsSearchRequest List of BDF Key to search 
+* @return List of PersonnePhysique if they are found in BDF FICP Database 
+* @throws Exception 
+*/ 
+public List<Personne> searchIncident(final List<PersonSearchRequest> 
+incidentsSearchRequest, final String channel, 
+final String caller, String userId) throws Exception { 
+final List<Personne> result = new ArrayList<Personne>(); 
+// ASAP 514 CP 
+//LOGGER.info("FICPService.searchIncident"); 
+
+// ==============================
+// AER_SOC-1529 — AJOUT : drapeau d’autorisation FICP BDF
+// ==============================
+RequestTypeEnum reqType = (incidentsSearchRequest != null && !incidentsSearchRequest.isEmpty())
+        ? incidentsSearchRequest.get(0).getRequestType() : null;
+boolean allowFICP_BDF = RequestTypeEnum.FICP_BDF.equals(reqType)
+        || RequestTypeEnum.BOTH_BNP_BDF.equals(reqType)
+        || RequestTypeEnum.BDF_ONLY.equals(reqType);
+
+String motifConsult = "N"; 
+String cibEtc = ""; 
+try { 
+for (final PersonSearchRequest personSearchRequest : incidentsSearchRequest) { 
+// ASAP 514 CP 
+final ObjectMapper mapper = new ObjectMapper(); 
+String res = mapper.writeValueAsString(personSearchRequest); 
+//LOGGER.info("response {}", res); 
+personSearchRequest.setTypeCredit(""); 
+if (personSearchRequest.getConservPreuve() == null) { 
+ //LOGGER.info("ConservPreuve = null"); 
+} else if (personSearchRequest.getConservPreuve() != null) { 
+//LOGGER.info("ConservPreuve = {}", 
+personSearchRequest.getConservPreuve()); 
+} 
+if (personSearchRequest.getConservPreuve() != null && 
+"1".equals(personSearchRequest.getConservPreuve())) { 
+motifConsult = "O"; 
+cibEtc = "30004"; 
+// ... (bloc conservé tel quel) ...
+if (AppEmettriceEnum.fromValue(personSearchRequest.getAppEmettrice()) 
+== null) { 
+throw new ConstraintViolationException("Application émettrice non 
+abonnée au service de consultation", null); 
+} 
+personSearchRequest.setTypeCredit(String.valueOf(AppEmettriceEnum.fromValue(personSearchRequest.getAppEmettrice()))); 
+} 
+// if RequestType = BDF or ALL 
+if 
+(!personSearchRequest.getRequestType().equals(RequestTypeEnum.BNP_ONLY)) { 
+
+    // ==============================
+    // AER_SOC-1529 — AJOUT : exécuter l’appel FICP BDF uniquement si autorisé
+    // ==============================
+    if (allowFICP_BDF) {
+        // Call GlobalPersonnePhysique operation 
+        final FICPResponse gppr = 
+        ficpClient.searchGlobalPP(personSearchRequest.getBdfKey(), motifConsult, cibEtc, 
+        personSearchRequest.getTypeCredit()); 
+        callStaticsService(channel, caller, personSearchRequest, gppr, userId); 
+        result.addAll(mapGlobalePersonnePhysiquetoPersonnePhysique(gppr)); 
+        if (("O").equals(motifConsult)) { 
+            cpService.post(createRestRequest( 
+            personSearchRequest, 
+            gppr.getMessage().getReponse().getNotarisation().getHorodat(), 
+            gppr.getMessage().getReponse().getNotarisation().getNumConsobli(), 
+            gppr.getMessage().getReponse().getDateHeure(), 
+            res)); 
+        }
+    } // sinon : pas d’appel FICP BDF (économie) 
+} 
+} 
+return result; 
+} catch (final ApiException apie) { 
+LOGGER.error("API Exception", apie); 
+throw new ApiException(1, apie.getMessage()); 
+} catch (final Exception e) { 
+LOGGER.error("Service Call Exception", e); 
+throw new ApiException(1, e.getMessage()); 
+} 
+} 
+
+/** ... (le reste inchangé) ... */
+}
+```
+
+---
+
+### `FCCService` (ajouts marqués `// AER_SOC-1529`)
+
+```java
+package com.bnpparibas.dsibddf.ap10530.incident.infrastructure.fcc.service; 
+import java.text.SimpleDateFormat; 
+import java.util.ArrayList; 
+import java.util.Date; 
+import java.util.List; 
+import java.util.Optional; 
+import com.bnpparibas.dsibddf.ap10530.incident.domain.dto.StatisticsRequestDto; 
+import com.bnpparibas.dsibddf.ap10530.incident.domain.rest.StatisticsService; 
+import org.apache.commons.lang3.StringUtils; 
+import org.joda.time.LocalDate; 
+import org.joda.time.LocalDateTime; 
+import org.joda.time.format.DateTimeFormat; 
+import org.slf4j.Logger; 
+import org.slf4j.LoggerFactory; 
+import org.springframework.beans.factory.annotation.Autowired; 
+import org.springframework.stereotype.Component; 
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.ApiException; 
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.Incident; 
+import 
+com.bnpparibas.dsibddf.ap10530.incident.domain.model.PersonSearchRequest; 
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.Personne; 
+import 
+com.bnpparibas.dsibddf.ap10530.incident.domain.model.enums.RequestTypeEnum; 
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.enums.SexEnum; 
+import com.bnpparibas.dsibddf.ap10530.incident.domain.utils.BDFKeyGenerator; 
+import com.bnpparibas.dsibddf.ap10530.incident.domain.utils.ISOBirthDateConverter; 
+import com.bnpparibas.dsibddf.ap10530.incident.infrastructure.fcc.dto.Compte; 
+import com.bnpparibas.dsibddf.ap10530.incident.infrastructure.fcc.dto.Detail; 
+import com.bnpparibas.dsibddf.ap10530.incident.infrastructure.fcc.dto.Global; 
+import com.bnpparibas.dsibddf.ap10530.incident.infrastructure.fcc.dto.Naissance; 
+import com.bnpparibas.dsibddf.ap10530.incident.infrastructure.fcc.dto.PersonneBdf; 
+import 
+com.bnpparibas.dsibddf.ap10530.incident.infrastructure.fcc.dto.PersonneMorale; 
+import 
+com.bnpparibas.dsibddf.ap10530.incident.infrastructure.fcc.dto.PersonnePhysique; 
+import com.bnpparibas.dsibddf.ap10530.incident.infrastructure.fcc.dto.FCCResponse; 
+/** 
+ * WebService FCC Orchestrator Service 
+*/ 
+@Component 
+public class FCCService { 
+private static final String FEMININ = "F"; 
+private static final String MASCULIN = "M"; 
+private static final Logger LOGGER = LoggerFactory.getLogger(FCCService.class); 
+@Autowired 
+private StatisticsService statisticsService; 
+@Autowired 
+private PobiFccClient fccClient; 
+/** ... (le reste inchangé jusqu’à searchIncident) ... */
+
+/** 
+* Perform the call orchestration for FCCService. 
+* 
+* @param incidentsSearchRequest List of PersonSearchRequest to search 
+* @return List of PersonnePhysique if they are found in BDF FCC Database 
+*/ 
+public List<Personne> searchIncident(final List<PersonSearchRequest> 
+incidentsSearchRequest, final String channel, 
+final String caller, String userId) { 
+final List<Personne> result = new ArrayList<Personne>(); 
+
+// ==============================
+// AER_SOC-1529 — AJOUT : drapeau d’autorisation FCC BDF
+// ==============================
+RequestTypeEnum reqType = (incidentsSearchRequest != null && !incidentsSearchRequest.isEmpty())
+        ? incidentsSearchRequest.get(0).getRequestType() : null;
+boolean allowFCC_BDF = RequestTypeEnum.FCC_BDF.equals(reqType)
+        || RequestTypeEnum.BOTH_BNP_BDF.equals(reqType)
+        || RequestTypeEnum.BDF_ONLY.equals(reqType);
+
+try { 
+for (final PersonSearchRequest personSearchRequest : incidentsSearchRequest) { 
+// if RequestType = BDF or ALL 
+if 
+(!personSearchRequest.getRequestType().equals(RequestTypeEnum.BNP_ONLY)) { 
+
+    // ==============================
+    // AER_SOC-1529 — AJOUT : exécuter l’appel FCC BDF uniquement si autorisé
+    // ==============================
+    if (allowFCC_BDF) {
+        final FCCResponse gppi = 
+        fccClient.searchGlobalPP(personSearchRequest.getBdfKey()); 
+        callStaticsService(channel, caller, personSearchRequest, gppi, userId); 
+        result.addAll(mapFCCResponsePP(gppi, personSearchRequest)); 
+    } // sinon : pas d’appel FCC BDF (économie)
+} 
+} 
+return result; 
+} catch (final ApiException apie) { 
+LOGGER.error("API Exception", apie); 
+throw new ApiException(1, apie.getMessage()); 
+} catch (final Exception e) { 
+LOGGER.error("Service Call Exception", e); 
+throw new ApiException(1, e.getMessage()); 
+} 
+} 
+
+// ASAP 514 
+/** 
+* searchIncidentMoral 
+* 
+* @param incidentsSearchRequest List of PersonSearchRequest to search 
+* @return List of PersonneMorale if they are found in BDF FCC Database 
+*/ 
+public List<Personne> searchIncidentMoral(final List<PersonSearchRequest> 
+incidentsSearchRequest, final String channel, 
+final String caller, String userId) { 
+final List<Personne> result = new ArrayList<Personne>(); 
+
+// ==============================
+// AER_SOC-1529 — AJOUT : réutilise le drapeau FCC BDF pour PM
+// ==============================
+RequestTypeEnum reqType = (incidentsSearchRequest != null && !incidentsSearchRequest.isEmpty())
+        ? incidentsSearchRequest.get(0).getRequestType() : null;
+boolean allowFCC_BDF = RequestTypeEnum.FCC_BDF.equals(reqType)
+        || RequestTypeEnum.BOTH_BNP_BDF.equals(reqType)
+        || RequestTypeEnum.BDF_ONLY.equals(reqType);
+
+try { 
+for (final PersonSearchRequest personSearchRequest : incidentsSearchRequest) { 
+    if (allowFCC_BDF) {
+        final FCCResponse gppi = 
+        fccClient.searchGlobalPM(personSearchRequest.getBdfKey(), 
+        personSearchRequest.getImmatType(), 
+        personSearchRequest.getImmatId()); 
+        callStaticsService(channel, caller, personSearchRequest, gppi, userId); 
+        result.addAll(mapFCCResponsePM(gppi, personSearchRequest)); 
+    } // sinon : pas d’appel FCC PM (économie) 
+} 
+return result; 
+} catch (final ApiException apie) { 
+LOGGER.error("API Exception", apie); 
+for (final PersonSearchRequest personSearchRequest : incidentsSearchRequest) { 
+if (personSearchRequest.getBdfKey() == null) { 
+throw new ApiException(1, "BDF KEY est obligatoire ou mal renseignée pour 
+faire l'appel FCC PM"); 
+} else if (personSearchRequest.getImmatType() == null) { 
+throw new ApiException(1, "Type Immatriculation est obligatoire ou mal 
+renseignée faire l'appel FCC PM"); 
+} else if (personSearchRequest.getImmatId() == null) { 
+throw new ApiException(1, "Id Immatriculation est obligatoire ou mal 
+renseignée faire l'appel FCC PM"); 
+} 
+} 
+throw new ApiException(1, apie.getMessage()); 
+} catch (final Exception e) { 
+LOGGER.error("Service Call Exception", e); 
+throw new ApiException(1, e.getMessage()); 
+} 
+} 
+}
+```
+
+---
+
+### Ce que ces ajouts garantissent
+
+* **Aucun appel BDF inutile** : si la requête demande `FICP_BDF` seul → **pas d’appel FCC**, et inversement.
+* **Compatibilité totale** avec les modes existants (`BNP_ONLY`, `BDF_ONLY`, `BOTH_BNP_BDF`) sans supprimer de lignes.
+* **PM** : `searchIncidentMoral` n’appelle **FCC PM** que si `FCC_BDF`, `BDF_ONLY` ou `BOTH_BNP_BDF`.
+
+Dis-moi si tu veux que je t’intègre la même logique dans d’autres services (ex. un éventuel wrapper d’orchestration) ou que je prépare de petits **tests unitaires** de non-régression pour valider le filtrage par `RequestTypeEnum`.
+
+===========201020251501 FIN
