@@ -1,28 +1,52 @@
+package com.bnpparibas.dsibddf.ap10530.incident.domain.model.enums;
 
-### Ce que j’ai ajouté (et seulement ajouté)
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonValue;
 
-* **Deux blocs de flags AER_SOC-1529** (en haut de `searchIncident(...)` et `searchIncidentMoral(...)`) :
+/**
+ * Code accès requête:
+ *  1 = BNP_ONLY        (BCI + FICP BNPP)
+ *  2 = BDF_ONLY        (FICP BDF + FCC BDF [+ FCC PM pour PM])
+ *  3 = BOTH_BNP_BDF    (BNP + BDF)
+ *
+ *  --- AER_SOC-1529 (AJOUTS, aucun code supprimé) ---
+ *  4 = FICP_BDF        (appel unitaire FICP BDF uniquement)
+ *  5 = FCC_BDF         (appel unitaire FCC BDF uniquement ; inclut FCC PM pour PM)
+ *  6 = FICP_BCEF       (ajout unitaire du bloc FICP_BNPP uniquement)
+ *  7 = BCI_BCEF        (ajout unitaire du bloc BCI uniquement)
+ */
+public enum RequestTypeEnum {
 
-  * `allowFCC_BDF` = `true` si `RequestTypeEnum` ∈ {`FCC_BDF`, `BOTH_BNP_BDF`, `BDF_ONLY`}.
-* **Encadrement des appels existants** :
+    // Valeurs historiques (inchangées)
+    BNP_ONLY("1"),
+    BDF_ONLY("2"),
+    BOTH_BNP_BDF("3"),
 
-  * Dans `searchIncident(...)` (PP) : le bloc
+    // --- AER_SOC-1529 : AJOUTS SANS SUPPRESSION ---
+    FICP_BDF("4"),   // autorise seulement FICP BDF
+    FCC_BDF("5"),    // autorise seulement FCC BDF (+ FCC PM si personne morale)
+    FICP_BCEF("6"),  // autorise seulement l’ajout FICP BNPP (BCEF)
+    BCI_BCEF("7");   // autorise seulement l’ajout BCI (BCEF)
 
-    ```java
-    final FCCResponse gppi = fccClient.searchGlobalPP(...);
-    callStaticsService(...);
-    result.addAll(mapFCCResponsePP(...));
-    ```
+    @JsonCreator
+    public static RequestTypeEnum fromValue(final String text) {
+        for (final RequestTypeEnum b : RequestTypeEnum.values()) {
+            if (String.valueOf(b.value).equals(text)) {
+                return b;
+            }
+        }
+        return null;
+    }
 
-    est désormais exécuté **uniquement** si `allowFCC_BDF` est vrai. Sinon on log un *skip*.
-  * Dans `searchIncidentMoral(...)` (PM) : même principe autour de
+    private final String value;
 
-    ```java
-    fccClient.searchGlobalPM(...);
-    callStaticsService(...);
-    result.addAll(mapFCCResponsePM(...));
-    ```
-* **Aucune ligne supprimée** : le code original reste intact, simplement placé dans des `if` conditionnels.
-* **Indentation** homogène pour éviter tout warning/erreur de formatage.
+    RequestTypeEnum(final String value) {
+        this.value = value;
+    }
 
-si tu veux, je fais la même chose sur `FICPService` (toujours en « ajouts uniquement ») 👌
+    @Override
+    @JsonValue
+    public String toString() {
+        return String.valueOf(value);
+    }
+}
