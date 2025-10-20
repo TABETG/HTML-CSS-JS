@@ -1,21 +1,507 @@
-Ce que j’ai fait (sans supprimer de code)
+package com.bnpparibas.dsibddf.ap10530.incident.infrastructure.fcc.service;
 
-Ajout des flags AER_SOC-1529 en tête de searchIncident(...) :
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.List;
+import java.util.Optional;
 
-allowBCI_BCEF, allowFICP_BCEF (blocs BNPP à ajouter).
+import com.bnpparibas.dsibddf.ap10530.incident.domain.dto.StatisticsRequestDto;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.rest.StatisticsService;
 
-allowFICP_BDF, allowFCC_BDF (appels BDF à exécuter).
+import org.apache.commons.lang3.StringUtils;
+import org.joda.time.LocalDate;
+import org.joda.time.LocalDateTime;
+import org.joda.time.format.DateTimeFormat;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
 
-Encadrement des ajouts BNPP existants (lignes resultList.add(... BCI), resultList.add(... FICP_BNPP)) derrière if (allow...) — les lignes d’origine sont conservées et exécutées seulement si autorisées.
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.ApiException;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.Incident;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.PersonSearchRequest;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.Personne;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.enums.RequestTypeEnum;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.model.enums.SexEnum;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.utils.BDFKeyGenerator;
+import com.bnpparibas.dsibddf.ap10530.incident.domain.utils.ISOBirthDateConverter;
 
-Encadrement des appels BDF existants :
+import com.bnpparibas.dsibddf.ap10530.incident.infrastructure.fcc.dto.Compte;
+import com.bnpparibas.dsibddf.ap10530.incident.infrastructure.fcc.dto.Detail;
+import com.bnpparibas.dsibddf.ap10530.incident.infrastructure.fcc.dto.Global;
+import com.bnpparibas.dsibddf.ap10530.incident.infrastructure.fcc.dto.Naissance;
+import com.bnpparibas.dsibddf.ap10530.incident.infrastructure.fcc.dto.PersonneBdf;
+import com.bnpparibas.dsibddf.ap10530.incident.infrastructure.fcc.dto.PersonneMorale;
+import com.bnpparibas.dsibddf.ap10530.incident.infrastructure.fcc.dto.PersonnePhysique;
+import com.bnpparibas.dsibddf.ap10530.incident.infrastructure.fcc.dto.FCCResponse;
 
-ficpService.searchIncident(...) + ajout dans resultList sous if (allowFICP_BDF).
+/**
+ * WebService FCC Orchestrator Service
+ */
+@Component
+public class FCCService {
 
-fccService.searchIncident(...) + ajout dans resultList sous if (allowFCC_BDF).
+    private static final String FEMININ = "F";
+    private static final String MASCULIN = "M";
+    private static final Logger LOGGER = LoggerFactory.getLogger(FCCService.class);
 
-Pour PM, searchIncidentMoral(...) et ajout FCC_PM également sous if (allowFCC_BDF).
+    @Autowired
+    private StatisticsService statisticsService;
 
-Indentation harmonisée sans modifier la sémantique ni retirer de commentaires/code.
+    @Autowired
+    private PobiFccClient fccClient;
 
-si tu veux, je fais la même opération sur FICPService et FCCService (toujours 0 suppression, 100% additions + commentaires).
+    /**
+     * @return the fccClient
+     */
+    public PobiFccClient getFccClient() {
+        return fccClient;
+    }
+
+    /**
+     * @param fccClient the fccClient to set
+     */
+    public void setFccClient(final PobiFccClient fccClient) {
+        this.fccClient = fccClient;
+    }
+
+    ///**
+    // * Do the mapping between an an incoming DETAILType and a outcomming PersonnePhysique.
+    // *
+    // * @param detail
+    // * an incoming DETAILType
+    // * @param pp
+    // * a filled PersonnePhysique
+    // */
+    //private void mapDetail(final Detail detail, final Personne pp) {
+    //    // TODO en attente d'information sur le mapping
+    //    // final String dateOfSubmission = detail.getDetailIJ().getDateExpIJ();
+    //    // pp.setDateOfSubmission(LocalDate.parse(dateOfSubmission));
+    //    // final String detaiIncident = detail.getDetailIncident().getIncCheque().getNumEnreg();
+    //    // pp.setNumberOfIncident(Integer.parseInt(detaiIncident));
+    //    // final String natjirudiction = detail.getDetailIJ().getNatJuridiction();
+    //    // final String sigeJuridiqic = detail.getDetailIJ().getSiegeJuridic();
+    //    // final String refparq = detail.getDetailIJ().getREFPARQ();
+    //    // final String dateEcij = detail.getDetailIJ().getDateDecIJ();
+    //    // final String dateExpij = detail.getDetailIJ().getDateExpIJ();
+    // }
+
+    /**
+     * Do the mapping between an incoming SexType String to return a SexEnum value.
+     *
+     * @param sexe an incoming SexType (M or F)
+     * @return a SexEnum value
+     */
+    private SexEnum mapFCCSexType(final String sexe) {
+        if (MASCULIN.equals(sexe)) {
+            return SexEnum.MASCULIN;
+        } else if (FEMININ.equals(sexe)) {
+            return SexEnum.FEMININ;
+        }
+        return null;
+    }
+
+    /**
+     * Do the mapping between an incoming GLOBALType and a outcomming PersonnePhysique.
+     *
+     * @param global an incoming GLOBALType
+     * @param pp     a filled PersonnePhysique
+     */
+    private void mapGlobal(final Global global, final Personne pp) {
+        final Incident incident = new Incident();
+        pp.addIncidentsItem(incident);
+
+        if (null == global.getComptes() || global.getComptes().isEmpty()) {
+            //<ISO bug 0.2.28.26 (NumberOfIncident ne vaut jamais 0...)
+            global.setDateDerRCB(StringUtils.defaultString(global.getDateDerRCB()));
+            //>
+
+            if (global.getDateDerRCB() == null && global.getDateExpIB() == null && global.getDateExpIJ() == null) {
+                pp.setNumberOfIncident(Integer.valueOf(0));
+            } else {
+                pp.setNumberOfIncident(Integer.valueOf(1));
+            }
+            if (global.getDateDerRCB() != null) {
+                incident.setIncidentStatus(global.getDateDerRCB());
+            }
+            if (global.getDateExpIB() != null) {
+                incident.setDateEffect(mapLocalDate(global.getDateExpIB()));
+            }
+            if (global.getDateExpIJ() != null) {
+                incident.setIncidentDate(mapLocalDate(global.getDateExpIJ()));
+            }
+        } else {
+            final Compte compte = global.getComptes().get(0);
+            if (!StringUtils.isEmpty(compte.getNbChq())) {
+                pp.setNumberOfIncident(Integer.valueOf(compte.getNbChq()));
+            } else {
+                pp.setNumberOfIncident(Integer.valueOf(0));
+            }
+            //LOGGER.info("nouvelle info - compte.getType() : " + compte.getType());
+            final int numIncident = pp.getIncidents().size();
+            incident.setOriginCode(String.valueOf(numIncident));
+            incident.setDateEffect(mapLocalDate(global.getDateExpIB()));
+            incident.setIncidentDate(mapLocalDate(global.getDateExpIJ()));
+            incident.setIncidentStatus(global.getDateDerRCB());
+            incident.setIncidentUO(compte.getNbCpte());
+            if (!StringUtils.isEmpty(compte.getNbChq())) {
+                incident.setNumberOfIncidentDeclared(Integer.parseInt(compte.getNbChq().replaceAll("\\s+", "")));
+            }
+            if (!StringUtils.isEmpty(compte.getMtInsufCum())) {
+                incident.setNumberOfDeclarers(Integer.parseInt(compte.getMtInsufCum().replaceAll("\\s+", "")));
+            }
+            incident.setCompteType(compte.getType());
+        }
+    }
+
+    /**
+     * ASAP514 Do the mapping between an incoming GLOBALType and a outcomming PersonneMorale.
+     * <p>
+     * mapGlobalMorale
+     *
+     * @param global an incoming GLOBALType
+     * @param pm     a filled PersonneMorale
+     */
+    private void mapGlobalMorale(final Global global, final Personne pm) {
+        final Incident inc = new Incident();
+        inc.setAccountType(global.getComptes().get(0).getType());
+        inc.setDateFinINB(global.getDateExpIB());
+        inc.setDateFinING(global.getDateExpIJ());
+        inc.setLastCardWithdraw(global.getDateDerRCB());
+        inc.setComptesPM(global.getComptes().get(0).getNbCpte());
+        inc.setChequesPM(global.getComptes().get(0).getNbChq());
+        inc.setRetraitCBPM(global.getComptes().get(0).getNbRCB());
+        pm.addIncidentsItem(inc);
+    }
+
+    private LocalDate mapLocalDate(final String stringDate) {
+        if (StringUtils.isEmpty(stringDate)) {
+            return null;
+        }
+        return LocalDate.parse(stringDate, DateTimeFormat.forPattern("dd.MM.yyyy"));
+    }
+
+    /**
+     * Do the mapping between an an incoming NAISSANCEType and a outcomming PersonnePhysique.
+     *
+     * @param naissanceType an incoming NAISSANCEType
+     * @param pp            a filled PersonnePhysique
+     * @param psr           used to fix received bad birthDate format without century
+     */
+    private void mapNaissance(final Naissance naissanceType, final Personne pp, final PersonSearchRequest psr) {
+        if (naissanceType != null) {
+            if (LOGGER.isDebugEnabled()) {
+                LOGGER.debug("received birthDate without century", naissanceType.getDateNaiss());
+                LOGGER.debug("replaced by request birthDate", psr.getBirthDate());
+            }
+            pp.setBirthDate(psr.getBirthDate());
+            String communeCode = "";
+            if (null != naissanceType.getCommune().getCode() && null != naissanceType.getCommune().getLibelle()) {
+                communeCode = String.format("%s %s", naissanceType.getCommune().getCode(), naissanceType.getCommune().getLibelle());
+            } else if (null != naissanceType.getCommune().getCode()) {
+                communeCode = naissanceType.getCommune().getCode();
+            } else if (null != naissanceType.getCommune().getLibelle()) {
+                communeCode = naissanceType.getCommune().getLibelle();
+            }
+            pp.setBirthCity(communeCode);
+            //LOGGER.info("nouvelle info FCC - COMM().getCode() : " + naissanceType.getCommune().getCode());
+            //LOGGER.info("nouvelle info FCC - COMM().getVALUE() : " + naissanceType.getCommune().getLibelle());
+            final String birthDepCode = naissanceType.getDepartement().getCode();
+            pp.setBirthDepartment(birthDepCode);
+        }
+    }
+
+    /**
+     * Do the mapping between an incoming PPType and a outcomming PersonnePhysique.
+     *
+     * @param ppType an incoming PPType
+     * @param pp     a filled PersonnePhysique
+     * @param psr    used to fix received bad birthDate format without century
+     */
+    private void mapPersonnePhysique(final PersonnePhysique ppType, final Personne pp, final PersonSearchRequest psr) {
+        if (ppType != null) {
+            pp.setLastname(ppType.getNom());
+            pp.setFirstname(ppType.getPrenoms());
+            pp.setCivility(mapFCCSexType(ppType.getSexe()));
+            pp.setMarriedName(ppType.getNomMarital());
+            pp.setUsuIDFCC(ppType.getFRUP().getLibelle());
+            mapNaissance(ppType.getNaissance(), pp, psr);
+            //pp.setBdfkey(BDFKeyGenerator.computeBDFKey(pp.getLastname(), ISOBirthDateConverter.fromISOString(pp.getBirthDate())));
+            pp.setBdfkey(psr.getBdfKey());
+        }
+    }
+
+    // ASAP 514
+    /**
+     * Do the mapping between an incoming PPType and a outcomming PersonneMorale.
+     *
+     * @param pmType an incoming PMType
+     * @param pm     a filled PersonneMorale
+     * @param psr    used to fix received bad birthDate format without century
+     */
+    private void mapPersonneMorale(final PersonneMorale pmType, final Personne pm) {
+        if (pmType != null) {
+            pm.setBusinessName(pmType.getDenom());
+            pm.setLegalName(pmType.getCatJur().getLibelle());
+            pm.setCodeLegalName(pmType.getCatJur().getCode());
+            pm.setPostalCode(pmType.getAdresse().getCP());
+            pm.setFiscalAdress1(pmType.getAdresse().getLig1());
+            pm.setFiscalAdress2(pmType.getAdresse().getLig2());
+            pm.setFiscalAdress3(pmType.getAdresse().getLig3());
+            pm.setImmatID(pmType.getNumImmat());
+            pm.setImmatType(pmType.getNatImmat());
+        }
+    }
+
+    /**
+     * Do the mapping between an an incoming GlobalePersonnePhysiqueInfo and a outcomming PersonnePhysique.
+     *
+     * @param gppi an incoming GlobalePersonnePhysiqueInfo
+     * @param psr  used to fix received bad birthDate format without century
+     * @return a filled PersonnePhysique list
+     */
+    private List<Personne> mapFCCResponsePP(final FCCResponse gppi, final PersonSearchRequest psr) {
+        final List<Personne> result = new ArrayList<Personne>();
+        final List<PersonneBdf> list = gppi.getMessage().getReponse().getPersonnes();
+        if (list == null) {
+            return result;
+        }
+        for (final PersonneBdf personneType : list) {
+            final Personne pp = new Personne();
+            mapPersonnePhysique(personneType.getPP(), pp, psr);
+            mapGlobal(personneType.getGlobal(), pp);
+            //mapDetail(personneType.getDetail(), pp);
+            result.add(pp);
+        }
+        return result;
+    }
+
+    /**
+     * ASAP514 Do the mapping between an an incoming GlobalePersonneMoraleInfo and a outcomming Personne.
+     *
+     * @param gppi an incoming GlobalePersonneMoraleInfo
+     * @param psr  used to fix received bad birthDate format without century
+     * @return a filled Personne list
+     */
+    private List<Personne> mapFCCResponsePM(final FCCResponse gppi, final PersonSearchRequest psr) {
+        final List<Personne> result = new ArrayList<Personne>();
+        final List<PersonneBdf> list = gppi.getMessage().getReponse().getPersonnes();
+        if (list == null) {
+            return result;
+        }
+        for (final PersonneBdf personneType : list) {
+            final Personne pm = new Personne();
+            pm.setBdfkey(psr.getBdfKey());
+            pm.setPersonId(psr.getPersonId());
+            mapPersonneMorale(personneType.getPM(), pm);
+            mapGlobalMorale(personneType.getGlobal(), pm);
+            // mapDetail(personneType.getDETAIL(), pm);
+            result.add(pm);
+        }
+        return result;
+    }
+
+    /**
+     * Perform the call orchestration for FCCService.
+     *
+     * <pre>
+     * 1-login
+     * 2-loop over bdfKey List to call globalePersonnePhysique
+     * 3-logout.
+     * </pre>
+     *
+     * @param incidentsSearchRequest List of PersonSearchRequest to search
+     * @return List of PersonnePhysique if they are found in BDF FCC Database
+     */
+    public List<Personne> searchIncident(
+        final List<PersonSearchRequest> incidentsSearchRequest,
+        final String channel,
+        final String caller,
+        String userId
+    ) {
+        final List<Personne> result = new ArrayList<Personne>();
+
+        // =====================================================================
+        // AER_SOC-1529 (AJOUT) — Drapeau d’autorisation d’appel FCC BDF
+        // NE SUPPRIME RIEN : on encadre simplement le bloc d’origine.
+        // - Autorisé si: FCC_BDF, BOTH_BNP_BDF, BDF_ONLY
+        // - Non autorisé si: BNP_ONLY, FICP_BDF, FICP_BCEF, BCI_BCEF
+        // =====================================================================
+        RequestTypeEnum _reqType_ =
+            (incidentsSearchRequest != null && !incidentsSearchRequest.isEmpty())
+                ? incidentsSearchRequest.get(0).getRequestType()
+                : null;
+
+        final boolean allowFCC_BDF =
+            RequestTypeEnum.FCC_BDF.equals(_reqType_)
+                || RequestTypeEnum.BOTH_BNP_BDF.equals(_reqType_)
+                || RequestTypeEnum.BDF_ONLY.equals(_reqType_);
+
+        try {
+            for (final PersonSearchRequest personSearchRequest : incidentsSearchRequest) {
+                // if RequestType = BDF or ALL
+                if (!personSearchRequest.getRequestType().equals(RequestTypeEnum.BNP_ONLY)) {
+
+                    // =================================================================
+                    // AER_SOC-1529 (AJOUT) — Encadrement de l’APPEL existant FCC BDF
+                    // -----------------------------------------------------------------
+                    // Le code d’origine est inchangé et exécuté SEULEMENT si autorisé.
+                    // =================================================================
+                    if (allowFCC_BDF) {
+                        final FCCResponse gppi =
+                            fccClient.searchGlobalPP(personSearchRequest.getBdfKey());
+                        callStaticsService(channel, caller, personSearchRequest, gppi, userId);
+                        result.addAll(mapFCCResponsePP(gppi, personSearchRequest));
+                    } else {
+                        // Pas d'appel FCC BDF en mode unitaire non-concerné (log soft)
+                        LOGGER.debug("AER_SOC-1529: FCC BDF call skipped (reqType={})", _reqType_);
+                    }
+                }
+            }
+            return result;
+        } catch (final ApiException apie) {
+            LOGGER.error("API Exception", apie);
+            throw new ApiException(1, apie.getMessage());
+        } catch (final Exception e) {
+            LOGGER.error("Service Call Exception", e);
+            throw new ApiException(1, e.getMessage());
+        }
+    }
+
+    private String callStaticsService(
+        String channel,
+        String caller,
+        PersonSearchRequest personSearchRequest,
+        FCCResponse gppi,
+        String userId
+    ) throws Exception {
+        try {
+            StatisticsRequestDto statisticsRequestDto = new StatisticsRequestDto();
+            if (StringUtils.isNotBlank(personSearchRequest.getBdfKey())) {
+                statisticsRequestDto.setiCleBdf(personSearchRequest.getBdfKey());
+            } else {
+                String dateCle = "";
+                if (StringUtils.isNotBlank(personSearchRequest.getBirthDate())) {
+                    String[] split = personSearchRequest.getBirthDate().split("-");
+                    dateCle = new StringBuilder()
+                        .append(split[2])
+                        .append(split[1])
+                        .append(split[0].substring(2))
+                        .toString();
+                }
+                String cleBdf = new StringBuilder()
+                    .append(dateCle)
+                    .append(!StringUtils.isNotBlank(personSearchRequest.getLastname()) ? "" :
+                        personSearchRequest.getLastname().length() < 5 ?
+                            personSearchRequest.getLastname() :
+                            personSearchRequest.getLastname().substring(0, 5))
+                    .toString();
+                statisticsRequestDto.setiCleBdf(cleBdf);
+            }
+            statisticsRequestDto.setCcanalOri(channel);
+            statisticsRequestDto.setcTypeAppel("FCC");
+
+            String tempCaller = caller;
+            if (StringUtils.isNotBlank(caller) && caller.length() > 8) {
+                tempCaller = caller.substring(0, 8);
+            }
+            statisticsRequestDto.setcTransApp(tempCaller);
+            statisticsRequestDto.setiIkpi(Optional.ofNullable(personSearchRequest.getPersonId()).orElse(""));//todo
+            statisticsRequestDto.setnCptes(StringUtils.isNotBlank(personSearchRequest.getNbCptesDossier()) ?
+                Integer.valueOf(personSearchRequest.getNbCptesDossier()) : 0);
+            statisticsRequestDto.setnPersFicp(StringUtils.isNotBlank(personSearchRequest.getNbPersFicp()) ?
+                Integer.valueOf(personSearchRequest.getNbPersFicp()) : 0);
+            statisticsRequestDto.setcReqTyp(personSearchRequest.getRequestType().toString());
+            statisticsRequestDto.setiUserId(userId);
+            String error = "500";
+            if (gppi != null) {
+                error = Optional.ofNullable(gppi.getMessage())
+                    .map(e -> Optional.ofNullable(e.getErreur())
+                        .map(f -> f.getErrCode()).orElse("0")).orElse("0");
+            }
+            statisticsRequestDto.setcErrorCode(error);
+            String pattern = "yyyyMMdd";
+            SimpleDateFormat simpleDateFormat = new SimpleDateFormat(pattern);
+            String date = simpleDateFormat.format(new Date());
+            statisticsRequestDto.setdInsert(date.toString());
+            statisticsRequestDto.setdTimeStamp(LocalDateTime.now().toString());
+            statisticsService.post(statisticsRequestDto);
+            if (gppi == null) {
+                throw new ApiException(1, "pobicall error");
+            }
+            return "OK";
+        } catch (final Exception e) {
+            LOGGER.error("Statistic Service Call Exception", e);
+            return "KO";
+        }
+    }
+
+    // ASAP 514
+    /**
+     * searchIncidentMoral
+     *
+     * @param incidentsSearchRequest List of PersonSearchRequest to search
+     * @return List of PersonneMorale if they are found in BDF FCC Database
+     */
+    public List<Personne> searchIncidentMoral(
+        final List<PersonSearchRequest> incidentsSearchRequest,
+        final String channel,
+        final String caller,
+        String userId
+    ) {
+        final List<Personne> result = new ArrayList<Personne>();
+
+        // =====================================================================
+        // AER_SOC-1529 (AJOUT) — Drapeau d’autorisation pour FCC BDF PM
+        // Même logique que searchIncident (PP).
+        // =====================================================================
+        RequestTypeEnum _reqType_ =
+            (incidentsSearchRequest != null && !incidentsSearchRequest.isEmpty())
+                ? incidentsSearchRequest.get(0).getRequestType()
+                : null;
+
+        final boolean allowFCC_BDF =
+            RequestTypeEnum.FCC_BDF.equals(_reqType_)
+                || RequestTypeEnum.BOTH_BNP_BDF.equals(_reqType_)
+                || RequestTypeEnum.BDF_ONLY.equals(_reqType_);
+
+        try {
+            for (final PersonSearchRequest personSearchRequest : incidentsSearchRequest) {
+
+                // =================================================================
+                // AER_SOC-1529 (AJOUT) — Encadrement de l’APPEL existant FCC PM
+                // =================================================================
+                if (allowFCC_BDF) {
+                    final FCCResponse gppi =
+                        fccClient.searchGlobalPM(
+                            personSearchRequest.getBdfKey(),
+                            personSearchRequest.getImmatType(),
+                            personSearchRequest.getImmatId()
+                        );
+                    callStaticsService(channel, caller, personSearchRequest, gppi, userId);
+                    result.addAll(mapFCCResponsePM(gppi, personSearchRequest));
+                } else {
+                    // Pas d'appel FCC PM si non autorisé par le type de requête
+                    LOGGER.debug("AER_SOC-1529: FCC PM call skipped (reqType={})", _reqType_);
+                }
+            }
+            return result;
+        } catch (final ApiException apie) {
+            LOGGER.error("API Exception", apie);
+            for (final PersonSearchRequest personSearchRequest : incidentsSearchRequest) {
+                if (personSearchRequest.getBdfKey() == null) {
+                    throw new ApiException(1, "BDF KEY est obligatoire ou mal renseignée pour faire l'appel FCC PM");
+                } else if (personSearchRequest.getImmatType() == null) {
+                    throw new ApiException(1, "Type Immatriculation est obligatoire ou mal renseignée faire l'appel FCC PM");
+                } else if (personSearchRequest.getImmatId() == null) {
+                    throw new ApiException(1, "Id Immatriculation est obligatoire ou mal renseignée faire l'appel FCC PM");
+                }
+            }
+            throw new ApiException(1, apie.getMessage());
+        } catch (final Exception e) {
+            LOGGER.error("Service Call Exception", e);
+            throw new ApiException(1, e.getMessage());
+        }
+    }
+}
