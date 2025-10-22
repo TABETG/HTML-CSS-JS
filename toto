@@ -1,337 +1,311 @@
-Top. J’ai pris ton POM stream-fact-batch et je te donne ci-dessous la version complète prête à coller avec tout ce qu’il faut pour viser ≥ 80 % de couverture : JUnit 5, compat JUnit 4 (si tu as encore des tests Cucumber JUnit4), Mockito, Spring Boot Test, et JaCoCo (avec règles et exclusions pertinentes pour ignorer le “bruit” : configurations @Configuration, jobs, DTO/POJO, etc.). Le POM d’origine est bien ce module stream-fact-batch (artifactId, deps IBM COS, Spring Batch, etc.). 
-
-Copie/colle ce POM en entier dans stream-fact-batch/pom.xml :
-
-<?xml version="1.0" encoding="UTF-8"?>
-<project xmlns="http://maven.apache.org/POM/4.0.0"
-         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
-                             http://maven.apache.org/xsd/maven-4.0.0.xsd">
-
-  <parent>
-    <artifactId>stream-fact</artifactId>
-    <groupId>com.bnpparibas.dsibddf.ap00420</groupId>
-    <version>1.1</version>
-  </parent>
-
-  <modelVersion>4.0.0</modelVersion>
-  <artifactId>stream-fact-batch</artifactId>
-  <packaging>jar</packaging>
-  <name>stream-fact-batch</name>
-  <description>La couche Batch héberge le code dédié à l'exécution des batchs</description>
-
-  <!-- Versions/outils tests & couverture -->
-  <properties>
-    <maven.compiler.source>17</maven.compiler.source>
-    <maven.compiler.target>17</maven.compiler.target>
-
-    <maven-surefire-plugin.version>3.2.5</maven-surefire-plugin.version>
-    <maven-failsafe-plugin.version>3.2.5</maven-failsafe-plugin.version>
-    <jacoco.version>0.8.11</jacoco.version>
-
-    <!-- si déjà défini par le parent, tu peux retirer cette ligne -->
-    <spring-boot-maven-plugin.version>3.3.4</spring-boot-maven-plugin.version>
-  </properties>
-
-  <dependencies>
-    <!-- Modules internes -->
-    <dependency>
-      <groupId>com.bnpparibas.dsibddf.ap00420</groupId>
-      <artifactId>stream-fact-domain</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>com.bnpparibas.dsibddf.ap00420</groupId>
-      <artifactId>stream-fact-application</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>com.bnpparibas.dsibddf.ap00420</groupId>
-      <artifactId>stream-fact-infra-sql</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>com.bnpparibas.dsibddf.ap00420</groupId>
-      <artifactId>stream-fact-infra-rest-clients</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>com.bnpparibas.dsibddf.ap00420</groupId>
-      <artifactId>stream-fact-infra-jms</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>com.bnpparibas.dsibddf.ap00420</groupId>
-      <artifactId>stream-fact-infra-smtp</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>com.bnpparibas.dsibddf.ap00420</groupId>
-      <artifactId>stream-fact-infra-soap-clients</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>com.bnpparibas.dsibddf.ap00420</groupId>
-      <artifactId>stream-fact-infra-static-filestore</artifactId>
-    </dependency>
-
-    <!-- APIs & Batch -->
-    <dependency>
-      <groupId>jakarta.inject</groupId>
-      <artifactId>jakarta.inject-api</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>org.springframework</groupId>
-      <artifactId>spring-web</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>org.springframework.boot</groupId>
-      <artifactId>spring-boot-starter-batch</artifactId>
-    </dependency>
-
-    <!-- IBM COS -->
-    <dependency>
-      <groupId>com.ibm.cos</groupId>
-      <artifactId>ibm-cos-java-sdk</artifactId>
-      <version>2.14.1</version>
-    </dependency>
-
-    <!-- XML utils -->
-    <dependency>
-      <groupId>org.codehaus.woodstox</groupId>
-      <artifactId>woodstox-core-asl</artifactId>
-      <version>4.4.1</version>
-    </dependency>
-
-    <!-- Crypto -->
-    <dependency>
-      <groupId>org.bouncycastle</groupId>
-      <artifactId>bcpg-jdk15on</artifactId>
-    </dependency>
-
-    <!-- ===== TEST deps ===== -->
-    <dependency>
-      <groupId>org.springframework.batch</groupId>
-      <artifactId>spring-batch-test</artifactId>
-      <scope>test</scope>
-    </dependency>
-
-    <!-- Spring Boot Test (JUnit 5, Mockito, AssertJ, etc.) -->
-    <dependency>
-      <groupId>org.springframework.boot</groupId>
-      <artifactId>spring-boot-starter-test</artifactId>
-      <scope>test</scope>
-      <exclusions>
-        <!-- on laisse la compat JUnit4 via Vintage plus bas -->
-        <exclusion>
-          <groupId>org.junit.vintage</groupId>
-          <artifactId>junit-vintage-engine</artifactId>
-        </exclusion>
-      </exclusions>
-    </dependency>
-
-    <!-- Mockito Jupiter (annotations @Mock, @InjectMocks avec JUnit 5) -->
-    <dependency>
-      <groupId>org.mockito</groupId>
-      <artifactId>mockito-junit-jupiter</artifactId>
-      <scope>test</scope>
-    </dependency>
-
-    <!-- Compat éventuelle JUnit 4 (utile si tu as encore cucumber-junit ou des vieux tests) -->
-    <dependency>
-      <groupId>org.junit.vintage</groupId>
-      <artifactId>junit-vintage-engine</artifactId>
-      <scope>test</scope>
-    </dependency>
-
-    <!-- Cucumber (si tu as des features; sinon tu peux supprimer) -->
-    <dependency>
-      <groupId>io.cucumber</groupId>
-      <artifactId>cucumber-junit</artifactId>
-      <scope>test</scope>
-    </dependency>
-    <dependency>
-      <groupId>io.cucumber</groupId>
-      <artifactId>cucumber-spring</artifactId>
-      <scope>test</scope>
-    </dependency>
-    <dependency>
-      <groupId>io.cucumber</groupId>
-      <artifactId>cucumber-java</artifactId>
-      <scope>test</scope>
-    </dependency>
-    <dependency>
-      <groupId>io.cucumber</groupId>
-      <artifactId>cucumber-java8</artifactId>
-      <scope>test</scope>
-    </dependency>
-
-    <!-- XStream pour tests si nécessaire -->
-    <dependency>
-      <groupId>com.thoughtworks.xstream</groupId>
-      <artifactId>xstream</artifactId>
-      <scope>test</scope>
-    </dependency>
-  </dependencies>
-
-  <build>
-    <plugins>
-
-      <!-- Spring Boot repackage -->
-      <plugin>
-        <groupId>org.springframework.boot</groupId>
-        <artifactId>spring-boot-maven-plugin</artifactId>
-        <version>${spring-boot-maven-plugin.version}</version>
-        <configuration>
-          <mainClass>com.bnpparibas.dsibddf.ap00420.streamfact.batch.main.StreamFactBatchApplication</mainClass>
-        </configuration>
-        <executions>
-          <execution>
-            <goals>
-              <goal>repackage</goal>
-            </goals>
-          </execution>
-        </executions>
-      </plugin>
-
-      <!-- Compiler -->
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-compiler-plugin</artifactId>
-        <version>3.10.1</version>
-        <configuration>
-          <source>${maven.compiler.source}</source>
-          <target>${maven.compiler.target}</target>
-        </configuration>
-      </plugin>
-
-      <!-- Tests unitaires (JUnit 5 + compat JUnit 4) -->
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-surefire-plugin</artifactId>
-        <version>${maven-surefire-plugin.version}</version>
-        <configuration>
-          <useModulePath>false</useModulePath>
-          <!-- Active JUnit Platform (JUnit 5) + Vintage (JUnit 4) -->
-          <includes>
-            <include>**/*Test.java</include>
-            <include>**/*Tests.java</include>
-            <include>**/*TestCase.java</include>
-          </includes>
-        </configuration>
-      </plugin>
-
-      <!-- (Optionnel) Tests d’intégration nommés *IT.java -->
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-failsafe-plugin</artifactId>
-        <version>${maven-failsafe-plugin.version}</version>
-        <executions>
-          <execution>
-            <goals>
-              <goal>integration-test</goal>
-              <goal>verify</goal>
-            </goals>
-            <configuration>
-              <includes>
-                <include>**/*IT.java</include>
-              </includes>
-            </configuration>
-          </execution>
-        </executions>
-      </plugin>
-
-      <!-- Couverture JaCoCo + règle ≥ 80 % -->
-      <plugin>
-        <groupId>org.jacoco</groupId>
-        <artifactId>jacoco-maven-plugin</artifactId>
-        <version>${jacoco.version}</version>
-        <executions>
-          <execution>
-            <id>prepare-agent</id>
-            <goals><goal>prepare-agent</goal></goals>
-          </execution>
-          <execution>
-            <id>report</id>
-            <phase>verify</phase>
-            <goals><goal>report</goal></goals>
-          </execution>
-          <execution>
-            <id>check</id>
-            <phase>verify</phase>
-            <goals><goal>check</goal></goals>
-            <configuration>
-              <rules>
-                <rule>
-                  <element>BUNDLE</element>
-                  <limits>
-                    <limit>
-                      <counter>INSTRUCTION</counter>
-                      <value>COVEREDRATIO</value>
-                      <minimum>0.80</minimum>
-                    </limit>
-                  </limits>
-                </rule>
-              </rules>
-              <!-- Exclure le bruit qui plombe la couverture mais n'a pas de logique -->
-              <excludes>
-                <!-- Jobs/Steps/Configs Spring Batch -->
-                <exclude>**/job/**</exclude>
-                <exclude>**/*Configuration*.class</exclude>
-                <exclude>**/*Config.class</exclude>
-                <exclude>**/listener/**</exclude>
-                <exclude>**/package-info.class</exclude>
-
-                <!-- DTO/POJO/mappers/enum purs (selon ton arbo) -->
-                <exclude>**/dto/**</exclude>
-                <exclude>**/pojo/**</exclude>
-                <exclude>**/model/**</exclude>
-                <exclude>**/mapper/**</exclude>
-                <exclude>**/mappers/**</exclude>
-
-                <!-- Classe main -->
-                <exclude>**/main/**</exclude>
-              </excludes>
-            </configuration>
-          </execution>
-        </executions>
-      </plugin>
-
-    </plugins>
-  </build>
-</project>
-
-Ce que ça t’apporte
-
-JUnit 5 + Mockito prêts pour écrire des tests unitaires ciblant la logique (processors, writers, tasklets).
-
-Compat JUnit 4 activée (Vintage) pour faire tourner d’éventuels tests Cucumber JUnit4 existants (tu pourras migrer plus tard).
-
-JaCoCo avec seuil 80 % et exclusions des classes “bruit” (jobs, config, DTO/POJO…).
-
-Failsafe prêt si tu veux des tests d’intégration *IT.java.
+Top — on garde le pom.xml tel quel. Voilà un plan court + concret avec des tests prêts à coller pour booster la couverture > 80 % en ciblant les classes à logique. J’utilise uniquement JUnit5/Mockito/Spring Boot Test (normalement déjà présents dans ton projet).
 
 
-Lancer et vérifier
+---
 
-# lancer les tests unitaires
-mvn -q test
+Où gagner vite (priorité)
 
-# générer le rapport + appliquer la règle 80 %
-mvn -q verify
+LoadDailyMeteorFileTasklet (parsing + archivage).  
 
-# ouvrir le rapport
-# Windows
-start target/site/jacoco/index.html
-# macOS
-open target/site/jacoco/index.html
-# Linux
-xdg-open target/site/jacoco/index.html
+PurgeDpoTableTasklet (calcul de date + repository). 
 
-Ensuite (pour gagner les derniers points)
+SendMailDPOTasklet (filtrage par nature + appel service mail). 
 
-Écris 3–5 tests à fort ROI (ceux que je t’ai fournis précédemment) :
+LoanFolderSynchroItemWriter (filtre + saveAll). 
 
-UpdateBillingSpaceToStatusClosedTaskletTest (assert + appel repo).
-
-BillingSpaceClosureProcessorTest (appel CommandExecutorV2).
-
-LoadDailyMeteorFileTaskletTest (cas 0 fichier + cas parsing OK avec archiveFile).
-
-(bonus) CommonStepExecutionListenerTest pour gratter quelques %.
+EventHistorySynchroItemWriter (règle “commercialRelationShip only”). 
 
 
-Tu veux que je te colle maintenant tous les fichiers de test prêts-à-mettre dans src/test/java pour ces classes ?
+
+---
+
+Exemples de tests (copie/colle)
+
+> Place-les sous src/test/java/... en respectant les packages réels.
+
+
+
+1) LoadDailyMeteorFileTaskletTest
+
+Couvre: parsing ligne “02…”, convertIdProtToContractType, archivage quand succès, et cas “no file”.
+
+package com.bnpparibas.dsibddf.ap00420.streamfact.batch.dailymeteorintegration.tasklet;
+
+import org.junit.jupiter.api.*;
+import org.mockito.*;
+import java.io.*;
+import java.math.BigDecimal;
+import java.nio.file.Files;
+import java.time.LocalDateTime;
+import java.util.*;
+import static org.mockito.Mockito.*;
+import static org.junit.jupiter.api.Assertions.*;
+
+class LoadDailyMeteorFileTaskletTest {
+
+  @Mock private com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.meteorflux.repository.MeteorFluxRepository repo;
+  @Mock private com.bnpparibas.dsibddf.ap00420.streamfact.batch.dailymeteorintegration.manager.FileManager fileManager;
+
+  private LoadDailyMeteorFileTasklet tasklet;
+
+  @BeforeEach
+  void init() {
+    MockitoAnnotations.openMocks(this);
+    tasklet = new LoadDailyMeteorFileTasklet(repo, fileManager); // 6
+  }
+
+  @Test
+  void execute_shouldArchive_whenParseOk_andNotExistsInDb() throws Exception {
+    // ligne commençant par "02", avec les sous-chaînes aux index utilisés par le parser (cf. code source) 7
+    StringBuilder line = new StringBuilder("02");
+    line.append(pad("LOADACCOUNT1234567890123", 23)); // [2,25)
+    line.append(pad("", 63));                          // [25,88)
+    line.append("001");                                // idProt [88,91) -> PRI
+    line.append(pad("0000000000000123", 16));          // personalContribution [91,107)
+    line.append(pad("0000000000000456", 16));          // purchase [107,123)
+    line.append(pad("0000000000000789", 16));          // renovation [123,139)
+    line.append(pad("", 32));                          // [139,171)
+    line.append(pad("0000000000000123", 16));          // land [171,187)
+    line.append(pad("", 370));                         // [187,557)
+    line.append(pad("LOANFOLDER_ID_ABCDEF", 23));      // [557,580)
+
+    File tmp = File.createTempFile("meteor", ".txt");
+    Files.writeString(tmp.toPath(), line.toString() + System.lineSeparator());
+
+    com.bnpparibas.dsibddf.ap00420.streamfact.batch.dailymeteorintegration.model.MeteorFile mf =
+        new com.bnpparibas.dsibddf.ap00420.streamfact.batch.dailymeteorintegration.model.MeteorFile(tmp, "name");
+    when(fileManager.getFiles()).thenReturn(List.of(mf));
+    when(repo.existsByLoanAccountNumber("LOADACCOUNT1234567890123")).thenReturn(false);
+
+    var rs = tasklet.execute(null, null);
+    assertNotNull(rs);
+    verify(repo).saveAll(anyList());
+    verify(fileManager).archiveFile(mf);
+  }
+
+  @Test
+  void execute_shouldWarn_whenNoFile() throws Exception {
+    when(fileManager.getFiles()).thenReturn(Collections.emptyList());
+    var rs = tasklet.execute(null, null);
+    assertNotNull(rs);
+    verifyNoInteractions(repo);
+  }
+
+  // util
+  private static String pad(String v, int len) {
+    String s = v == null ? "" : v;
+    if (s.length() > len) return s.substring(0, len);
+    return s + " ".repeat(len - s.length());
+  }
+}
+
+> Référence: parsing des champs (indices + types) et appel archiveFile après succès.  
+
+
+
+
+---
+
+2) PurgeDpoTableTaskletTest
+
+Couvre: purgeNumberOfDays, calcul date et appel repo. 
+
+package com.bnpparibas.dsibddf.ap00420.streamfact.batch.dpo.tasklet;
+
+import org.junit.jupiter.api.*;
+import org.mockito.*;
+import org.springframework.test.util.ReflectionTestUtils;
+import java.time.LocalDate;
+import static org.mockito.Mockito.*;
+import static org.junit.jupiter.api.Assertions.*;
+
+class PurgeDpoTableTaskletTest {
+
+  @Mock private com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.history.repository.DPOMailToSendRepository repo;
+  private PurgeDpoTableTasklet tasklet;
+
+  @BeforeEach
+  void init() {
+    MockitoAnnotations.openMocks(this);
+    tasklet = new PurgeDpoTableTasklet();
+    ReflectionTestUtils.setField(tasklet, "dpoMailToSendRepository", repo);
+    ReflectionTestUtils.setField(tasklet, "purgeNumberOfDays", 15); // default du code 11
+  }
+
+  @Test
+  void execute_shouldDeleteWithComputedDate() throws Exception {
+    var rs = tasklet.execute(null, null);
+    assertNotNull(rs);
+    verify(repo, times(1)).deleteWithSendTrueAndSendDate(LocalDate.now().minusDays(15));
+  }
+
+  @Test
+  void execute_shouldFail_whenPurgeDaysNull() {
+    ReflectionTestUtils.setField(tasklet, "purgeNumberOfDays", null);
+    assertThrows(IllegalArgumentException.class, () -> tasklet.execute(null, null)); // Assert.notNull(...) 12
+  }
+}
+
+
+---
+
+3) SendMailDPOTaskletTest
+
+Couvre: filtrage par ProblemNatureEnum + appel service mail. 
+
+package com.bnpparibas.dsibddf.ap00420.streamfact.batch.dpo.tasklet;
+
+import org.junit.jupiter.api.*;
+import org.mockito.*;
+import java.util.*;
+import static org.mockito.Mockito.*;
+
+class SendMailDPOTaskletTest {
+
+  @Mock private com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.history.repository.DPOMailToSendRepository repo;
+  @Mock private com.bnpparibas.dsibddf.ap00420.streamfact.application.dpo.DPOMailSenderServiceImpl sender;
+  private SendMailDPOTasklet tasklet;
+
+  @BeforeEach
+  void init() {
+    MockitoAnnotations.openMocks(this);
+    tasklet = new SendMailDPOTasklet();
+    org.springframework.test.util.ReflectionTestUtils.setField(tasklet, "dpoMailToSendRepository", repo);
+    org.springframework.test.util.ReflectionTestUtils.setField(tasklet, "dpoMailSenderService", sender);
+  }
+
+  @Test
+  void execute_shouldSend_whenListsNotEmpty() throws Exception {
+    var mail = new com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.history.model.DPOMailToSend();
+    // on simule une liste non envoyée (flag false) renvoyée par le repo 14
+    when(repo.findByIsSend(false)).thenReturn(List.of(mail));
+    // le service `execute` sera appelé pour les listes filtrées par nature (TECHNICAL / FUNCTIONAL)
+    doNothing().when(sender).execute(anyList());
+
+    var rs = tasklet.execute(null, null);
+    assertNotNull(rs);
+    verify(sender, atLeastOnce()).execute(anyList());
+  }
+}
+
+
+---
+
+4) LoanFolderSynchroItemWriterTest
+
+Couvre: filtre hasSynchronisation + saveAll. 
+
+package com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.synchro.update.writer;
+
+import org.junit.jupiter.api.*;
+import org.mockito.*;
+import org.springframework.batch.item.Chunk;
+import java.util.*;
+import static org.mockito.Mockito.*;
+
+class LoanFolderSynchroItemWriterTest {
+
+  @Mock private com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.loanfolder.repository.LoanFolderAnswerJpaRepository jpaRepo;
+  private LoanFolderSynchroItemWriter writer;
+
+  @BeforeEach
+  void init() {
+    MockitoAnnotations.openMocks(this);
+    writer = new LoanFolderSynchroItemWriter();
+    org.springframework.test.util.ReflectionTestUtils.setField(writer, "loanFolderAnswerJpaRepository", jpaRepo);
+  }
+
+  @Test
+  void write_shouldSaveAll_onlyWhenSynchroResultPresent() {
+    var withSynchro = new com.bnpparibas.dsibddf.ap00420.streamfact.application.loanfolder.synchro.pojo.SynchroResult();
+    var lr = new com.bnpparibas.dsibddf.ap00420.streamfact.application.loanfolder.synchro.pojo.LoanFolderSynchroResult();
+    lr.setLoanFolder(new com.bnpparibas.dsibddf.ap00420.streamfact.application.loanfolder.synchro.pojo.LoanFolder());
+    withSynchro.setLoanFolderSynchroResult(lr);
+
+    var withoutSynchro = new com.bnpparibas.dsibddf.ap00420.streamfact.application.loanfolder.synchro.pojo.SynchroResult();
+
+    writer.write(Chunk.of(withSynchro, withoutSynchro)); // .filter(...) + saveAll(...) 16
+    verify(jpaRepo, times(1)).saveAll(anyList());
+  }
+}
+
+
+---
+
+5) EventHistorySynchroItemWriterTest
+
+Couvre: règle “si uniquement commercialRelationShip, ne pas créer d’événement” (la méthode retourne false quand la liste filtrée n’est pas vide). 
+
+package com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.synchro.update.writer;
+
+import org.junit.jupiter.api.*;
+import org.mockito.*;
+import org.springframework.batch.item.Chunk;
+import java.util.*;
+import static org.mockito.Mockito.*;
+
+class EventHistorySynchroItemWriterTest {
+
+  @Mock private com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.history.repository.DocaposteEventHistoryJpaRepository histRepo;
+  private EventHistorySynchroItemWriter writer;
+
+  @BeforeEach
+  void init() {
+    MockitoAnnotations.openMocks(this);
+    writer = new EventHistorySynchroItemWriter();
+    org.springframework.test.util.ReflectionTestUtils.setField(writer, "docaposteEventHistoryJpaRepository", histRepo);
+  }
+
+  @Test
+  void write_shouldSkip_whenOnlyCommercialRelationShipUpdated() {
+    var contract = new com.bnpparibas.dsibddf.ap00420.streamfact.application.loanfolder.synchro.pojo.ContractLoandFolderAnalysis();
+    var data = new com.bnpparibas.dsibddf.ap00420.streamfact.application.loanfolder.synchro.pojo.SynchroAnalysisData();
+    data.setFiledName("commercialRelationShip");
+    contract.setSynchroAnalysisDatas(List.of(data));
+
+    var lfa = new com.bnpparibas.dsibddf.ap00420.streamfact.application.loanfolder.synchro.pojo.LoanFolderSynchroAnalysis();
+    lfa.setContractLoandFolderAnalysisList(List.of(contract));
+
+    var lfr = new com.bnpparibas.dsibddf.ap00420.streamfact.application.loanfolder.synchro.pojo.LoanFolderSynchroResult();
+    lfr.setLoanFolderSynchroAnalysis(lfa);
+
+    var sr = new com.bnpparibas.dsibddf.ap00420.streamfact.application.loanfolder.synchro.pojo.SynchroResult();
+    sr.setLoanFolderSynchroResult(lfr);
+
+    writer.write(Chunk.of(sr)); // checkContractUpdateOnlyCommercialRelationShip(...) => pas d'insert 18
+    verify(histRepo, never()).save(any());
+  }
+}
+
+
+---
+
+Lancer et lire la couverture (sans toucher au pom)
+
+IntelliJ: Run > Run Tests with Coverage puis ouvre le rapport JaCoCo d’IntelliJ.
+
+CLI: mvn -Dtest=*Test test (le JaCoCo du projet/IntelliJ générera le rapport).
+
+Vise d’abord ces 5 classes : tu devrais déjà prendre +30–50 pts de couverture globale.
+
+Ajoute ensuite des tests “faciles” sur:
+
+DeleteDpoTableImageTasklet (appel repo). 
+
+La conf JobConfigurationBillingSpaceSynchro via un smoke test de contexte (bean présent). 
+
+
+
+
+---
+
+Pourquoi ça monte vite
+
+Chaque test tape de la logique réelle du code cité (parsing, filtres, règles de métier) : unitairement, peu de lignes, beaucoup de branches couvertes.
+
+Les Tasklet/ItemWriter sont idéaux: pas de contexte Spring complet requis (mocks suffisent).
+
+
+Si tu veux, je te fournis d’autres tests ciblés (ex: EncryptedInputStream avec faux blocs PGP pour couvrir le parcours “marker” + “encrypted list”).  
+
+Tu peux commencer avec ces 5 fichiers, lancer la couverture, et on complète au besoin pour dépasser les 80 %.
