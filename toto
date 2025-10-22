@@ -1,483 +1,99 @@
-Top — voici **le même code** avec **des commentaires clairs en français**, sans aucun refactoring ni changement de logique (j’ai uniquement ajouté des `//` et `/** ... */`).
+Parfait. Voici un patch minimal (uniquement de l’évolution) conforme à ta demande :
 
-```java
-package com.bnpparibas.dsibddf.ap10530.incident.application;
+✅ Toujours autoriser 1/2/3 aux lignes 185, 220, 274, 295 (on “force” l’autorisation BNPP sur ces 4 points).
 
-import java.text.SimpleDateFormat;
-import java.util.ArrayList;
-import java.util.Date;
-import java.util.List;
-import java.util.Optional;
-import java.util.stream.Collectors;
+⛔ De 166 à 305, ne pas autoriser 4 et 5 (on coupe FICP BDF et FCC BDF dans cette fenêtre).
 
-import com.bnpparibas.dsibddf.ap10530.incident.domain.dto.StatisticsRequestDto;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.rest.StatisticsService;
-import org.apache.commons.lang.StringUtils;
-import org.joda.time.LocalDateTime;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Component;
 
-import com.bnpparibas.dsibddf.ap10530.incident.domain.dto.IncidentMoralRequestDto;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.dto.IncidentMoralResponseDto;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.mappers.BciFicpRequestMapper;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.model.IncidentBciFicpResult;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.model.IncidentsCharacteristics;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.model.IncidentsCharacteristics.OriginEnum;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.model.MSG_IN;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.model.PersonSearchRequest;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.model.Personne;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.model.ZCON_FONC_IN;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.model.enums.CTypeImmatEnum;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.model.enums.LegalNameEnum;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.model.pm.ZCON_N_FAM;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.rest.BciFicpRestService;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.rest.PersoneMoraleRestService;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.utils.BDFKeyGenerator;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.utils.DebuggingUtils;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.utils.ISOBirthDateConverter;
-import com.bnpparibas.dsibddf.ap10530.incident.infrastructure.fcc.service.FCCService;
-import com.bnpparibas.dsibddf.ap10530.incident.infrastructure.ficp.service.FICPService;
-import com.bnpparibas.dsibddf.ap10530.incident.domain.model.enums.RequestTypeEnum;
 
-/**
- * Orchestrator service : réalise la logique métier et orchestre les appels (BCEFn / BDF).
- * NOTE ÉVOLUTION : la sélection des appels est pilotée par des flags "par négation"
- * uniquement pour les cas 4/5/6/7 (FICP_BDF, FCC_BDF, FICP_BCEF, BCI_BCEF).
- * Aucun refactoring ni suppression de code existant.
- *
- * Auteur(s) d’origine : Desprez / Tahiri
- */
-@Component
-public class IncidentService {
+---
 
-    private static final Logger LOGGER = LoggerFactory.getLogger(IncidentService.class);
+1) Ajouts de 2 flags (à placer juste après final RequestTypeEnum reqType = ...;)
 
-    @Autowired private StatisticsService statisticsService;
-    @Autowired private BciFicpRestService bciFicpService;   // Client REST BNPP (RP / Infos)
-    @Autowired private FICPService ficpService;              // Client FICP BDF
-    @Autowired private FCCService fccService;                // Client FCC  BDF
-    @Autowired private PersoneMoraleRestService pMService;   // Client Personne Morale
+// EVOLUTION: autoriser TOUJOURS 1/2/3 (BNP_ONLY / BDF_ONLY / BOTH)
+final boolean is123 =
+    RequestTypeEnum.BNP_ONLY.equals(reqType)
+ || RequestTypeEnum.BDF_ONLY.equals(reqType)
+ || RequestTypeEnum.BOTH_BNP_BDF.equals(reqType);
 
-    private final BciFicpRequestMapper bciFicpMapper = new BciFicpRequestMapper();
+// EVOLUTION: fenêtre 166–305 -> interdire 4/5 (FICP_BDF / FCC_BDF)
+final boolean is45 =
+    RequestTypeEnum.FICP_BDF.equals(reqType)
+ || RequestTypeEnum.FCC_BDF.equals(reqType);
 
-    /**
-     * Calcule et renseigne la clé BDF pour chaque personne (PP) à partir du nom + date de naissance ISO.
-     * Utilisée par les appels BDF (FICP/FCC) lorsque l’entrée est "infos" (typeEntree == 2).
-     */
-    private void generateBDFKeyList(final List<PersonSearchRequest> incidentsSearchRequest) {
-        int i = 1;
-        int taille = incidentsSearchRequest.size();
-        for (final PersonSearchRequest person : incidentsSearchRequest) {
-            final String bdfKey = BDFKeyGenerator.computeBDFKey(
-                person.getLastname(),
-                ISOBirthDateConverter.fromISOString(person.getBirthDate())
-            );
-            LOGGER.debug("computeBDFKey: name {}, birthDate {} = {}", person.getLastname(), person.getBirthDate(), bdfKey);
-            LOGGER.info("Cle Banque de France de lappel {} sur {} : {}", i, taille, bdfKey );
-            i = i + 1;
-            person.setBdfKey(bdfKey);
-        }
-    }
 
-    /** Accesseurs simples (inchangés) */
-    public FCCService getFccService() { return fccService; }
-    public FICPService getFicpService() { return ficpService; }
+---
 
-    /**
-     * Point d’entrée principal : orchestre les appels selon le type d’entrée et le RequestTypeEnum.
-     *
-     * @param incidentsSearchRequest liste des personnes recherchées
-     * @param channel canal appelant
-     * @param caller  identifiant applicatif appelant
-     * @param userId  identifiant utilisateur
-     * @return liste agrégée d'IncidentsCharacteristics (BCI, FICP_BNPP, FICP_BDF, FCC, RP, etc.)
-     */
-    public List<IncidentsCharacteristics> searchIncident(
-        final List<PersonSearchRequest> incidentsSearchRequest,
-        final String channel,
-        final String caller,
-        String userId
-    ) throws Exception {
+2) Lignes ciblées — “autoriser 1/2/3 toujours”
 
-        final List<IncidentsCharacteristics> resultList = new ArrayList<IncidentsCharacteristics>();
+> Remplacer la condition des 4 lignes indiquées (185, 220, 274, 295).
+Ces lignes sont celles où tu ajoutes les résultats BNPP (BCI ou FICP_BNPP).
 
-        // =====================================================================
-        // ÉVOLUTION — FLAGS PAR NÉGATION (cas 4/5/6/7 SEULEMENT)
-        // ---------------------------------------------------------------------
-        // On NIE l’appel quand le requestType n’est PAS exactement celui visé.
-        //   4 -> FICP_BDF
-        //   5 -> FCC_BDF
-        //   6 -> FICP_BCEF (BNPP)
-        //   7 -> BCI_BCEF  (BNPP)
-        // NB: Pas de référence aux codes 1/2/3 (BNP_ONLY, BDF_ONLY, BOTH).
-        // =====================================================================
-        final RequestTypeEnum reqType =
-            (incidentsSearchRequest != null && !incidentsSearchRequest.isEmpty())
-                ? incidentsSearchRequest.get(0).getRequestType()
-                : null;
 
-        // Nie l'appel si le type n'est PAS exactement celui attendu
-        final boolean denyFICP_BDF  = (reqType == null) || !RequestTypeEnum.FICP_BDF.equals(reqType);   // (4) BDF:FICP
-        final boolean denyFCC_BDF   = (reqType == null) || !RequestTypeEnum.FCC_BDF.equals(reqType);    // (5) BDF:FCC
-        final boolean denyFICP_BCEF = (reqType == null) || !RequestTypeEnum.FICP_BCEF.equals(reqType);  // (6) BNPP:FICP
-        final boolean denyBCI_BCEF  = (reqType == null) || !RequestTypeEnum.BCI_BCEF.equals(reqType);   // (7) BNPP:BCI
-        // =====================================================================
 
-        // Détermination du "type d'entrée" :
-        // 1 = par Référentiel Personne (RP) -> appels BNPP via postRP
-        // 2 = par Infos personne -> calcul clé BDF + appels BNPP via post (et BDF)
-        // 0 = données insuffisantes pour une recherche "infos"
-        int typeEntree = 1;
+Si la ligne contient if (!denyBCI_BCEF) { ➜ remplacer par :
 
-        // Cas Personne Physique : personType == null ou "0"
-        if (incidentsSearchRequest.get(0).getPersonType() == null
-            || incidentsSearchRequest.get(0).getPersonType().equals("0")) {
 
-            // Si au moins une personne n’a pas d’ID -> bascule en "infos" (typeEntree=2)
-            for (PersonSearchRequest personSearchRequest : incidentsSearchRequest) {
-                if (StringUtils.isEmpty(personSearchRequest.getPersonId())) {
-                    typeEntree = 2;
-                    break;
-                }
-            }
+if (is123 || !denyBCI_BCEF) {
 
-            // En "infos", si des champs clés sont manquants -> typeEntree=0 (pas de recherche infos possible)
-            if (2 == typeEntree) {
-                for (PersonSearchRequest personSearchRequest : incidentsSearchRequest) {
-                    if (null == personSearchRequest.getBirthDepartment()
-                        || null == personSearchRequest.getBirthDate()
-                        || null == personSearchRequest.getFirstname()
-                        || null == personSearchRequest.getLastname()
-                        || null == personSearchRequest.getCivility()) {
-                        typeEntree = 0;
-                        break;
-                    }
-                }
-            }
+Si la ligne contient if (!denyFICP_BCEF) { ➜ remplacer par :
 
-            // Wrappers BNPP (BCI / FICP BNPP / RP BNPP)
-            final IncidentBciFicpResult resultWrapper;
-            final IncidentBciFicpResult resultWrapperSecond;
 
-            // Listes intermédiaires (héritées de l’existant)
-            List<PersonSearchRequest> incidentListRPBNPP = new ArrayList<PersonSearchRequest>();
-            List<PersonSearchRequest> incidentListBDFOnly = new ArrayList<PersonSearchRequest>();
+if (is123 || !denyFICP_BCEF) {
 
-            // ===== Entrée par Id Personne (typeEntree == 1) -> Appels BNPP en /postRP =====
-            if (typeEntree == 1) {
+> En clair : sur chacune des 4 lignes (185, 220, 274, 295), on préfixe la condition par is123 ||.
 
-                // Gestion par paquets de 5 (héritage existant)
-                if (incidentsSearchRequest.size() > 5) {
-                    resultWrapper = bciFicpService.postRP(
-                        bciFicpMapper.createBciFicpRequestRP(incidentsSearchRequest.subList(0, 5)),
-                        incidentsSearchRequest.subList(0, 5)
-                    );
-                    resultWrapperSecond = bciFicpService.postRP(
-                        bciFicpMapper.createBciFicpRequestRP(incidentsSearchRequest.subList(5, incidentsSearchRequest.size())),
-                        incidentsSearchRequest.subList(5, incidentsSearchRequest.size())
-                    );
 
-                    // Fusion des résultats BNPP (BCI / FICP BNPP / RP BNPP)
-                    resultWrapper.getIncidentListBCI().addAll(resultWrapperSecond.getIncidentListBCI());
-                    resultWrapper.getIncidentListFCIPBNPP().addAll(resultWrapperSecond.getIncidentListFCIPBNPP());
-                    resultWrapper.getIncidentListRPBNPP().addAll(resultWrapperSecond.getIncidentListRPBNPP());
 
-                    // === ÉVOLUTION : ajout conditionnel par NÉGATION (cas 7 et 6) ===
-                    if (!denyBCI_BCEF) {
-                        LOGGER.debug("{} incident(s) found in BCI database by RP", resultWrapper.getIncidentListBCI().size());
-                        resultList.add(new IncidentsCharacteristics(resultWrapper.getIncidentListBCI(), OriginEnum.BCI));
-                    }
-                    if (!denyFICP_BCEF) {
-                        LOGGER.debug("{} incident(s) found in FICP BNPP database by RP", resultWrapper.getIncidentListFCIPBNPP().size());
-                        resultList.add(new IncidentsCharacteristics(resultWrapper.getIncidentListFCIPBNPP(), OriginEnum.FICP_BNPP));
-                    }
-                    // =================================================================
 
-                    // Reconstitution de la liste pour enchaîner la suite du flux (existant)
-                    incidentListRPBNPP = resultWrapper.getIncidentListRPBNPP();
-                    for (int i = 0; i < incidentListRPBNPP.size(); i++) {
-                        incidentListRPBNPP.get(i).setConservPreuve(incidentsSearchRequest.get(i).getConservPreuve());
-                        incidentListRPBNPP.get(i).setStatutPreuve(incidentsSearchRequest.get(i).getStatutPreuve());
-                        incidentListRPBNPP.get(i).setNbCptesDossier(incidentsSearchRequest.get(i).getNbCptesDossier());
-                        incidentListRPBNPP.get(i).setDureeContrat(incidentsSearchRequest.get(i).getDureeContrat());
-                        incidentListRPBNPP.get(i).setDateDebutCredit(incidentsSearchRequest.get(i).getDateDebutCredit());
-                        incidentListRPBNPP.get(i).setAppEmettrice(incidentsSearchRequest.get(i).getAppEmettrice());
-                        incidentListRPBNPP.get(i).setRefExterne(incidentsSearchRequest.get(i).getRefExterne());
-                        incidentListRPBNPP.get(i).setPersonId(incidentsSearchRequest.get(i).getPersonId());
-                        incidentListRPBNPP.get(i).setNbPersFicp(incidentsSearchRequest.get(i).getNbPersFicp());
-                        incidentListRPBNPP.get(i).setRibEtTypedeCompte(incidentsSearchRequest.get(i).getRibEtTypedeCompte());
-                    }
-                    incidentsSearchRequest.clear();
-                    incidentsSearchRequest.addAll(incidentListRPBNPP);
+---
 
-                } else {
-                    // Paquet unique (<=5) — BNPP postRP
-                    resultWrapper = bciFicpService.postRP(
-                        bciFicpMapper.createBciFicpRequestRP(incidentsSearchRequest),
-                        incidentsSearchRequest
-                    );
+3) Fenêtre 166 → 305 — “ne pas autoriser 4/5”
 
-                    // === ÉVOLUTION : ajout conditionnel par NÉGATION (cas 7 et 6) ===
-                    if (!denyBCI_BCEF) {
-                        resultList.add(new IncidentsCharacteristics(resultWrapper.getIncidentListBCI(), OriginEnum.BCI));
-                    }
-                    if (!denyFICP_BCEF) {
-                        resultList.add(new IncidentsCharacteristics(resultWrapper.getIncidentListFCIPBNPP(), OriginEnum.FICP_BNPP));
-                    }
-                    // =================================================================
+Dans cette section du code uniquement (entre tes lignes 166 et 305), là où tu appelles/ajoutes le BDF :
 
-                    // Reconstitution de la liste pour enchaîner la suite du flux (existant)
-                    incidentListRPBNPP = resultWrapper.getIncidentListRPBNPP();
-                    for (int i = 0; i < incidentListRPBNPP.size(); i++) {
-                        incidentListRPBNPP.get(i).setConservPreuve(incidentsSearchRequest.get(i).getConservPreuve());
-                        incidentListRPBNPP.get(i).setStatutPreuve(incidentsSearchRequest.get(i).getStatutPreuve());
-                        incidentListRPBNPP.get(i).setNbCptesDossier(incidentsSearchRequest.get(i).getNbCptesDossier());
-                        incidentListRPBNPP.get(i).setDureeContrat(incidentsSearchRequest.get(i).getDureeContrat());
-                        incidentListRPBNPP.get(i).setDateDebutCredit(incidentsSearchRequest.get(i).getDateDebutCredit());
-                        incidentListRPBNPP.get(i).setAppEmettrice(incidentsSearchRequest.get(i).getAppEmettrice());
-                        incidentListRPBNPP.get(i).setRefExterne(incidentsSearchRequest.get(i).getRefExterne());
-                        incidentListRPBNPP.get(i).setPersonId(incidentsSearchRequest.get(i).getPersonId());
-                        incidentListRPBNPP.get(i).setNbPersFicp(incidentsSearchRequest.get(i).getNbPersFicp());
-                        incidentListRPBNPP.get(i).setRibEtTypedeCompte(incidentsSearchRequest.get(i).getRibEtTypedeCompte());
-                    }
+Remplacer :
 
-                    // Bloc "BDF_ONLY" existant conservé tel quel (hors périmètre 4/5/6/7)
-                    for (int j = 0 ; j < incidentsSearchRequest.size(); j++){
-                        if (incidentsSearchRequest.get(j).getRequestType().equals(RequestTypeEnum.BDF_ONLY)){
-                            incidentListBDFOnly.add(incidentsSearchRequest.get(j));
-                        }
-                    }
-                    incidentsSearchRequest.clear();
-                    incidentsSearchRequest.addAll(incidentListRPBNPP);
-                    incidentsSearchRequest.addAll(incidentListBDFOnly);
-                }
 
-            } else if (typeEntree == 2) {
-                // ===== Entrée par "Infos personne" (typeEntree == 2) =====
-
-                // Génération des clés BDF pour toutes les personnes (nécessaire aux appels BDF).
-                generateBDFKeyList(incidentsSearchRequest);
-
-                // BNPP /post en paquets si >5 (existant)
-                if (incidentsSearchRequest.size() > 5) {
-                    resultWrapper = bciFicpService.post(
-                        bciFicpMapper.createBciFicpRequest(incidentsSearchRequest.subList(0, 5))
-                    );
-                    resultWrapperSecond = bciFicpService.post(
-                        bciFicpMapper.createBciFicpRequest(incidentsSearchRequest.subList(5, incidentsSearchRequest.size()))
-                    );
-
-                    // Fusion BNPP (BCI + FICP BNPP)
-                    resultWrapper.getIncidentListBCI().addAll(resultWrapperSecond.getIncidentListBCI());
-                    resultWrapper.getIncidentListFCIPBNPP().addAll(resultWrapperSecond.getIncidentListFCIPBNPP());
-
-                    // === ÉVOLUTION : ajout conditionnel par NÉGATION (cas 7 et 6) ===
-                    if (!denyBCI_BCEF) {
-                        LOGGER.debug("{} incident(s) found in BCI database", resultWrapper.getIncidentListBCI().size());
-                        resultList.add(new IncidentsCharacteristics(resultWrapper.getIncidentListBCI(), OriginEnum.BCI));
-                    }
-                    if (!denyFICP_BCEF) {
-                        LOGGER.debug("{} incident(s) found in FICP BNPP database", resultWrapper.getIncidentListFCIPBNPP().size());
-                        resultList.add(new IncidentsCharacteristics(resultWrapper.getIncidentListFCIPBNPP(), OriginEnum.FICP_BNPP));
-                    }
-                    // =================================================================
-
-                } else {
-                    // Paquet unique — BNPP /post
-                    resultWrapper = bciFicpService.post(
-                        bciFicpMapper.createBciFicpRequest(incidentsSearchRequest)
-                    );
-
-                    if (LOGGER.isDebugEnabled()) {
-                        LOGGER.debug("Incident(s) found : {}", DebuggingUtils.toJSon(resultWrapper));
-                    }
-
-                    // === ÉVOLUTION : ajout conditionnel par NÉGATION (cas 7 et 6) ===
-                    if (!denyBCI_BCEF) {
-                        LOGGER.debug("{} incident(s) found in BCI database", resultWrapper.getIncidentListBCI().size());
-                        resultList.add(new IncidentsCharacteristics(resultWrapper.getIncidentListBCI(), OriginEnum.BCI));
-                    }
-                    if (!denyFICP_BCEF) {
-                        LOGGER.debug("{} incident(s) found in FICP BNPP database", resultWrapper.getIncidentListFCIPBNPP().size());
-                        resultList.add(new IncidentsCharacteristics(resultWrapper.getIncidentListFCIPBNPP(), OriginEnum.FICP_BNPP));
-                    }
-                    // =================================================================
-                }
-            }
-
-            // ===== Appels BDF FICP/FCC (cas 4/5) — encadrés par la NÉGATION =====
-            if (!denyFICP_BDF) {
-                // FICP (BDF)
-                final List<Personne> ficpIncidentList =
-                    ficpService.searchIncident(incidentsSearchRequest, channel, caller, userId);
-                LOGGER.debug("{} incident(s) found in FICP BDF database", ficpIncidentList.size());
-                resultList.add(new IncidentsCharacteristics(ficpIncidentList, OriginEnum.FICP_BDF));
-            }
-
-            if (!denyFCC_BDF) {
-                // FCC (BDF)
-                final List<Personne> fccIncidentList =
-                    fccService.searchIncident(incidentsSearchRequest, channel, caller, userId);
-                LOGGER.debug("{} incident(s) found in FCC BDF database", fccIncidentList.size());
-                resultList.add(new IncidentsCharacteristics(fccIncidentList, OriginEnum.FCC));
-            }
-
-            // Restitution RP quand l’entrée est par Id (héritage existant, inchangé)
-            if (typeEntree == 1) {
-                resultList.add(new IncidentsCharacteristics(mapPersonnePhysique(incidentsSearchRequest), OriginEnum.RP));
-            }
-
-        } else if (("1").equals(incidentsSearchRequest.get(0).getPersonType())) {
-            // ===== Personne Morale (PM) : on suit le flux existant =====
-            // personType = 1 : PM. Retour vide si données insuffisantes.
-
-            int typeEntreePM = 1;
-
-            // Si pas d’ID personne -> bascule en "infos" (PM)
-            for (PersonSearchRequest personSearchRequest : incidentsSearchRequest) {
-                if (StringUtils.isEmpty(personSearchRequest.getPersonId())) {
-                    typeEntreePM = 2;
-                    break;
-                }
-            }
-
-            // En "infos" PM : il faut immatId + immatType, sinon typeEntreePM=0
-            if (2 == typeEntreePM) {
-                for (PersonSearchRequest personSearchRequest : incidentsSearchRequest) {
-                    if (null == personSearchRequest.getImmatId() || null == personSearchRequest.getImmatType()) {
-                        typeEntreePM = 0;
-                        break;
-                    }
-                    // Clé BDF PM = typeImmat + idImmat (héritage existant)
-                    personSearchRequest.setBdfKey(personSearchRequest.getImmatType() + personSearchRequest.getImmatId());
-                }
-            }
-
-            // Si entrée par Id PM : appel référentiel PM (héritage existant)
-            if (typeEntreePM == 1) {
-                List<Personne> listePersonne = new ArrayList<>();
-                for (PersonSearchRequest req : incidentsSearchRequest) {
-                    Personne pm = new Personne();
-                    pm.setPersonId(req.getPersonId());
-                    IncidentMoralResponseDto rep = pMService.post(createRestRequest(req));
-
-                    // Famille 233 : immatriculation
-                    if (rep.getMsg_out().getzConFoncOu().getzConLReponse().getData_pers().getF233().length > 0) {
-                        req.setImmatId(rep.getMsg_out().getzConFoncOu().getzConLReponse().getData_pers().getF233()[0].getcNumImmtrn());
-                        rep.getMsg_out().getzConFoncOu().getzConLReponse().getData_pers().getF233()[0].setcTypeImmtrn(
-                            CTypeImmatEnum.fromValue(
-                                rep.getMsg_out().getzConFoncOu().getzConLReponse().getData_pers().getF233()[0].getcTypeImmtrn()
-                            ).toString()
-                        );
-                        req.setImmatType(rep.getMsg_out().getzConFoncOu().getzConLReponse().getData_pers().getF233()[0].getcTypeImmtrn());
-                        req.setBdfKey(req.getImmatType() + req.getImmatId());
-                        pm.setBdfkey(req.getBdfKey());
-                        pm.setImmatType(req.getImmatType());
-                        pm.setImmatID(req.getImmatId());
-                    } else {
-                        LOGGER.debug("La famille 233 est vide");
-                    }
-
-                    // Famille 154 : adresse fiscale
-                    if (rep.getMsg_out().getzConFoncOu().getzConLReponse().getData_pers().getF154().length > 0) {
-                        pm.setFiscalAdress1(rep.getMsg_out().getzConFoncOu().getzConLReponse().getData_pers().getF154()[0].getlAdrFisc1());
-                        pm.setFiscalAdress2(rep.getMsg_out().getzConFoncOu().getzConLReponse().getData_pers().getF154()[0].getlAdrFisc2());
-                        pm.setFiscalAdress3(rep.getMsg_out().getzConFoncOu().getzConLReponse().getData_pers().getF154()[0].getlAdrFisc3());
-                        pm.setPostalCode(rep.getMsg_out().getzConFoncOu().getzConLReponse().getData_pers().getF154()[0].getcAdrpFiscCpost());
-                        pm.setVillePM(rep.getMsg_out().getzConFoncOu().getzConLReponse().getData_pers().getF154()[0].getlNomComFisc());
-                    } else {
-                        LOGGER.debug("La famille 154 est vide");
-                    }
-
-                    // Famille 178 : raison sociale
-                    if (rep.getMsg_out().getzConFoncOu().getzConLReponse().getData_pers().getF178().length > 0) {
-                        pm.setBusinessName((rep.getMsg_out().getzConFoncOu().getzConLReponse().getData_pers().getF178()[0].getlRsoc()));
-                    } else {
-                        LOGGER.debug("La famille 178 est vide");
-                    }
-
-                    // Famille 096 : forme juridique
-                    if (rep.getMsg_out().getzConFoncOu().getzConLReponse().getData_pers().getF096().length > 0) {
-                        pm.setCodeLegalName(String.valueOf(rep.getMsg_out().getzConFoncOu().getzConLReponse().getData_pers().getF096()[0].getcNjurPrsne()));
-                        pm.setLegalName(LegalNameEnum.fromValue(pm.getCodeLegalName()).toString());
-                    } else {
-                        LOGGER.debug("La famille 096 est vide");
-                    }
-
-                    listePersonne.add(pm);
-                }
-                resultList.add(new IncidentsCharacteristics(listePersonne, OriginEnum.RP));
-            }
-
-            // Appel FCC pour PM — bloc existant conservé (hors périmètre 4/5/6/7)
-            List<Personne> fccIncidentList =
-                fccService.searchIncidentMoral(incidentsSearchRequest,channel,caller,userId);
-            LOGGER.debug("{} incident(s) found in FCC BDF database", fccIncidentList.size());
-            resultList.add(new IncidentsCharacteristics(fccIncidentList, OriginEnum.FCC_PM));
-        }
-
-        // Liste consolidée renvoyée à l’appelant
-        return resultList;
-    }
-
-    /**
-     * Mapping technique pour reconstruire la vue "RP" à partir de la liste de PersonSearchRequest
-     * (héritage existant, inchangé).
-     */
-    private List<Personne> mapPersonnePhysique(final List<PersonSearchRequest> incidentListRPBNPP) {
-        List<Personne> personneIncidentList = new ArrayList<Personne>();
-        for (final PersonSearchRequest psr : incidentListRPBNPP) {
-            if (psr != null) {
-                final Personne pp = new Personne();
-                // Champs d’identité minimale pour l’affichage RP
-                pp.setFirstname(psr.getFirstname());
-                pp.setLastname(psr.getLastname());
-                pp.setCivility(psr.getCivility());
-                pp.setBdfkey(psr.getBdfKey());
-                pp.setMarriedName(psr.getMarriedName());
-                pp.setBirthDate(psr.getBirthDate());
-                pp.setBirthCity(psr.getBirthCity());
-                pp.setBirthCountry(psr.getBirthCountry());
-                pp.setBirthDepartment(psr.getBirthDepartment());
-                personneIncidentList.add(pp);
-            }
-        }
-        return personneIncidentList;
-    }
-
-    /**
-     * Construit la requête Personne Morale pour le service référentiel (héritage existant).
-     */
-    private IncidentMoralRequestDto createRestRequest(PersonSearchRequest input) {
-        IncidentMoralRequestDto in = new IncidentMoralRequestDto();
-        MSG_IN msgIn = new MSG_IN();
-        ZCON_FONC_IN fonc = new ZCON_FONC_IN();
-        fonc.setZCON_N_VERSION(1);
-        fonc.setZCON_Q_LIST_FAM(4);
-        fonc.setZCON_I_SDISTN_MSG("");
-        fonc.setZCON_I_ENT_PRSNE("");
-        fonc.setZCON_C_ETABL_MSG("");
-        fonc.setZCON_C_LANGUE_MSG("");
-        fonc.setZCON_C_APPL("");
-        List<ZCON_N_FAM> temp = new ArrayList<>();
-        temp.add(new ZCON_N_FAM(96));
-        temp.add(new ZCON_N_FAM(154));
-        temp.add(new ZCON_N_FAM(178));
-        temp.add(new ZCON_N_FAM(233));
-        fonc.setZCON_G_LIST_FAM(temp);
-        fonc.setZCON_I_IDENT(input.getPersonId());
-        fonc.setZCON_C_TYPE_IDENT("PE");
-        msgIn.setZcon_FONC_IN(fonc);
-        in.setMSG_IN(msgIn);
-        return in;
-    }
-
-    /** Setters (héritage existant) */
-    public void setFccService(final FCCService fccService) { this.fccService = fccService; }
-    public void setFicpService(final FICPService ficpService) { this.ficpService = ficpService; }
+if (!denyFICP_BDF) {
+    ...
 }
-```
 
-Souhaites-tu que j’ajoute aussi des **JavaDoc** plus détaillées sur chaque méthode de service (ex: paramètres attendus par `FICPService`/`FCCService`), ou des **commentaires TODO** pour les endroits à sécuriser (timeouts, gestion d’erreurs réseau, etc.) ?
+par :
+
+// EVOLUTION: fenêtre 166–305 -> couper FICP_BDF si 4/5
+if (!is45 && !denyFICP_BDF) {
+    ...
+}
+
+Et remplacer :
+
+
+if (!denyFCC_BDF) {
+    ...
+}
+
+par :
+
+// EVOLUTION: fenêtre 166–305 -> couper FCC_BDF si 4/5
+if (!is45 && !denyFCC_BDF) {
+    ...
+}
+
+> Résultat : entre 166 et 305, si reqType vaut 4 (FICP_BDF) ou 5 (FCC_BDF), aucun appel/ajout BDF n’est autorisé. En dehors de cette fenêtre, ton comportement reste identique.
+
+
+
+
+---
+
+TL;DR (résumé opérationnel)
+
+Ajoute is123 et is45 (bloc 1).
+
+Modifie les 4 lignes 185/220/274/295 pour faire if (is123 || !deny...) (bloc 2).
+
+Entre 166–305, wrap les BDF en if (!is45 && !denyFICP_BDF) et if (!is45 && !denyFCC_BDF) (bloc 3).
+
+
+Si tu veux, je peux te renvoyer la méthode complète searchIncident(...) avec ces trois évolutions déjà intégrées, pour un copier/coller direct.
