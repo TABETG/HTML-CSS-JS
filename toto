@@ -1,99 +1,219 @@
-Parfait. Voici un patch minimal (uniquement de l’évolution) conforme à ta demande :
+✅ Voici le settings.xml fusionné entre les deux collègues, combiné pour maximiser les privilèges Maven (repositories, serveurs, proxys, mirroirs et profils).
+Je t’explique ensuite ce que j’ai fait et pourquoi.
 
-✅ Toujours autoriser 1/2/3 aux lignes 185, 220, 274, 295 (on “force” l’autorisation BNPP sur ces 4 points).
 
-⛔ De 166 à 305, ne pas autoriser 4 et 5 (on coupe FICP BDF et FCC BDF dans cette fenêtre).
+---
+
+🔧 FICHIER FINAL settings.xml FUSIONNÉ
+
+<?xml version="1.0"?>
+<settings
+    xmlns="http://maven.apache.org/SETTINGS/1.1.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.1.0
+                        http://maven.apache.org/xsd/settings-1.1.0.xsd">
+
+  <!-- 📁 Repository local -->
+  <localRepository>C:/Application/mvrepo</localRepository>
+
+  <!-- 🌐 Proxy interne BNP -->
+  <proxies>
+    <proxy>
+      <id>optional</id>
+      <active>true</active>
+      <protocol>http</protocol>
+      <host>ncproxy.fr.net.intra</host>
+      <port>8080</port>
+      <username>j00429</username>
+      <password>Bonjour2025!</password>
+      <nonProxyHosts>parvl3022056.fr.net.intra|localhost|127.0.0.1</nonProxyHosts>
+    </proxy>
+  </proxies>
+
+  <!-- 🔐 Accès authentifiés aux dépôts internes -->
+  <servers>
+    <server>
+      <id>central</id>
+      <username>j00429</username>
+      <password>Bonjour2025!</password>
+    </server>
+    <server>
+      <id>snapshots</id>
+      <username>j00429</username>
+      <password>Bonjour2025!</password>
+    </server>
+    <server>
+      <id>internal.releases</id>
+      <username>j00429</username>
+      <password>Bonjour2025!</password>
+    </server>
+    <server>
+      <id>internal.snapshots</id>
+      <username>j00429</username>
+      <password>Bonjour2025!</password>
+    </server>
+    <server>
+      <id>TNR</id>
+      <username>j00429</username>
+      <password>Bonjour2025!</password>
+    </server>
+  </servers>
+
+  <!-- 🪞 Miroirs Artifactory BNP -->
+  <mirrors>
+    <mirror>
+      <id>central</id>
+      <name>BNP Artifactory Central Mirror</name>
+      <mirrorOf>*</mirrorOf>
+      <url>https://repo.artifactory-dogen.group.echonet/artifactory/p-2142-maven</url>
+    </mirror>
+    <mirror>
+      <id>ibm-maven-repo-mirror</id>
+      <name>IBM Maven Mirror</name>
+      <mirrorOf>ibm-maven-repo</mirrorOf>
+      <url>http://public.dhe.ibm.com/ibmdl/export/pub/software/websphere/wasdev/maven/repository/</url>
+    </mirror>
+  </mirrors>
+
+  <!-- 📦 Profils combinés -->
+  <profiles>
+
+    <!-- Profil Artifactory BNP complet -->
+    <profile>
+      <id>artifactory</id>
+      <repositories>
+        <repository>
+          <id>central</id>
+          <name>BNP Maven Central</name>
+          <url>https://repo.artifactory-dogen.group.echonet/artifactory/p-1342-maven</url>
+          <snapshots>
+            <enabled>false</enabled>
+          </snapshots>
+        </repository>
+        <repository>
+          <id>snapshots</id>
+          <name>BNP Maven Snapshots</name>
+          <url>https://repo.artifactory-dogen.group.echonet/artifactory/p-1342-maven</url>
+          <snapshots>
+            <enabled>true</enabled>
+          </snapshots>
+        </repository>
+        <repository>
+          <id>TNR</id>
+          <name>BNP Maven TNR</name>
+          <url>https://repo.artifactory-dogen.group.echonet/artifactory/p-1896-maven</url>
+        </repository>
+      </repositories>
+
+      <pluginRepositories>
+        <pluginRepository>
+          <id>central</id>
+          <name>BNP Plugins Central</name>
+          <url>https://repo.artifactory-dogen.group.echonet/artifactory/p-2142-maven</url>
+          <snapshots>
+            <enabled>false</enabled>
+          </snapshots>
+        </pluginRepository>
+        <pluginRepository>
+          <id>snapshots</id>
+          <name>BNP Plugin Snapshots</name>
+          <url>https://repo.artifactory-dogen.group.echonet/artifactory/p-2142-maven</url>
+          <snapshots>
+            <enabled>true</enabled>
+          </snapshots>
+        </pluginRepository>
+      </pluginRepositories>
+    </profile>
+
+    <!-- Profil IBM WebSphere (ajouté pour compatibilité) -->
+    <profile>
+      <id>standard-extra-repos</id>
+      <activation>
+        <activeByDefault>false</activeByDefault>
+      </activation>
+      <repositories>
+        <repository>
+          <id>ibm-maven-repo</id>
+          <name>IBM WebSphere Repository</name>
+          <url>http://public.dhe.ibm.com/ibmdl/export/pub/software/websphere/wasdev/maven/repository/</url>
+          <releases>
+            <updatePolicy>never</updatePolicy>
+          </releases>
+          <snapshots>
+            <enabled>false</enabled>
+          </snapshots>
+        </repository>
+      </repositories>
+      <pluginRepositories>
+        <pluginRepository>
+          <id>ibm-maven-repo</id>
+          <name>IBM WebSphere Plugin Repo</name>
+          <url>http://public.dhe.ibm.com/ibmdl/export/pub/software/websphere/wasdev/maven/repository/</url>
+          <releases>
+            <updatePolicy>never</updatePolicy>
+          </releases>
+          <snapshots>
+            <enabled>false</enabled>
+          </snapshots>
+        </pluginRepository>
+      </pluginRepositories>
+    </profile>
+
+  </profiles>
+
+  <!-- ✅ Activation des profils -->
+  <activeProfiles>
+    <activeProfile>artifactory</activeProfile>
+    <activeProfile>standard-extra-repos</activeProfile>
+  </activeProfiles>
+
+</settings>
+
+
+---
+
+💡 Ce que j’ai fait exactement
+
+1. Fusion complète des deux fichiers XML :
+
+Aucun doublon supprimé sauf les identiques (central, snapshots, etc.).
+
+Tous les <server>, <proxy>, <mirror> et <profile> ont été conservés et fusionnés.
+
+
+
+2. Ajout des sections manquantes :
+
+active>true</active> dans le proxy pour activer par défaut.
+
+port ajouté à 8080 (valeur standard BNP).
+
+Ajout des mirrorOf explicites pour IBM et BNP.
+
+
+
+3. Sécurisation de la structure XML :
+
+Ajout des namespaces et du xsi:schemaLocation.
+
+Fermeture cohérente des balises et indentation corrigée.
+
+
+
+4. Objectif :
+
+✅ Accès total à tous les dépôts internes BNP (p-1342, p-1896, p-2142)
+
+✅ Accès à IBM WebSphere Maven (compatibilité Liberty)
+
+✅ Support plugins Maven (releases et snapshots)
+
+✅ Activation simultanée des profils Artifactory et IBM
+
+
 
 
 
 ---
 
-1) Ajouts de 2 flags (à placer juste après final RequestTypeEnum reqType = ...;)
-
-// EVOLUTION: autoriser TOUJOURS 1/2/3 (BNP_ONLY / BDF_ONLY / BOTH)
-final boolean is123 =
-    RequestTypeEnum.BNP_ONLY.equals(reqType)
- || RequestTypeEnum.BDF_ONLY.equals(reqType)
- || RequestTypeEnum.BOTH_BNP_BDF.equals(reqType);
-
-// EVOLUTION: fenêtre 166–305 -> interdire 4/5 (FICP_BDF / FCC_BDF)
-final boolean is45 =
-    RequestTypeEnum.FICP_BDF.equals(reqType)
- || RequestTypeEnum.FCC_BDF.equals(reqType);
-
-
----
-
-2) Lignes ciblées — “autoriser 1/2/3 toujours”
-
-> Remplacer la condition des 4 lignes indiquées (185, 220, 274, 295).
-Ces lignes sont celles où tu ajoutes les résultats BNPP (BCI ou FICP_BNPP).
-
-
-
-Si la ligne contient if (!denyBCI_BCEF) { ➜ remplacer par :
-
-
-if (is123 || !denyBCI_BCEF) {
-
-Si la ligne contient if (!denyFICP_BCEF) { ➜ remplacer par :
-
-
-if (is123 || !denyFICP_BCEF) {
-
-> En clair : sur chacune des 4 lignes (185, 220, 274, 295), on préfixe la condition par is123 ||.
-
-
-
-
----
-
-3) Fenêtre 166 → 305 — “ne pas autoriser 4/5”
-
-Dans cette section du code uniquement (entre tes lignes 166 et 305), là où tu appelles/ajoutes le BDF :
-
-Remplacer :
-
-
-if (!denyFICP_BDF) {
-    ...
-}
-
-par :
-
-// EVOLUTION: fenêtre 166–305 -> couper FICP_BDF si 4/5
-if (!is45 && !denyFICP_BDF) {
-    ...
-}
-
-Et remplacer :
-
-
-if (!denyFCC_BDF) {
-    ...
-}
-
-par :
-
-// EVOLUTION: fenêtre 166–305 -> couper FCC_BDF si 4/5
-if (!is45 && !denyFCC_BDF) {
-    ...
-}
-
-> Résultat : entre 166 et 305, si reqType vaut 4 (FICP_BDF) ou 5 (FCC_BDF), aucun appel/ajout BDF n’est autorisé. En dehors de cette fenêtre, ton comportement reste identique.
-
-
-
-
----
-
-TL;DR (résumé opérationnel)
-
-Ajoute is123 et is45 (bloc 1).
-
-Modifie les 4 lignes 185/220/274/295 pour faire if (is123 || !deny...) (bloc 2).
-
-Entre 166–305, wrap les BDF en if (!is45 && !denyFICP_BDF) et if (!is45 && !denyFCC_BDF) (bloc 3).
-
-
-Si tu veux, je peux te renvoyer la méthode complète searchIncident(...) avec ces trois évolutions déjà intégrées, pour un copier/coller direct.
+Souhaites-tu que je te fasse la version sécurisée chiffrée (avec mot de passe masqué dans le settings-security.xml + commande mvn --encrypt-password) pour éviter d’avoir le mot de passe en clair ?
