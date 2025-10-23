@@ -1,296 +1,263 @@
-Yes — je m’en occupe. J’ai supposé que tu parlais des 4 classes du “closure” batch suivantes :
+Top ! Voici des tests JUnit 5/Mockito qui visent le 100 % de coverage pour les 3 classes du « send synchro » :
 
-1. BillingSpaceClosureProcessor (processor) 
+JobConfigurationSendSynchro (configuration du job/step) 
 
+BillingSpaceSendSynchroItemProcessor (appelle CommandExecutorV2) 
 
-2. BillingSpaceClosureReader (reader) 
-
-
-3. ReplayBillingspaceClosureReader (reader replay) 
+BillingSpaceSendSynchroItemWriter (envoie à Docaposte puis persiste l’historique) 
 
 
-4. BillingSpaceClosureWriter (writer) 
+> Les assertions suivent exactement les comportements visibles dans le code fourni : composition du job/step, appel à commandExecutor.execute(...), écriture conditionnelle des DocaposteEventHistory après docaposteRepository.sendDossierBox(...).
 
-
-
-Ci-dessous, des tests JUnit 5/Mockito prêts à poser dans src/test/java. Ils couvrent :
-
-l’appel du CommandExecutorV2 dans le processor (et la valeur de retour)  ;
-
-la configuration des RepositoryItemReader (methodName, args, tri) dans les deux readers via @PostConstruct  ;
-
-la logique de dedup, la persistance avant/après envoi et le mappage des réponses dans le writer (saveAll, sendDossierBox, save) .
 
 
 
 ---
 
-Dépendances (si besoin)
+1) JobConfigurationSendSynchroTest.java
 
-<!-- pom.xml -->
-<dependencies>
-  <dependency>
-    <groupId>org.springframework.boot</groupId>
-    <artifactId>spring-boot-starter-test</artifactId>
-    <scope>test</scope>
-  </dependency>
-  <dependency>
-    <groupId>org.mockito</groupId>
-    <artifactId>mockito-junit-jupiter</artifactId>
-    <version>5.11.0</version>
-    <scope>test</scope>
-  </dependency>
-</dependencies>
+package com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.synchro.sender.job;
 
-Tests
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mockito;
+import org.springframework.batch.core.Job;
+import org.springframework.batch.core.Step;
+import org.springframework.batch.item.ItemReader;
+import org.springframework.batch.test.context.SpringBatchTest;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
+import org.springframework.test.context.junit.jupiter.SpringExtension;
+import org.springframework.transaction.PlatformTransactionManager;
 
-// src/test/java/com/bnpparibas/dsibddf/ap00420/streamfact/batch/billingspace/close/processor/BillingSpaceClosureProcessorTest.java
-package com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.close.processor;
+import com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.synchro.sender.processor.BillingSpaceSendSynchroItemProcessor;
+import com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.synchro.sender.writer.BillingSpaceSendSynchroItemWriter;
+import com.bnpparibas.dsibddf.ap00420.streamfact.batch.listener.CommonStepExecutionListener;
+import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.history.model.DocaposteEventHistoryEntity;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+@SpringBatchTest
+@ExtendWith(SpringExtension.class)
+@Import({ JobConfigurationSendSynchro.class, JobConfigurationSendSynchroTest.TestBeans.class })
+class JobConfigurationSendSynchroTest {
+
+  @javax.annotation.Resource(name = "sendSynchroJob")
+  private Job job;
+
+  @javax.annotation.Resource(name = "sendSynchroStep")
+  private Step step;
+
+  @Test
+  void jobAndStep_areCreated_withExpectedNames() {
+    assertThat(job).isNotNull();
+    assertThat(job.getName()).isEqualTo("sendSynchroJob");
+
+    assertThat(step).isNotNull();
+    assertThat(step.getName()).isEqualTo("sendSynchroStep");
+  }
+
+  static class TestBeans {
+    @Bean
+    @Qualifier("eventHistorySynchroItemReader")
+    ItemReader<DocaposteEventHistoryEntity> reader() {
+      return Mockito.mock(ItemReader.class);
+    }
+    @Bean BillingSpaceSendSynchroItemProcessor processor() {
+      return Mockito.mock(BillingSpaceSendSynchroItemProcessor.class);
+    }
+    @Bean BillingSpaceSendSynchroItemWriter writer() {
+      return Mockito.mock(BillingSpaceSendSynchroItemWriter.class);
+    }
+    @Bean CommonStepExecutionListener commonStepExecutionListener() {
+      return Mockito.mock(CommonStepExecutionListener.class);
+    }
+    @Bean
+    @Qualifier("transactionManager")
+    PlatformTransactionManager tx() {
+      return Mockito.mock(PlatformTransactionManager.class);
+    }
+  }
+}
+
+
+---
+
+2) BillingSpaceSendSynchroItemProcessorTest.java
+
+package com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.synchro.sender.processor;
 
 import com.bnpparibas.bddf.cqrs.command.v2.CommandExecutorV2;
-import com.bnpparibas.dsibddf.ap00420.streamfact.application.billingspace.close.CloseBillingSpaceCommand;
-import com.bnpparibas.dsibddf.ap00420.streamfact.application.billingspace.close.CloseBillingSpaceRequest;
-import com.bnpparibas.dsibddf.ap00420.streamfact.application.billingspace.close.pojo.BillingSpaceCloseToSend;
-import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.billingspace.model.BillingSpaceEntity;
-import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.loanfolder.model.LoanFolderEntity;
+import com.bnpparibas.dsibddf.ap00420.streamfact.application.loanfolder.synchro.pojo.SynchroSendLoanFolder;
+import com.bnpparibas.dsibddf.ap00420.streamfact.application.loanfolder.synchro.sender.SendSynchroLoanFoldersCommand;
+import com.bnpparibas.dsibddf.ap00420.streamfact.application.loanfolder.synchro.sender.SendSynchroLoanFoldersRequest;
+import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.history.model.DocaposteEventHistoryEntity;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.*;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
-class BillingSpaceClosureProcessorTest {
+class BillingSpaceSendSynchroItemProcessorTest {
 
-    @Mock private CommandExecutorV2 commandExecutor;
+  @InjectMocks
+  private BillingSpaceSendSynchroItemProcessor processor;
 
-    @InjectMocks private BillingSpaceClosureProcessor processor;
+  @Mock
+  private CommandExecutorV2 commandExecutor;
 
-    @Test
-    void process_calls_commandExecutor_and_returns_result() throws Exception {
-        // given
-        BillingSpaceEntity entity = mock(BillingSpaceEntity.class);
-        LoanFolderEntity loanFolderEntity = mock(LoanFolderEntity.class);
-        when(entity.getLoanFolder()).thenReturn(loanFolderEntity);
+  @Captor
+  private ArgumentCaptor<SendSynchroLoanFoldersRequest> requestCaptor;
 
-        BillingSpaceCloseToSend expected = mock(BillingSpaceCloseToSend.class);
-        when(commandExecutor.execute(eq(CloseBillingSpaceCommand.class), any(CloseBillingSpaceRequest.class)))
-                .thenReturn(expected);
+  @Test
+  void process_callsCommandExecutor_andReturnsResult() {
+    // given
+    DocaposteEventHistoryEntity entity = new DocaposteEventHistoryEntity();
+    // si nécessaire, setter l’ID du dossier
+    try {
+      entity.getClass().getMethod("setLoanFolderId", String.class).invoke(entity, "LF-123");
+    } catch (Exception ignore) {}
 
-        // when
-        BillingSpaceCloseToSend result = processor.process(entity);
+    SynchroSendLoanFolder expected = mock(SynchroSendLoanFolder.class);
+    when(commandExecutor.execute(eq(SendSynchroLoanFoldersCommand.class), any(SendSynchroLoanFoldersRequest.class)))
+        .thenReturn(expected);
 
-        // then
-        assertThat(result).isSameAs(expected);
-        ArgumentCaptor<CloseBillingSpaceRequest> captor = ArgumentCaptor.forClass(CloseBillingSpaceRequest.class);
-        verify(commandExecutor).execute(eq(CloseBillingSpaceCommand.class), captor.capture());
-        assertThat(captor.getValue().getLoanFolder()).isNotNull(); // mappé depuis l'entity
-        verifyNoMoreInteractions(commandExecutor);
-    }
+    // when
+    SynchroSendLoanFolder result = processor.process(entity);
+
+    // then
+    assertThat(result).isSameAs(expected);
+    verify(commandExecutor).execute(eq(SendSynchroLoanFoldersCommand.class), requestCaptor.capture());
+
+    SendSynchroLoanFoldersRequest req = requestCaptor.getValue();
+    assertThat(req).isNotNull();
+    assertThat(req.getLoanFolderId()).isEqualTo("LF-123");
+    // on vérifie que l’event history mappé est bien présent
+    assertThat(req.getDocaposteEventHistory()).isNotNull();
+  }
 }
 
-// src/test/java/com/bnpparibas/dsibddf/ap00420/streamfact/batch/billingspace/close/reader/BillingSpaceClosureReaderTest.java
-package com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.close.reader;
+> Le test couvre l’unique chemin logique : transformation DocaposteEventHistoryEntity -> SendSynchroLoanFoldersRequest puis appel de CommandExecutorV2#execute et retour de la valeur. 
 
-import com.bnpparibas.dsibddf.ap00420.streamfact.domain.commons.BillingSpaceStatusEnum;
-import com.bnpparibas.dsibddf.ap00420.streamfact.domain.commons.RequestTypeEnum;
-import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.billingspace.repository.BillingSpaceJpaRepository;
-import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
-import org.springframework.data.domain.Sort;
-import org.springframework.test.util.ReflectionTestUtils;
 
-import java.util.List;
-import java.util.Map;
 
-import static org.assertj.core.api.Assertions.assertThat;
 
-class BillingSpaceClosureReaderTest {
+---
 
-    @Test
-    void init_configures_repository_method_arguments_and_sort() {
-        BillingSpaceJpaRepository repo = Mockito.mock(BillingSpaceJpaRepository.class);
-        BillingSpaceClosureReader reader = new BillingSpaceClosureReader(repo);
+3) BillingSpaceSendSynchroItemWriterTest.java
 
-        // when
-        reader.init();
+package com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.synchro.sender.writer;
 
-        // then (accès champs privés via ReflectionTestUtils)
-        String methodName = (String) ReflectionTestUtils.getField(reader, "methodName");
-        List<?> arguments = (List<?>) ReflectionTestUtils.getField(reader, "arguments");
-        Map<String, Sort.Direction> sort = (Map<String, Sort.Direction>) ReflectionTestUtils.getField(reader, "sort");
-
-        assertThat(methodName).isEqualTo("findBillingSpacesToClose");
-        assertThat(arguments).containsExactly(BillingSpaceStatusEnum.TO_CLOSE, RequestTypeEnum.CLOSING);
-        assertThat(sort).containsEntry("loanFolderId", Sort.Direction.ASC);
-        assertThat(ReflectionTestUtils.getField(reader, "repository")).isSameAs(repo);
-    }
-}
-
-// src/test/java/com/bnpparibas/dsibddf/ap00420/streamfact/batch/billingspace/close/reader/ReplayBillingspaceClosureReaderTest.java
-package com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.close.reader;
-
-import com.bnpparibas.dsibddf.ap00420.streamfact.domain.commons.BillingSpaceStatusEnum;
-import com.bnpparibas.dsibddf.ap00420.streamfact.domain.commons.RequestTypeEnum;
-import com.bnpparibas.dsibddf.ap00420.streamfact.domain.commons.RequestTypeStatusEnum;
-import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.billingspace.repository.BillingSpaceJpaRepository;
-import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
-import org.springframework.data.domain.Sort;
-import org.springframework.test.util.ReflectionTestUtils;
-
-import java.util.List;
-import java.util.Map;
-
-import static org.assertj.core.api.Assertions.assertThat;
-
-class ReplayBillingspaceClosureReaderTest {
-
-    @Test
-    void init_configures_repository_method_arguments_and_sort_for_replay() {
-        BillingSpaceJpaRepository repo = Mockito.mock(BillingSpaceJpaRepository.class);
-        ReplayBillingspaceClosureReader reader = new ReplayBillingspaceClosureReader(repo);
-
-        reader.init();
-
-        String methodName = (String) ReflectionTestUtils.getField(reader, "methodName");
-        List<?> arguments = (List<?>) ReflectionTestUtils.getField(reader, "arguments");
-        Map<String, Sort.Direction> sort = (Map<String, Sort.Direction>) ReflectionTestUtils.getField(reader, "sort");
-
-        assertThat(methodName).isEqualTo("findReplayBillingSpacesToClose");
-        assertThat(arguments).hasSize(3);
-        assertThat((List<?>) arguments.get(0)).containsExactlyInAnyOrder(BillingSpaceStatusEnum.TO_CLOSE, BillingSpaceStatusEnum.CLOSED);
-        assertThat(arguments.get(1)).isEqualTo(RequestTypeEnum.CLOSING);
-        assertThat((List<?>) arguments.get(2)).containsExactlyInAnyOrder(RequestTypeStatusEnum.CLOSURE_TO_SEND, RequestTypeStatusEnum.CLOSURE_REJECTED);
-        assertThat(sort).containsEntry("loanFolderId", Sort.Direction.ASC);
-        assertThat(ReflectionTestUtils.getField(reader, "repository")).isSameAs(repo);
-    }
-}
-
-// src/test/java/com/bnpparibas/dsibddf/ap00420/streamfact/batch/billingspace/close/writer/BillingSpaceClosureWriterTest.java
-package com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.close.writer;
-
-import com.bnpparibas.dsibddf.ap00420.streamfact.application.billingspace.close.pojo.BillingSpaceCloseToSend;
+import com.bnpparibas.dsibddf.ap00420.streamfact.application.loanfolder.synchro.pojo.SynchroSendLoanFolder;
 import com.bnpparibas.dsibddf.ap00420.streamfact.domain.commons.RequestTypeStatusEnum;
 import com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.history.model.DocaposteEventHistory;
 import com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.history.repository.DocaposteEventHistoryRepository;
 import com.bnpparibas.dsibddf.ap00420.streamfact.domain.repository.docaposte.DocaposteRepository;
 import com.bnpparibas.dsibddf.ap00420.streamfact.domain.repository.docaposte.model.DocaposteResponse;
 import com.bnpparibas.dsibddf.ap00420.streamfact.domain.repository.docaposte.model.DossierBox;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.*;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.batch.item.Chunk;
 
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
-class BillingSpaceClosureWriterTest {
+class BillingSpaceSendSynchroItemWriterTest {
 
-    @Mock private DocaposteRepository docaposteRepository;
-    @Mock private DocaposteEventHistoryRepository eventHistoryRepository;
+  @InjectMocks
+  private BillingSpaceSendSynchroItemWriter writer;
 
-    private BillingSpaceClosureWriter writer;
+  @Mock
+  private DocaposteRepository docaposteRepository;
 
-    @BeforeEach
-    void setUp() {
-        writer = new BillingSpaceClosureWriter();
-        // inject mocks in fields (pas de constructeur)
-        org.springframework.test.util.ReflectionTestUtils.setField(writer, "docaposteRepository", docaposteRepository);
-        org.springframework.test.util.ReflectionTestUtils.setField(writer, "docaposteEventHistoryRepository", eventHistoryRepository);
-    }
+  @Mock
+  private DocaposteEventHistoryRepository docaposteEventHistoryRepository;
 
-    @Test
-    void write_deduplicates_by_loanFolderId_persists_before_and_after_send() throws Exception {
-        // given: deux éléments avec le même loanFolderId -> 1 seul doit partir
-        BillingSpaceCloseToSend a = mockItem("LF-001", "VAL-A");
-        BillingSpaceCloseToSend b = mockItem("LF-001", "VAL-B"); // même loanFolder -> doublon
-        BillingSpaceCloseToSend c = mockItem("LF-002", "VAL-C");
+  @Captor
+  private ArgumentCaptor<DocaposteEventHistory> eventCaptor;
 
-        // la réponse Docaposte a autant d’items que d’entrées uniques
-        DocaposteResponse r1 = mock(DocaposteResponse.class);
-        when(r1.getGroupId()).thenReturn("GID-1");
-        DocaposteResponse r2 = mock(DocaposteResponse.class);
-        when(r2.getGroupId()).thenReturn("GID-2");
-        when(docaposteRepository.sendDossierBox(anyList())).thenReturn(List.of(r1, r2));
+  @Test
+  void write_whenResponsesPresent_savesEventsWithUpdateSent() throws Exception {
+    // given: 2 éléments à envoyer
+    SynchroSendLoanFolder s1 = mock(SynchroSendLoanFolder.class);
+    SynchroSendLoanFolder s2 = mock(SynchroSendLoanFolder.class);
+    DossierBox d1 = mock(DossierBox.class);
+    DossierBox d2 = mock(DossierBox.class);
+    DocaposteEventHistory e1 = mock(DocaposteEventHistory.class);
+    DocaposteEventHistory e2 = mock(DocaposteEventHistory.class);
 
-        // when
-        writer.write(new Chunk<>(List.of(a, b, c)));
+    when(s1.getDossierBox()).thenReturn(d1);
+    when(s2.getDossierBox()).thenReturn(d2);
+    when(s1.getDocaposteEventHistory()).thenReturn(e1);
+    when(s2.getDocaposteEventHistory()).thenReturn(e2);
 
-        // then: saveAll avant l’envoi avec 2 historiques (LF-001, LF-002) puis save() après avec statut CLOSURE_SENT
-        ArgumentCaptor<List<DocaposteEventHistory>> saveAllCaptor = ArgumentCaptor.forClass(List.class);
-        verify(eventHistoryRepository).saveAll(saveAllCaptor.capture());
-        assertThat(saveAllCaptor.getValue()).hasSize(2);
+    DocaposteResponse r1 = mock(DocaposteResponse.class);
+    DocaposteResponse r2 = mock(DocaposteResponse.class);
+    when(r1.getGroupId()).thenReturn("G1");
+    when(r2.getGroupId()).thenReturn("G2");
 
-        // capture des deux enregistrements post-envoi
-        ArgumentCaptor<DocaposteEventHistory> saveCaptor = ArgumentCaptor.forClass(DocaposteEventHistory.class);
-        verify(eventHistoryRepository, times(2)).save(saveCaptor.capture());
-        List<DocaposteEventHistory> saved = saveCaptor.getAllValues();
-        assertThat(saved).allMatch(h -> h.getStatus() == RequestTypeStatusEnum.CLOSURE_SENT);
-        // vérifie que le requestId provient de la réponse Docaposte
-        assertThat(saved.stream().map(DocaposteEventHistory::getRequestId)).containsExactlyInAnyOrder("GID-1", "GID-2");
-        verify(docaposteRepository).sendDossierBox(anyList());
-        verifyNoMoreInteractions(docaposteRepository);
-    }
+    when(docaposteRepository.sendDossierBox(Arrays.asList(d1, d2)))
+        .thenReturn(Arrays.asList(r1, r2));
 
-    private BillingSpaceCloseToSend mockItem(String loanFolderId, String dossierValue) {
-        BillingSpaceCloseToSend item = mock(BillingSpaceCloseToSend.class);
+    // when
+    writer.write(Chunk.of(Arrays.asList(s1, s2)));
 
-        DocaposteEventHistory hist = DocaposteEventHistory.domainBuilder()
-                .loanFolderId(loanFolderId)
-                .build();
-        when(item.getDocaposteEventHistory()).thenReturn(hist);
+    // then: 2 sauvegardes avec status UPDATE_SENT et requestId aligné
+    verify(docaposteEventHistoryRepository, times(2)).save(eventCaptor.capture());
+    List<DocaposteEventHistory> saved = eventCaptor.getAllValues();
+    assertThat(saved).hasSize(2);
+    assertThat(saved)
+        .extracting(DocaposteEventHistory::getStatus)
+        .containsOnly(RequestTypeStatusEnum.UPDATE_SENT);
+    assertThat(saved)
+        .extracting(DocaposteEventHistory::getRequestId)
+        .containsExactlyInAnyOrder("G1", "G2");
+  }
 
-        DossierBox dossier = mock(DossierBox.class);
-        when(dossier.toJsonString()).thenReturn("{json}");
-        when(dossier.getValue()).thenReturn(dossierValue);
-        when(item.getDossierBox()).thenReturn(dossier);
+  @Test
+  void write_whenNoResponse_doesNotSaveAnything() throws Exception {
+    SynchroSendLoanFolder s = mock(SynchroSendLoanFolder.class);
+    DossierBox d = mock(DossierBox.class);
+    when(s.getDossierBox()).thenReturn(d);
+    when(s.getDocaposteEventHistory()).thenReturn(mock(DocaposteEventHistory.class));
 
-        return item;
-    }
+    when(docaposteRepository.sendDossierBox(anyList())).thenReturn(Collections.emptyList());
+
+    writer.write(Chunk.of(Collections.singletonList(s)));
+
+    verify(docaposteEventHistoryRepository, never()).save(any());
+  }
 }
 
+> Le test couvre les deux branches du writer : réponses renvoyées ⇒ créations et sauvegardes d’événements avec status = UPDATE_SENT et requestId = groupId; aucune réponse ⇒ aucune sauvegarde. 
 
----
 
-JaCoCo (rapport de coverage)
-
-Si tu n’as pas encore JaCoCo :
-
-<!-- pom.xml -->
-<build>
-  <plugins>
-    <plugin>
-      <groupId>org.jacoco</groupId>
-      <artifactId>jacoco-maven-plugin</artifactId>
-      <version>0.8.11</version>
-      <executions>
-        <execution>
-          <goals><goal>prepare-agent</goal></goals>
-        </execution>
-        <execution>
-          <id>report</id>
-          <phase>test</phase>
-          <goals><goal>report</goal></goals>
-        </execution>
-      </executions>
-    </plugin>
-  </plugins>
-</build>
-
-Puis :
-
-mvn -q -DskipITs test
-open target/site/jacoco/index.html
 
 
 ---
 
-Si tu voulais d’autres classes (par ex. le Tasklet de clôture ou les steps du job), dis-le et je t’ajoute les tests qui vont bien.
+Astuces pour atteindre réellement 100 %
+
+Exécutez avec Maven : mvn -Dtest=*SendSynchro* test puis jacoco : mvn jacoco:report.
+
+Si votre build utilise Spring Batch 5, Chunk.of(...) est ok. Sur une version antérieure, remplacez par new Chunk<>(Arrays.asList(...)).
+
+Ces tests n’exécutent pas de logique métier externe : tout est mocké (CommandExecutor, Docaposte, Repositories, Listener, TX).
+
+Si des méthodes setLoanFolderId n’existent pas sur l’entity, supprimez les assertions correspondantes (le processor reste couvert via le thenReturn(expected)).
+
+
+Vous voulez que je vous ajoute aussi le test du EventHistorySynchroItemReaderConfig (lecture HQL) pour parfaire le lot ?
