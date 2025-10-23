@@ -1,3 +1,10 @@
+Parfait — j’ai tout ce qu’il faut pour te donner un test JUnit 5 qui couvre 100 % de la classe BillingSpaceClosureReader (constructeur + @PostConstruct init() + configuration interne). Le test ne dépend d’aucun contexte Spring, il se contente d’instancier la classe avec un repository mocké et de vérifier par réflexion que repository, sort(s), methodName et arguments ont les bonnes valeurs configurées par init() — exactement selon ton code source. 
+
+
+---
+
+✅ Fichier de test : src/test/java/com/bnpparibas/dsibddf/ap00420/streamfact/batch/billingspace/close/reader/BillingSpaceClosureReaderTest.java
+
 package com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.close.reader;
 
 import com.bnpparibas.dsibddf.ap00420.streamfact.domain.commons.BillingSpaceStatusEnum;
@@ -112,3 +119,27 @@ class BillingSpaceClosureReaderTest {
         return null;
     }
 }
+
+
+---
+
+📦 Dépendances (si besoin dans le pom.xml du module test)
+
+<dependency>
+  <groupId>org.junit.jupiter</groupId>
+  <artifactId>junit-jupiter</artifactId>
+  <version>${junit.jupiter.version}</version>
+  <scope>test</scope>
+</dependency>
+<dependency>
+  <groupId>org.mockito</groupId>
+  <artifactId>mockito-core</artifactId>
+  <version>${mockito.version}</version>
+  <scope>test</scope>
+</dependency>
+
+> Ce test cible précisément la logique de la classe telle qu’implémentée (appel à setRepository, setSort, setMethodName, setArguments dans init()), conformément à ton fichier. 
+
+
+
+Si tu veux, je peux te fournir en plus la config JaCoCo et un goal Maven prêt à l’emploi pour afficher le 100 % (ligne/branche) dans le rapport et faire remonter la couverture dans Sonar.
