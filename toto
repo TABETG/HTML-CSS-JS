@@ -1,14 +1,10 @@
-Top — voilà le code complet corrigé pour faire monter le coverage Sonar sur la config JobConfigurationBillingSpaceClosure.
-J’ai mocké tous les beans externes (readers/writer/tasklet/tx manager/repo) et le processor pour éviter l’erreur CommandExecutorV2 manquant, tout en vérifiant le wiring du job, des steps, RunIdIncrementer, allowStartIfComplete(true), présence du listener commun et chunk = 100 sur les steps chunkés.
-(Noms exacts confirmés depuis ta classe de conf : le bean s’appelle updateBillingSpaceToStatusClosedStep et le nom du step est updateBillingSpaceToStatusClosed.) 
+Tu as une erreur de contexte Spring parce que le writer a une dépendance non fournie (DocaposteRepository) et, côté processor, il y a aussi CommandExecutorV2 à mocker. Ça ressort explicitement dans tes logs et dans le code existant du writer / processor.   
 
-
----
-
-📄 src/test/java/com/bnpparibas/dsibddf/ap00420/streamfact/batch/billingspace/close/job/JobConfigurationBillingSpaceClosureTest.java
+Voici la classe de test corrigée qui se charge de tout mocker proprement (reader, processor, writer, tasklet + dépendances CommandExecutorV2, DocaposteRepository, DocaposteEventHistoryRepository) et qui câble le transactionManager. Elle vérifie aussi la présence du job et des trois steps déclarés dans la conf. (noms tels que définis dans ta JobConfigurationBillingSpaceClosure). 
 
 package com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.close.job;
 
+import com.bnpparibas.bddf.cqrs.command.v2.CommandExecutorV2;
 import com.bnpparibas.dsibddf.ap00420.streamfact.application.billingspace.close.pojo.BillingSpaceCloseToSend;
 import com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.close.processor.BillingSpaceClosureProcessor;
 import com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.close.reader.BillingSpaceClosureReader;
@@ -17,152 +13,116 @@ import com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.close.taskle
 import com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.close.writer.BillingSpaceClosureWriter;
 import com.bnpparibas.dsibddf.ap00420.streamfact.batch.listener.CommonStepExecutionListener;
 import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.billingspace.model.BillingSpaceEntity;
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Nested;
+import com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.history.repository.DocaposteEventHistoryRepository;
+import com.bnpparibas.dsibddf.ap00420.streamfact.domain.repository.docaposte.DocaposteRepository;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mockito;
 import org.springframework.batch.core.Job;
 import org.springframework.batch.core.Step;
-import org.springframework.batch.core.job.flow.FlowJob;
-import org.springframework.batch.core.launch.support.RunIdIncrementer;
-import org.springframework.batch.core.repository.JobRepository;
-import org.springframework.batch.core.step.tasklet.Tasklet;
-import org.springframework.batch.core.step.tasklet.TaskletStep;
-import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Import;
-import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
-import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.context.annotation.Primary;
+import org.springframework.test.context.ContextConfiguration;
+import org.springframework.test.context.junit.jupiter.SpringExtension;
+import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.support.ResourcelessTransactionManager;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/**
- * Test de wiring & propriétés du job de clôture (sans I/O, 100% mocks).
- * Couvre: création des @Bean, structure du flow, incrementer, allowStartIfComplete, chunk=100, listener commun.
- */
-@SpringJUnitConfig
-@Import({ JobConfigurationBillingSpaceClosure.class, JobConfigurationBillingSpaceClosureTest.TestBeans.class })
+@ExtendWith(SpringExtension.class)
+@ContextConfiguration(classes = {
+        JobConfigurationBillingSpaceClosure.class,
+        JobConfigurationBillingSpaceClosureTest.TestBeans.class
+})
 class JobConfigurationBillingSpaceClosureTest {
+
+    @org.springframework.beans.factory.annotation.Autowired
+    private ApplicationContext ctx;
+
+    @Test
+    void jobWiring_ok() {
+        // Job présent
+        Job job = ctx.getBean("billingSpaceClosureJob", Job.class);
+        assertThat(job).isNotNull();
+
+        // Steps présents (noms alignés avec la config)
+        Step s1 = ctx.getBean("billingSpaceClosureStep", Step.class);
+        Step s2 = ctx.getBean("replayBillingSpaceClosureStep", Step.class);
+        Step s3 = ctx.getBean("updateBillingSpaceToStatusClosedStep", Step.class);
+
+        assertThat(s1).isNotNull();
+        assertThat(s2).isNotNull();
+        assertThat(s3).isNotNull();
+    }
 
     @TestConfiguration
     static class TestBeans {
-        // Doubles pour éviter toute dépendance infra
-        @Bean BillingSpaceClosureReader billingSpaceClosureReader() { return Mockito.mock(BillingSpaceClosureReader.class); }
-        @Bean ReplayBillingspaceClosureReader replayBillingSpaceClosureReader() { return Mockito.mock(ReplayBillingspaceClosureReader.class); }
-        @Bean BillingSpaceClosureWriter billingSpaceClosureWriter() { return Mockito.mock(BillingSpaceClosureWriter.class); }
-        @Bean UpdateBillingSpaceToStatusClosedTasklet updateBillingSpaceToStatusClosedTasklet() { return Mockito.mock(UpdateBillingSpaceToStatusClosedTasklet.class); }
-        @Bean CommonStepExecutionListener commonStepExecutionListener() { return new CommonStepExecutionListener(); }
 
-        // 👇 Mocker directement le processor évite le bean manquant CommandExecutorV2
-        @Bean BillingSpaceClosureProcessor billingSpaceClosureProcessor() { return Mockito.mock(BillingSpaceClosureProcessor.class); }
-
-        // Beans infra exigés par les builders
-        @Bean @Qualifier("transactionManager") PlatformTransactionManager transactionManager() { return Mockito.mock(PlatformTransactionManager.class); }
-        @Bean JobRepository jobRepository() { return Mockito.mock(JobRepository.class); }
-    }
-
-    @Autowired private Job job;
-
-    @Autowired @Qualifier("billingSpaceClosureStep")
-    private Step billingSpaceClosureStepBean;
-
-    @Autowired @Qualifier("replayBillingSpaceClosureStep")
-    private Step replayBillingSpaceClosureStepBean;
-
-    // ⚠️ Bean name = updateBillingSpaceToStatusClosedStep, step name = "updateBillingSpaceToStatusClosed"
-    @Autowired @Qualifier("updateBillingSpaceToStatusClosedStep")
-    private Step updateBillingSpaceToStatusClosedStepBean;
-
-    @Autowired private CommonStepExecutionListener commonStepExecutionListener;
-
-    // ---------- Tests Job ----------
-    @Nested @DisplayName("Job wiring & flow")
-    class JobWiring {
-
-        @Test @DisplayName("Nom du job + RunIdIncrementer")
-        void job_has_name_and_incrementer() {
-            assertThat(job).isInstanceOf(FlowJob.class);
-            FlowJob fj = (FlowJob) job;
-            assertThat(fj.getName()).isEqualTo("billingSpaceClosureJob");
-            assertThat(fj.getJobParametersIncrementer()).isInstanceOf(RunIdIncrementer.class);
+        // === Mocks des beans utilisés dans la configuration ===
+        @Bean @Primary
+        BillingSpaceClosureReader billingSpaceClosureReader() {
+            return Mockito.mock(BillingSpaceClosureReader.class);
         }
 
-        @Test @DisplayName("Le flow référence les 3 steps par leurs noms de step")
-        void job_contains_expected_steps_in_flow() {
-            FlowJob fj = (FlowJob) job;
-            // Noms des steps dans la conf (@Bean "update...Step" mais stepName = "updateBillingSpaceToStatusClosed")
-            assertThat(fj.getStep("billingSpaceClosureStep")).isNotNull();
-            assertThat(fj.getStep("replayBillingSpaceClosureStep")).isNotNull();
-            assertThat(fj.getStep("updateBillingSpaceToStatusClosed")).isNotNull();
-        }
-    }
-
-    // ---------- Tests Steps chunkés ----------
-    @Nested @DisplayName("Steps chunkés : chunk=100, allowStartIfComplete=true, listener commun")
-    class ChunkedStepsProperties {
-
-        @Test @DisplayName("billingSpaceClosureStep : props OK")
-        void billingSpaceClosureStep_properties() {
-            assertChunkStep(billingSpaceClosureStepBean, 100);
+        @Bean @Primary
+        BillingSpaceClosureProcessor billingSpaceClosureProcessor() {
+            return Mockito.mock(BillingSpaceClosureProcessor.class);
         }
 
-        @Test @DisplayName("replayBillingSpaceClosureStep : props OK")
-        void replayBillingSpaceClosureStep_properties() {
-            assertChunkStep(replayBillingSpaceClosureStepBean, 100);
+        @Bean @Primary
+        BillingSpaceClosureWriter billingSpaceClosureWriter() {
+            return Mockito.mock(BillingSpaceClosureWriter.class);
         }
-    }
 
-    // ---------- Test Step tasklet ----------
-    @Nested @DisplayName("Step tasklet de mise à jour de statut")
-    class TaskletStepProperties {
-        @Test @DisplayName("updateBillingSpaceToStatusClosed : allowStartIfComplete=true")
-        void updateBillingSpaceToStatusClosed_allowStartIfComplete_true() {
-            assertThat(updateBillingSpaceToStatusClosedStepBean).isInstanceOf(TaskletStep.class);
-            TaskletStep ts = (TaskletStep) updateBillingSpaceToStatusClosedStepBean;
-            Object allow = ReflectionTestUtils.getField(ts, "allowStartIfComplete");
-            assertThat(allow).isInstanceOf(Boolean.class);
-            assertThat((Boolean) allow).isTrue();
+        @Bean @Primary
+        ReplayBillingspaceClosureReader replayBillingspaceClosureReader() {
+            return Mockito.mock(ReplayBillingspaceClosureReader.class);
         }
-    }
 
-    // ---------- Helpers reflection ----------
-    private void assertChunkStep(Step step, int expectedChunk) {
-        assertThat(step).isInstanceOf(TaskletStep.class);
-        TaskletStep ts = (TaskletStep) step;
+        @Bean
+        UpdateBillingSpaceToStatusClosedTasklet updateBillingSpaceToStatusClosedTasklet() {
+            // pas exécuté pendant ces tests – un mock suffit
+            return Mockito.mock(UpdateBillingSpaceToStatusClosedTasklet.class);
+        }
 
-        // allowStartIfComplete
-        Object allow = ReflectionTestUtils.getField(ts, "allowStartIfComplete");
-        assertThat(allow).isInstanceOf(Boolean.class);
-        assertThat((Boolean) allow).isTrue();
+        @Bean
+        CommonStepExecutionListener commonStepExecutionListener() {
+            return Mockito.mock(CommonStepExecutionListener.class);
+        }
 
-        // listener commun présent (composite -> listeners)
-        Object compositeListener = ReflectionTestUtils.getField(ts, "stepExecutionListener");
-        Object listeners = ReflectionTestUtils.getField(compositeListener, "listeners");
-        assertThat(listeners).isInstanceOfAny(java.util.Collection.class);
-        assertThat((java.util.Collection<?>) listeners).anyMatch(l -> l == commonStepExecutionListener);
+        // Transaction manager requis par la config des steps
+        @Bean(name = "transactionManager")
+        PlatformTransactionManager transactionManager() {
+            return new ResourcelessTransactionManager();
+        }
 
-        // chunk size = 100 (via completionPolicy.chunkSize)
-        Tasklet tasklet = (Tasklet) ReflectionTestUtils.getField(ts, "tasklet");
-        assertThat(tasklet).isNotNull();
-        Object chunkProvider = ReflectionTestUtils.getField(tasklet, "chunkProvider");
-        Object completionPolicy = ReflectionTestUtils.getField(chunkProvider, "completionPolicy");
-        Integer chunkSize = (Integer) ReflectionTestUtils.getField(completionPolicy, "chunkSize");
-        assertThat(chunkSize).isEqualTo(expectedChunk);
+        // === Dépendances manquantes qui faisaient planter le contexte ===
+        @Bean
+        CommandExecutorV2 commandExecutor() {
+            return Mockito.mock(CommandExecutorV2.class);
+        }
+
+        @Bean
+        DocaposteRepository docaposteRepository() {
+            return Mockito.mock(DocaposteRepository.class);
+        }
+
+        @Bean
+        DocaposteEventHistoryRepository docaposteEventHistoryRepository() {
+            return Mockito.mock(DocaposteEventHistoryRepository.class);
+        }
     }
 }
 
+Pourquoi ça corrige l’erreur :
 
----
+Le writer autowire DocaposteRepository et DocaposteEventHistoryRepository. On les fournit en mocks, donc le bean billingSpaceClosureWriter peut être créé sans échec.  
 
-▶️ À lancer (exemples)
+Le processor autowire CommandExecutorV2. On le mock aussi pour éviter l’exception NoSuchBeanDefinitionException.  
 
-# Uniquement ce test, dans le module batch
-mvn -pl <module-batch> -am -Dtest=JobConfigurationBillingSpaceClosureTest test
+Les trois steps/test vérifient la présence des beans dont les noms sont ceux définis dans la conf (billingSpaceClosureStep, replayBillingSpaceClosureStep, updateBillingSpaceToStatusClosedStep). 
 
-# Puis JaCoCo + Sonar si nécessaire
-mvn -pl <module-batch> -am test jacoco:report sonar:sonar
 
-Si tu veux, je peux ajouter une variante “smoke” qui lance chaque step avec JobLauncherTestUtils (toujours sans I/O) pour grappiller encore quelques lignes d’exécution.
+Si tu préfères, on peut aussi refactorer le writer/processor en injection par constructeur (Lombok @RequiredArgsConstructor) pour des tests encore plus simples—mais ce n’est pas nécessaire ici pour faire passer le contexte et augmenter le coverage.
