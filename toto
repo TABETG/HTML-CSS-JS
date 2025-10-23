@@ -1,70 +1,151 @@
-package com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.synchro.sender.processor;
-
-import com.bnpparibas.bddf.cqrs.command.v2.CommandExecutorV2;
 import com.bnpparibas.dsibddf.ap00420.streamfact.application.loanfolder.synchro.pojo.SynchroSendLoanFolder;
-import com.bnpparibas.dsibddf.ap00420.streamfact.application.loanfolder.synchro.sender.SendSynchroLoanFoldersCommand;
-import com.bnpparibas.dsibddf.ap00420.streamfact.application.loanfolder.synchro.sender.SendSynchroLoanFoldersRequest;
-import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.history.model.DocaposteEventHistoryEntity;
+import com.bnpparibas.dsibddf.ap00420.streamfact.domain.commons.RequestTypeStatusEnum;
+import com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.history.model.DocaposteEventHistory;
+import com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.history.repository.DocaposteEventHistoryRepository;
+import com.bnpparibas.dsibddf.ap00420.streamfact.domain.repository.docaposte.DocaposteRepository;
+import com.bnpparibas.dsibddf.ap00420.streamfact.domain.repository.docaposte.model.DocaposteResponse;
+import com.bnpparibas.dsibddf.ap00420.streamfact.domain.repository.docaposte.model.DossierBox;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentMatchers;
-import org.mockito.InjectMocks;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Captor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.batch.item.Chunk;
+import org.springframework.test.util.ReflectionTestUtils;
 
-import static org.junit.jupiter.api.Assertions.*;
+import java.time.LocalDateTime;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
-class BillingSpaceSendSynchroItemProcessorTest {
+class BillingSpaceSendSynchroItemWriterTest {
 
     @Mock
-    private CommandExecutorV2 commandExecutor;
+    private DocaposteRepository docaposteRepository;
 
-    @InjectMocks
-    private BillingSpaceSendSynchroItemProcessor processor;
+    @Mock
+    private DocaposteEventHistoryRepository docaposteEventHistoryRepository;
 
-    @Test
-    void process_returnsValueFromCommandExecutor_and_callsWithProperTypes() throws Exception {
-        // Arrange
-        DocaposteEventHistoryEntity entity = mock(DocaposteEventHistoryEntity.class);
-        when(entity.getLoanFolderId()).thenReturn("LF-123");
+    @Captor
+    private ArgumentCaptor<DocaposteEventHistory> historyCaptor;
 
-        SynchroSendLoanFolder expected = mock(SynchroSendLoanFolder.class);
+    private BillingSpaceSendSynchroItemWriter writer;
 
-        // Stub: on ne s’intéresse pas au contenu exact de la request ici;
-        // l’objectif est de couvrir la méthode et de vérifier l’appel au bon exécuteur.
-        when(commandExecutor.execute(
-                ArgumentMatchers.eq(SendSynchroLoanFoldersCommand.class),
-                ArgumentMatchers.any(SendSynchroLoanFoldersRequest.class)
-        )).thenReturn(expected);
-
-        // Act
-        SynchroSendLoanFolder result = processor.process(entity);
-
-        // Assert
-        assertSame(expected, result, "Le processor doit renvoyer exactement la valeur du CommandExecutor");
-        verify(commandExecutor, times(1)).execute(
-                ArgumentMatchers.eq(SendSynchroLoanFoldersCommand.class),
-                ArgumentMatchers.any(SendSynchroLoanFoldersRequest.class)
-        );
-        verify(entity, atLeastOnce()).getLoanFolderId(); // couvre l'accès ID
-        verifyNoMoreInteractions(commandExecutor);
+    @BeforeEach
+    void setUp() {
+        writer = new BillingSpaceSendSynchroItemWriter();
+        
+        // Injection des dépendances via réflexion
+        ReflectionTestUtils.setField(writer, "docaposteRepository", docaposteRepository);
+        ReflectionTestUtils.setField(writer, "docaposteEventHistoryRepository", docaposteEventHistoryRepository);
     }
 
     @Test
-    void process_propagatesExceptionFromCommandExecutor() {
-        // Arrange
-        DocaposteEventHistoryEntity entity = mock(DocaposteEventHistoryEntity.class);
-        when(entity.getLoanFolderId()).thenReturn("LF-999");
+    void write_shouldSaveEventHistoryWhenResponseNotEmpty() {
+        // Given
+        DossierBox dossierBox1 = mock(DossierBox.class);
+        DossierBox dossierBox2 = mock(DossierBox.class);
+        
+        when(dossierBox1.toJsonString()).thenReturn("dossier1");
+        when(dossierBox2.toJsonString()).thenReturn("dossier2");
+        
+        DocaposteEventHistory existingHistory1 = new DocaposteEventHistory();
+        DocaposteEventHistory existingHistory2 = new DocaposteEventHistory();
+        
+        SynchroSendLoanFolder folder1 = createSynchroFolder(dossierBox1, existingHistory1);
+        SynchroSendLoanFolder folder2 = createSynchroFolder(dossierBox2, existingHistory2);
+        
+        Chunk<SynchroSendLoanFolder> chunk = new Chunk<>(Arrays.asList(folder1, folder2));
+        
+        List<DocaposteResponse> responses = Arrays.asList(
+            createDocaposteResponse("groupId1"),
+            createDocaposteResponse("groupId2")
+        );
 
-        when(commandExecutor.execute(
-                ArgumentMatchers.eq(SendSynchroLoanFoldersCommand.class),
-                ArgumentMatchers.any(SendSynchroLoanFoldersRequest.class)
-        )).thenThrow(new RuntimeException("boom"));
+        when(docaposteRepository.sendDossierBox(anyList())).thenReturn(responses);
 
-        // Act + Assert
-        RuntimeException ex = assertThrows(RuntimeException.class, () -> processor.process(entity));
-        assertEquals("boom", ex.getMessage());
+        // When
+        writer.write(chunk);
+
+        // Then
+        verify(docaposteRepository).sendDossierBox(anyList());
+        verify(docaposteEventHistoryRepository, times(2)).save(historyCaptor.capture());
+        
+        List<DocaposteEventHistory> savedHistory = historyCaptor.getAllValues();
+        assertThat(savedHistory).hasSize(2);
+        assertThat(savedHistory.get(0).getStatus()).isEqualTo(RequestTypeStatusEnum.UPDATE_SENT);
+        assertThat(savedHistory.get(0).getRequestId()).isEqualTo("groupId1");
+        assertThat(savedHistory.get(1).getStatus()).isEqualTo(RequestTypeStatusEnum.UPDATE_SENT);
+        assertThat(savedHistory.get(1).getRequestId()).isEqualTo("groupId2");
+    }
+
+    @Test
+    void write_shouldNotSaveEventHistoryWhenResponseEmpty() {
+        // Given
+        DossierBox dossierBox = mock(DossierBox.class);
+        when(dossierBox.toJsonString()).thenReturn("dossier");
+        
+        DocaposteEventHistory existingHistory = new DocaposteEventHistory();
+        SynchroSendLoanFolder folder = createSynchroFolder(dossierBox, existingHistory);
+        
+        Chunk<SynchroSendLoanFolder> chunk = new Chunk<>(Collections.singletonList(folder));
+
+        when(docaposteRepository.sendDossierBox(anyList())).thenReturn(Collections.emptyList());
+
+        // When
+        writer.write(chunk);
+
+        // Then
+        verify(docaposteRepository).sendDossierBox(anyList());
+        verify(docaposteEventHistoryRepository, never()).save(any(DocaposteEventHistory.class));
+    }
+
+    @Test
+    void write_shouldHandleSingleItem() {
+        // Given
+        DossierBox dossierBox = mock(DossierBox.class);
+        when(dossierBox.toJsonString()).thenReturn("singleDossier");
+        
+        DocaposteEventHistory existingHistory = new DocaposteEventHistory();
+        SynchroSendLoanFolder folder = createSynchroFolder(dossierBox, existingHistory);
+        
+        Chunk<SynchroSendLoanFolder> chunk = new Chunk<>(Collections.singletonList(folder));
+        
+        List<DocaposteResponse> responses = Collections.singletonList(
+            createDocaposteResponse("singleGroupId")
+        );
+
+        when(docaposteRepository.sendDossierBox(anyList())).thenReturn(responses);
+
+        // When
+        writer.write(chunk);
+
+        // Then
+        verify(docaposteRepository).sendDossierBox(anyList());
+        verify(docaposteEventHistoryRepository).save(historyCaptor.capture());
+        
+        DocaposteEventHistory savedHistory = historyCaptor.getValue();
+        assertThat(savedHistory.getStatus()).isEqualTo(RequestTypeStatusEnum.UPDATE_SENT);
+        assertThat(savedHistory.getRequestId()).isEqualTo("singleGroupId");
+    }
+
+    private SynchroSendLoanFolder createSynchroFolder(DossierBox dossierBox, DocaposteEventHistory eventHistory) {
+        SynchroSendLoanFolder folder = mock(SynchroSendLoanFolder.class);
+        when(folder.getDossierBox()).thenReturn(dossierBox);
+        when(folder.getDocaposteEventHistory()).thenReturn(eventHistory);
+        return folder;
+    }
+
+    private DocaposteResponse createDocaposteResponse(String groupId) {
+        DocaposteResponse response = mock(DocaposteResponse.class);
+        when(response.getGroupId()).thenReturn(groupId);
+        return response;
     }
 }
