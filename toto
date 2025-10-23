@@ -1,136 +1,110 @@
-Voici des tests JUnit 5 qui portent la classe BillingSpaceConfiguration à 100 % de couverture (toutes les méthodes @Bean exécutées et vérifiées). Les assertions inspectent les Steps par réflexion pour garantir que tasklet, reader / processor / writer et listener sont bien câblés, et que le Job assemble les 2 steps dans l’ordre. Le code est aligné avec ta classe telle qu’envoyée (noms de beans, steps, chunk, listener, etc.). 
-
-
----
-
-📄 src/test/java/com/bnpparibas/dsibddf/ap00420/streamfact/batch/billingspace/create/BillingSpaceConfigurationTest.java
-
 package com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.create;
 
-import com.bnpparibas.dsibddf.ap00420.streamfact.batch.listener.CommonStepExecutionListener;
-import com.bnpparibas.dsibddf.ap00420.streamfact.batch.stockintegration.CreateEligibleLoanFoldersTasklet;
-import com.bnpparibas.dsibddf.ap00420.streamfact.batch.stockintegration.processor.EligibleLoanFolderProcessor;
-import com.bnpparibas.dsibddf.ap00420.streamfact.batch.stockintegration.reader.EligibleLoanFoldersIteamReader;
-import com.bnpparibas.dsibddf.ap00420.streamfact.batch.stockintegration.writer.CompleteLoanFoldersAndCreateBillingSpacesItemWriter;
+import com.bnpparibas.bddf.cqrs.command.v2.CommandExecutorV2;
+import com.bnpparibas.dsibddf.ap00420.streamfact.application.billingspace.create.CreateBillingSpaceCommand;
+import com.bnpparibas.dsibddf.ap00420.streamfact.application.billingspace.create.CreateBillingSpaceRequest;
+import com.bnpparibas.dsibddf.ap00420.streamfact.application.loanfolder.complete.CompleteLoanFoldersCommand;
+import com.bnpparibas.dsibddf.ap00420.streamfact.application.loanfolder.complete.CompleteLoanFoldersRequest;
+import com.bnpparibas.dsibddf.ap00420.streamfact.application.loanfolder.createeligiblefolders.CreateEligibleLoanFoldersCommand;
+import com.bnpparibas.dsibddf.ap00420.streamfact.application.loanfolder.createeligiblefolders.CreateEligibleLoanFoldersRequest;
+import com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.billingspace.model.BillingSpace;
+import com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.loanfolder.model.LoanFolder;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mock;
-import org.mockito.MockitoAnnotations;
-import org.springframework.batch.core.Job;
-import org.springframework.batch.core.Step;
-import org.springframework.batch.core.repository.JobRepository;
-import org.springframework.transaction.PlatformTransactionManager;
+import org.mockito.*;
+import org.springframework.batch.core.StepContribution;
+import org.springframework.batch.core.scope.context.ChunkContext;
+import org.springframework.batch.repeat.RepeatStatus;
 
-import java.lang.reflect.Array;
 import java.lang.reflect.Field;
 import java.util.Arrays;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.mock;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
 
-class BillingSpaceConfigurationTest {
+class CreateBillingSpaceTaskletTest {
 
-    @Mock private CreateEligibleLoanFoldersTasklet createEligibleLoanFoldersTasklet;
-    @Mock private EligibleLoanFoldersIteamReader eligibleLoanFoldersIteamReader;
-    @Mock private EligibleLoanFolderProcessor eligibleLoanFolderProcessor;
-    @Mock private CompleteLoanFoldersAndCreateBillingSpacesItemWriter completeLoanFoldersAndCreateBillingSpacesItemWriter;
-    @Mock private CommonStepExecutionListener commonStepExecutionListener;
-    @Mock private PlatformTransactionManager platformTransactionManager;
-    @Mock private JobRepository jobRepository;
+    @Mock private CommandExecutorV2 commandExecutor;
+    @Mock private StepContribution contribution;
+    @Mock private ChunkContext chunkContext;
 
-    private BillingSpaceConfiguration config;
+    @InjectMocks
+    private CreateBillingSpaceTasklet tasklet;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp() {
         MockitoAnnotations.openMocks(this);
-        config = new BillingSpaceConfiguration();
-
-        // Injecte les @Autowired via réflexion
-        setField(config, "createEligibleLoanFoldersTasklet", createEligibleLoanFoldersTasklet);
-        setField(config, "eligibleLoanFoldersIteamReader", eligibleLoanFoldersIteamReader);
-        setField(config, "eligibleLoanFolderProcessor", eligibleLoanFolderProcessor);
-        setField(config, "completeLoanFoldersAndCreateBillingSpacesItemWriter",
-                 completeLoanFoldersAndCreateBillingSpacesItemWriter);
-        setField(config, "commonStepExecutionListener", commonStepExecutionListener);
-        setField(config, "platformTransactionManager", platformTransactionManager);
+        // @InjectMocks a déjà injecté commandExecutor dans le champ @Autowired
     }
 
     @Test
-    void createEligibleLoanFoldersStep_buildsTaskletStep_withGivenTasklet() throws Exception {
-        Step step = config.createEligibleLoanFoldersStep(jobRepository);
-        assertNotNull(step);
-        assertEquals("createEligibleLoanFoldersStep", step.getName());
+    void execute_callsCommandsInOrder_andWiresPreviousResults_intoNextRequests_andReturnsFinished() throws Exception {
+        // Given: résultats factices
+        List<LoanFolder> eligible = Arrays.asList(mock(LoanFolder.class), mock(LoanFolder.class));
+        List<LoanFolder> complete = Arrays.asList(mock(LoanFolder.class));
+        List<BillingSpace> spaces = Arrays.asList(mock(BillingSpace.class));
 
-        Object tasklet = getField(step, "tasklet");
-        assertSame(createEligibleLoanFoldersTasklet, tasklet,
-                "Le tasklet du step doit être celui injecté dans la configuration");
+        // Stubs sur les 3 commandes
+        when(commandExecutor.execute(eq(CreateEligibleLoanFoldersCommand.class), any(CreateEligibleLoanFoldersRequest.class)))
+                .thenReturn(eligible);
+        when(commandExecutor.execute(eq(CompleteLoanFoldersCommand.class), any(CompleteLoanFoldersRequest.class)))
+                .thenReturn(complete);
+        when(commandExecutor.execute(eq(CreateBillingSpaceCommand.class), any(CreateBillingSpaceRequest.class)))
+                .thenReturn(spaces);
+
+        // When
+        RepeatStatus status = tasklet.execute(contribution, chunkContext);
+
+        // Then
+        assertEquals(RepeatStatus.FINISHED, status);
+
+        // Vérifie l'ordre des invocations
+        InOrder inOrder = inOrder(commandExecutor);
+        inOrder.verify(commandExecutor).execute(eq(CreateEligibleLoanFoldersCommand.class), any(CreateEligibleLoanFoldersRequest.class));
+        inOrder.verify(commandExecutor).execute(eq(CompleteLoanFoldersCommand.class), any(CompleteLoanFoldersRequest.class));
+        inOrder.verify(commandExecutor).execute(eq(CreateBillingSpaceCommand.class), any(CreateBillingSpaceRequest.class));
+
+        // Capture des requêtes pour inspection du contenu
+        ArgumentCaptor<CreateEligibleLoanFoldersRequest> cap1 = ArgumentCaptor.forClass(CreateEligibleLoanFoldersRequest.class);
+        ArgumentCaptor<CompleteLoanFoldersRequest> cap2 = ArgumentCaptor.forClass(CompleteLoanFoldersRequest.class);
+        ArgumentCaptor<CreateBillingSpaceRequest> cap3 = ArgumentCaptor.forClass(CreateBillingSpaceRequest.class);
+
+        verify(commandExecutor).execute(eq(CreateEligibleLoanFoldersCommand.class), cap1.capture());
+        verify(commandExecutor).execute(eq(CompleteLoanFoldersCommand.class), cap2.capture());
+        verify(commandExecutor).execute(eq(CreateBillingSpaceCommand.class), cap3.capture());
+
+        // cap1 : rien de spécial à l'entrée, juste non null
+        assertNotNull(cap1.getValue());
+
+        // cap2 : doit contenir la liste "eligible" dans le champ "eligibleLoanFolders"
+        Object eligibleLoanFolders = readField(cap2.getValue(), "eligibleLoanFolders");
+        assertSame(eligible, eligibleLoanFolders, "La requête Complete doit réutiliser la liste issue de la 1ère commande");
+
+        // cap3 : doit contenir la liste "complete" dans le champ "eligibleAndCompleteloanFolders"
+        Object eligibleAndComplete = readField(cap3.getValue(), "eligibleAndCompleteloanFolders");
+        assertSame(complete, eligibleAndComplete, "La requête CreateBillingSpace doit réutiliser la liste issue de la 2ème commande");
+
+        verifyNoMoreInteractions(commandExecutor);
     }
 
     @Test
-    void completeAndCreateBillingSpaceStep_buildsChunkStep_withReaderProcessorWriterAndListener() throws Exception {
-        Step step = config.completeAndCreateBillingSpaceStep(jobRepository);
-        assertNotNull(step);
-        assertEquals("completeAndCreateBillingSpaceStep", step.getName());
+    void execute_propagatesException_ifCommandExecutorFails() throws Exception {
+        // Given: la 2e commande lève une exception
+        when(commandExecutor.execute(eq(CreateEligibleLoanFoldersCommand.class), any(CreateEligibleLoanFoldersRequest.class)))
+                .thenReturn(Arrays.asList(mock(LoanFolder.class)));
+        when(commandExecutor.execute(eq(CompleteLoanFoldersCommand.class), any(CompleteLoanFoldersRequest.class)))
+                .thenThrow(new RuntimeException("boom"));
 
-        // Vérifie Tasklet = ChunkOrientedTasklet
-        Object tasklet = getField(step, "tasklet");
-        assertNotNull(tasklet);
-        assertTrue(tasklet.getClass().getName().endsWith("ChunkOrientedTasklet"),
-                "Le step doit être un chunk (ChunkOrientedTasklet)");
-
-        // reader
-        Object chunkProvider = getField(tasklet, "chunkProvider");
-        Object itemReader = getField(chunkProvider, "itemReader");
-        assertSame(eligibleLoanFoldersIteamReader, itemReader, "Reader non câblé");
-
-        // processor + writer
-        Object chunkProcessor = getField(tasklet, "chunkProcessor");
-        Object itemProcessor = getField(chunkProcessor, "itemProcessor");
-        Object itemWriter = getField(chunkProcessor, "itemWriter");
-        assertSame(eligibleLoanFolderProcessor, itemProcessor, "Processor non câblé");
-        assertSame(completeLoanFoldersAndCreateBillingSpacesItemWriter, itemWriter, "Writer non câblé");
-
-        // listener présent
-        Object listeners = getField(step, "stepExecutionListeners");
-        assertNotNull(listeners);
-        int len = Array.getLength(listeners);
-        boolean found = false;
-        for (int i = 0; i < len; i++) {
-            if (Array.get(listeners, i) == commonStepExecutionListener) {
-                found = true; break;
-            }
-        }
-        assertTrue(found, "Le listener commun doit être enregistré sur le step");
+        // When/Then
+        assertThrows(RuntimeException.class, () -> tasklet.execute(contribution, chunkContext));
     }
 
-    @Test
-    void createBillingSpace_buildsFlowJob_withTheTwoStepsInOrder() {
-        Step s1 = config.createEligibleLoanFoldersStep(jobRepository);
-        Step s2 = config.completeAndCreateBillingSpaceStep(jobRepository);
-
-        Job job = config.createBillingSpace(jobRepository, s1, s2);
-        assertNotNull(job);
-        assertEquals("CreateBillingSpaceJob", job.getName());
-        assertTrue(job.getClass().getName().endsWith("FlowJob"),
-                "Le job attendu est un FlowJob construit via .flow().next().end()");
-
-        // Sanity check: les steps sont bien ceux construits juste avant
-        // (Flow internals compliqués à introspecter selon versions; le simple build couvre la méthode)
-        assertEquals("createEligibleLoanFoldersStep", s1.getName());
-        assertEquals("completeAndCreateBillingSpaceStep", s2.getName());
-    }
-
-    // ===== Helpers réflexion robustes =====
-    private static void setField(Object target, String field, Object value) throws Exception {
-        Field f = findField(target.getClass(), field);
-        assertNotNull(f, "Champ introuvable: " + field);
-        f.setAccessible(true);
-        f.set(target, value);
-    }
-
-    private static Object getField(Object target, String field) throws Exception {
-        Field f = findField(target.getClass(), field);
-        assertNotNull(f, "Champ introuvable: " + field);
+    // ==== utilitaire réflexion robuste ====
+    private static Object readField(Object target, String name) throws Exception {
+        Field f = findField(target.getClass(), name);
+        assertNotNull(f, "Champ introuvable: " + name);
         f.setAccessible(true);
         return f.get(target);
     }
@@ -139,44 +113,8 @@ class BillingSpaceConfigurationTest {
         for (Class<?> c = type; c != null; c = c.getSuperclass()) {
             try {
                 return c.getDeclaredField(name);
-            } catch (NoSuchFieldException ignored) { }
+            } catch (NoSuchFieldException ignored) {}
         }
         return null;
     }
 }
-
-
----
-
-✅ Pourquoi ça donne 100 % ?
-
-On exécute les 3 méthodes @Bean de la classe (createEligibleLoanFoldersStep, completeAndCreateBillingSpaceStep, createBillingSpace).
-
-On vérifie par réflexion les références internes du TaskletStep / ChunkOrientedTasklet (tasklet, reader, processor, writer, listeners) pour que Sonar/Jacoco comptent toutes les lignes exécutées.
-
-Les noms des steps et du job correspondent exactement à ta config ("createEligibleLoanFoldersStep", "completeAndCreateBillingSpaceStep", "CreateBillingSpaceJob"). 
-
-
-
----
-
-🧩 Dépendances test (si besoin dans le module)
-
-<dependency>
-  <groupId>org.junit.jupiter</groupId>
-  <artifactId>junit-jupiter</artifactId>
-  <scope>test</scope>
-</dependency>
-<dependency>
-  <groupId>org.mockito</groupId>
-  <artifactId>mockito-core</artifactId>
-  <scope>test</scope>
-</dependency>
-
-> Rappels importants :
-• Exécute avec Surefire JUnit 5 (ex. version 3.1.2) pour que les tests tournent.
-• Ne laisse pas Sonar exclure ces fichiers si tu veux voir la couverture monter (vérifie <sonar.exclusions>). 
-
-
-
-Tu veux que je te fasse, sur le même modèle, les tests 100 % des autres configs/steps du lot « create billing space » (reader/processor/writer/tasklet) pour booster le coverage global ?
