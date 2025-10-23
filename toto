@@ -2,6 +2,7 @@ package com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.close.reade
 
 import com.bnpparibas.dsibddf.ap00420.streamfact.domain.commons.BillingSpaceStatusEnum;
 import com.bnpparibas.dsibddf.ap00420.streamfact.domain.commons.RequestTypeEnum;
+import com.bnpparibas.dsibddf.ap00420.streamfact.domain.commons.RequestTypeStatusEnum;
 import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.billingspace.repository.BillingSpaceJpaRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -15,28 +16,23 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-/**
- * 100% coverage for BillingSpaceClosureReader:
- * - constructor injection
- * - @PostConstruct init(): repository, sort, methodName, arguments
- * - toString() path
- */
-class BillingSpaceClosureReaderTest {
+class ReplayBillingspaceClosureReaderTest {
 
     @Mock
     private BillingSpaceJpaRepository repository;
 
-    private BillingSpaceClosureReader reader;
+    private ReplayBillingspaceClosureReader reader;
 
     @BeforeEach
     void setUp() {
         MockitoAnnotations.openMocks(this);
-        reader = new BillingSpaceClosureReader(repository);
+        reader = new ReplayBillingspaceClosureReader(repository);
     }
 
     @Test
-    void constructor_setsRepository() throws Exception {
-        assertSame(repository, findFieldValue(reader, "repository"));
+    void constructor_setsRepositoryField() throws Exception {
+        // Vérifie le champ privé final du reader
+        assertSame(repository, getField(reader, "repository"));
     }
 
     @Test
@@ -44,22 +40,19 @@ class BillingSpaceClosureReaderTest {
         // When
         reader.init();
 
-        // Then
-        assertSame(repository, findFieldValue(reader, "repository"));
+        // repository propagé
+        assertSame(repository, getField(reader, "repository"));
 
-        // ---- Vérification du tri: compatible 2 implémentations ----
-        Object sortField = findAnyFieldValue(reader, "sort", "sorts");
-        assertNotNull(sortField, "Le champ de tri doit être initialisé par init()");
+        // ----- Tri: compatible Map<String,Direction> ou Sort -----
+        Object sortField = getAnyField(reader, "sort", "sorts");
+        assertNotNull(sortField, "Le champ de tri doit être initialisé");
 
         if (sortField instanceof Map) {
-            // Anciennes versions : Map<String, Sort.Direction>
             @SuppressWarnings("unchecked")
             Map<String, Sort.Direction> sorts = (Map<String, Sort.Direction>) sortField;
             assertEquals(Sort.Direction.ASC, sorts.get("loanFolderId"));
         } else if (sortField instanceof Sort) {
-            // Nouvelles versions : org.springframework.data.domain.Sort
             Sort sort = (Sort) sortField;
-            // Vérifie qu'on a bien un ordre ASC sur la propriété "loanFolderId"
             Sort.Order order = sort.getOrderFor("loanFolderId");
             assertNotNull(order, "Un ordre doit exister pour loanFolderId");
             assertEquals(Sort.Direction.ASC, order.getDirection());
@@ -67,32 +60,42 @@ class BillingSpaceClosureReaderTest {
             fail("Type de champ 'sort' inattendu: " + sortField.getClass());
         }
 
-        assertEquals("findBillingSpacesToClose", findFieldValue(reader, "methodName"));
+        // methodName
+        assertEquals("findReplayBillingSpacesToClose", getField(reader, "methodName"));
 
+        // arguments: [ [TO_CLOSE, CLOSED], CLOSING, [CLOSURE_TO_SEND, CLOSURE_REJECTED] ]
         @SuppressWarnings("unchecked")
-        List<Object> args = (List<Object>) findAnyFieldValue(reader, "arguments", "args");
+        List<Object> args = (List<Object>) getAnyField(reader, "arguments", "args");
         assertNotNull(args);
-        assertEquals(2, args.size());
-        assertTrue(args.contains(BillingSpaceStatusEnum.TO_CLOSE));
-        assertTrue(args.contains(RequestTypeEnum.CLOSING));
+        assertEquals(3, args.size());
+
+        // 1) List<BillingSpaceStatusEnum>
+        assertTrue(args.get(0) instanceof List, "arg[0] doit être une List de statuts");
+        @SuppressWarnings("unchecked")
+        List<?> statuses = (List<?>) args.get(0);
+        assertTrue(statuses.contains(BillingSpaceStatusEnum.TO_CLOSE));
+        assertTrue(statuses.contains(BillingSpaceStatusEnum.CLOSED));
+
+        // 2) RequestTypeEnum
+        assertEquals(RequestTypeEnum.CLOSING, args.get(1));
+
+        // 3) List<RequestTypeStatusEnum>
+        assertTrue(args.get(2) instanceof List, "arg[2] doit être une List de statuses");
+        @SuppressWarnings("unchecked")
+        List<?> reqStatuses = (List<?>) args.get(2);
+        assertTrue(reqStatuses.contains(RequestTypeStatusEnum.CLOSURE_TO_SEND));
+        assertTrue(reqStatuses.contains(RequestTypeStatusEnum.CLOSURE_REJECTED));
     }
 
-    @Test
-    void toString_includesClassName() {
-        String s = reader.toString();
-        assertNotNull(s);
-        assertTrue(s.contains("BillingSpaceClosureReader"));
-    }
-
-    // ===== Helpers réflexion =====
-    private Object findFieldValue(Object target, String name) throws Exception {
+    // --- Helpers réflexion : parcourent la hiérarchie (superclasses comprises) ---
+    private Object getField(Object target, String name) throws Exception {
         Field f = findField(target.getClass(), name);
-        assertNotNull(f, "Field not found: " + name);
+        assertNotNull(f, "Champ introuvable: " + name);
         f.setAccessible(true);
         return f.get(target);
     }
 
-    private Object findAnyFieldValue(Object target, String... candidates) throws Exception {
+    private Object getAnyField(Object target, String... candidates) throws Exception {
         for (String name : candidates) {
             Field f = findField(target.getClass(), name);
             if (f != null) {
@@ -100,7 +103,7 @@ class BillingSpaceClosureReaderTest {
                 return f.get(target);
             }
         }
-        // fallback éventuel : cherche un Map (anciennes impl.) puis un Sort (nouvelles)
+        // fallback : premier champ Map ou Sort trouvé (selon version Spring Batch)
         for (Class<?> c = target.getClass(); c != null; c = c.getSuperclass()) {
             for (Field f : c.getDeclaredFields()) {
                 if (Map.class.isAssignableFrom(f.getType()) || Sort.class.isAssignableFrom(f.getType())) {
