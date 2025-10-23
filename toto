@@ -1,3 +1,20 @@
+Tu as un Autowire manquant sur BillingSpaceRepository injecté dans UpdateBillingSpaceToStatusClosedTasklet. Il faut déclarer un bean mock de ce repository dans ta config de test (comme on l’a fait pour CommandExecutorV2, DocaposteRepository, etc.). L’exception le montre clairement dans ton log “No qualifying bean of type … BillingSpaceRepository”. 
+
+Voici la classe de test corrigée et complète qui :
+
+mocke toutes les dépendances requises (dont BillingSpaceRepository ✅),
+
+charge la conf JobConfigurationBillingSpaceClosure,
+
+couvre toutes les méthodes @Bean (création du Job + 3 Steps),
+
+vérifie le nom du job, le RunIdIncrementer, la présence des steps dans le flow,
+
+vérifie pour les steps chunkés : allowStartIfComplete(true), chunk=100, et la présence du listener commun (sans exécuter de vrai I/O).
+
+
+Copie/colle tel quel dans : src/test/java/com/bnpparibas/dsibddf/ap00420/streamfact/batch/billingspace/close/job/JobConfigurationBillingSpaceClosureTest.java
+
 package com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.close.job;
 
 import com.bnpparibas.bddf.cqrs.command.v2.CommandExecutorV2;
@@ -7,111 +24,176 @@ import com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.close.reader
 import com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.close.tasklet.UpdateBillingSpaceToStatusClosedTasklet;
 import com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.close.writer.BillingSpaceClosureWriter;
 import com.bnpparibas.dsibddf.ap00420.streamfact.batch.listener.CommonStepExecutionListener;
-import com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.history.repository.DocaposteEventHistoryRepository;
 import com.bnpparibas.dsibddf.ap00420.streamfact.domain.repository.docaposte.DocaposteRepository;
+import com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.history.repository.DocaposteEventHistoryRepository;
+import com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.billingspace.repository.BillingSpaceRepository;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mockito;
 import org.springframework.batch.core.Job;
 import org.springframework.batch.core.Step;
+import org.springframework.batch.core.job.flow.FlowJob;
+import org.springframework.batch.core.launch.support.RunIdIncrementer;
 import org.springframework.batch.core.repository.JobRepository;
+import org.springframework.batch.core.step.tasklet.Tasklet;
+import org.springframework.batch.core.step.tasklet.TaskletStep;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
-import org.springframework.test.context.ContextConfiguration;
-import org.springframework.test.context.junit.jupiter.SpringExtension;
-import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.PlatformTransactionManager;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@ExtendWith(SpringExtension.class)
-@ContextConfiguration(classes = {
-        JobConfigurationBillingSpaceClosure.class,
-        JobConfigurationBillingSpaceClosureTest.TestBeans.class
-})
+/**
+ * Couvre la conf @Configuration JobConfigurationBillingSpaceClosure :
+ * - @Bean billingSpaceClosureJob(...)
+ * - @Bean billingSpaceClosureStep(...)
+ * - @Bean replayBillingSpaceClosureStep(...)
+ * - @Bean updateBillingSpaceToStatusClosedStep(...)
+ */
+@SpringJUnitConfig
+@Import({ JobConfigurationBillingSpaceClosure.class, JobConfigurationBillingSpaceClosureTest.TestBeans.class })
 class JobConfigurationBillingSpaceClosureTest {
 
-    @Autowired
-    private ApplicationContext ctx;
+    @Autowired private ApplicationContext ctx;
+
+    @Autowired private Job job; // bean "billingSpaceClosureJob"
+
+    @Autowired @Qualifier("billingSpaceClosureStep")
+    private Step billingSpaceClosureStepBean;
+
+    @Autowired @Qualifier("replayBillingSpaceClosureStep")
+    private Step replayBillingSpaceClosureStepBean;
+
+    // Bean name = updateBillingSpaceToStatusClosedStep, step name = "updateBillingSpaceToStatusClosed"
+    @Autowired @Qualifier("updateBillingSpaceToStatusClosedStep")
+    private Step updateBillingSpaceToStatusClosedStepBean;
+
+    @Autowired private CommonStepExecutionListener commonStepExecutionListener;
 
     @Test
-    void jobWiring_ok() {
-        // Job présent
-        Job job = ctx.getBean("billingSpaceClosureJob", Job.class);
+    @DisplayName("Contexte OK : job + 3 steps présents")
+    void context_ok() {
         assertThat(job).isNotNull();
-
-        // Steps présents (noms alignés avec la config)
-        Step s1 = ctx.getBean("billingSpaceClosureStep", Step.class);
-        Step s2 = ctx.getBean("replayBillingSpaceClosureStep", Step.class);
-        Step s3 = ctx.getBean("updateBillingSpaceToStatusClosedStep", Step.class);
-
-        assertThat(s1).isNotNull();
-        assertThat(s2).isNotNull();
-        assertThat(s3).isNotNull();
+        assertThat(billingSpaceClosureStepBean).isNotNull();
+        assertThat(replayBillingSpaceClosureStepBean).isNotNull();
+        assertThat(updateBillingSpaceToStatusClosedStepBean).isNotNull();
     }
 
+    @Nested
+    @DisplayName("Job wiring & flow")
+    class JobWiring {
+
+        @Test
+        @DisplayName("Nom du job + RunIdIncrementer")
+        void job_has_name_and_incrementer() {
+            assertThat(job).isInstanceOf(FlowJob.class);
+            FlowJob fj = (FlowJob) job;
+            assertThat(fj.getName()).isEqualTo("billingSpaceClosureJob");
+            assertThat(fj.getJobParametersIncrementer()).isInstanceOf(RunIdIncrementer.class);
+        }
+
+        @Test
+        @DisplayName("Le flow référence bien les 3 steps (par leurs noms de step)")
+        void job_contains_expected_steps_in_flow() {
+            FlowJob fj = (FlowJob) job;
+            assertThat(fj.getStep("billingSpaceClosureStep")).isNotNull();
+            assertThat(fj.getStep("replayBillingSpaceClosureStep")).isNotNull();
+            assertThat(fj.getStep("updateBillingSpaceToStatusClosed")).isNotNull();
+        }
+    }
+
+    @Nested
+    @DisplayName("Steps chunkés : chunk=100, allowStartIfComplete=true, listener commun")
+    class ChunkedStepsProperties {
+
+        @Test
+        void billingSpaceClosureStep_properties() {
+            assertChunkStep(billingSpaceClosureStepBean, 100);
+        }
+
+        @Test
+        void replayBillingSpaceClosureStep_properties() {
+            assertChunkStep(replayBillingSpaceClosureStepBean, 100);
+        }
+    }
+
+    @Nested
+    @DisplayName("Step tasklet : allowStartIfComplete=true")
+    class TaskletStepProperties {
+        @Test
+        void updateBillingSpaceToStatusClosed_allowStartIfComplete_true() {
+            assertThat(updateBillingSpaceToStatusClosedStepBean).isInstanceOf(TaskletStep.class);
+            TaskletStep ts = (TaskletStep) updateBillingSpaceToStatusClosedStepBean;
+            Object allow = ReflectionTestUtils.getField(ts, "allowStartIfComplete");
+            assertThat(allow).isInstanceOf(Boolean.class);
+            assertThat((Boolean) allow).isTrue();
+        }
+    }
+
+    // ---------- Helpers reflection ----------
+    private void assertChunkStep(Step step, int expectedChunk) {
+        assertThat(step).isInstanceOf(TaskletStep.class);
+        TaskletStep ts = (TaskletStep) step;
+
+        // allowStartIfComplete
+        Object allow = ReflectionTestUtils.getField(ts, "allowStartIfComplete");
+        assertThat(allow).isInstanceOf(Boolean.class);
+        assertThat((Boolean) allow).isTrue();
+
+        // listener commun présent
+        Object compositeListener = ReflectionTestUtils.getField(ts, "stepExecutionListener");
+        Object listeners = ReflectionTestUtils.getField(compositeListener, "listeners");
+        assertThat(listeners).isInstanceOfAny(java.util.Collection.class);
+        assertThat((java.util.Collection<?>) listeners).anyMatch(l -> l == commonStepExecutionListener);
+
+        // chunk size = 100 (via completionPolicy.chunkSize)
+        Tasklet tasklet = (Tasklet) ReflectionTestUtils.getField(ts, "tasklet");
+        assertThat(tasklet).isNotNull();
+        Object chunkProvider = ReflectionTestUtils.getField(tasklet, "chunkProvider");
+        Object completionPolicy = ReflectionTestUtils.getField(chunkProvider, "completionPolicy");
+        Integer chunkSize = (Integer) ReflectionTestUtils.getField(completionPolicy, "chunkSize");
+        assertThat(chunkSize).isEqualTo(expectedChunk);
+    }
+
+    // ---------- Beans de test (mocks) ----------
     @TestConfiguration
     static class TestBeans {
 
-        // === Mocks des beans utilisés dans la configuration ===
-        @Bean @Primary
-        BillingSpaceClosureReader billingSpaceClosureReader() {
-            return Mockito.mock(BillingSpaceClosureReader.class);
-        }
+        // Mocks métier utilisés par la conf
+        @Bean @Primary BillingSpaceClosureReader billingSpaceClosureReader() { return Mockito.mock(BillingSpaceClosureReader.class); }
+        @Bean @Primary ReplayBillingspaceClosureReader replayBillingSpaceClosureReader() { return Mockito.mock(ReplayBillingspaceClosureReader.class); }
+        @Bean @Primary BillingSpaceClosureProcessor billingSpaceClosureProcessor() { return Mockito.mock(BillingSpaceClosureProcessor.class); }
+        @Bean @Primary BillingSpaceClosureWriter billingSpaceClosureWriter() { return Mockito.mock(BillingSpaceClosureWriter.class); }
+        @Bean UpdateBillingSpaceToStatusClosedTasklet updateBillingSpaceToStatusClosedTasklet() { return Mockito.mock(UpdateBillingSpaceToStatusClosedTasklet.class); }
+        @Bean CommonStepExecutionListener commonStepExecutionListener() { return Mockito.mock(CommonStepExecutionListener.class); }
 
-        @Bean @Primary
-        BillingSpaceClosureProcessor billingSpaceClosureProcessor() {
-            return Mockito.mock(BillingSpaceClosureProcessor.class);
-        }
+        // Dépendances autowirées ailleurs
+        @Bean CommandExecutorV2 commandExecutor() { return Mockito.mock(CommandExecutorV2.class); }
+        @Bean DocaposteRepository docaposteRepository() { return Mockito.mock(DocaposteRepository.class); }
+        @Bean DocaposteEventHistoryRepository docaposteEventHistoryRepository() { return Mockito.mock(DocaposteEventHistoryRepository.class); }
+        @Bean BillingSpaceRepository billingSpaceRepository() { return Mockito.mock(BillingSpaceRepository.class); } // ✅ corrige l’erreur
 
-        @Bean @Primary
-        BillingSpaceClosureWriter billingSpaceClosureWriter() {
-            return Mockito.mock(BillingSpaceClosureWriter.class);
-        }
-
-        @Bean @Primary
-        ReplayBillingspaceClosureReader replayBillingspaceClosureReader() {
-            return Mockito.mock(ReplayBillingspaceClosureReader.class);
-        }
-
-        @Bean
-        UpdateBillingSpaceToStatusClosedTasklet updateBillingSpaceToStatusClosedTasklet() {
-            return Mockito.mock(UpdateBillingSpaceToStatusClosedTasklet.class);
-        }
-
-        @Bean
-        CommonStepExecutionListener commonStepExecutionListener() {
-            return Mockito.mock(CommonStepExecutionListener.class);
-        }
-
-        // ✅ Pas de ResourcelessTransactionManager : on mocke simplement le TM
-        @Bean(name = "transactionManager")
-        PlatformTransactionManager transactionManager() {
-            return Mockito.mock(PlatformTransactionManager.class);
-        }
-
-        // === Dépendances manquantes qui faisaient planter le contexte ===
-        @Bean
-        CommandExecutorV2 commandExecutor() {
-            return Mockito.mock(CommandExecutorV2.class);
-        }
-
-        @Bean
-        DocaposteRepository docaposteRepository() {
-            return Mockito.mock(DocaposteRepository.class);
-        }
-
-        @Bean
-        DocaposteEventHistoryRepository docaposteEventHistoryRepository() {
-            return Mockito.mock(DocaposteEventHistoryRepository.class);
-        }
-
-        // Souvent requis par la conf Spring Batch 5 (constructeurs @Bean)
-        @Bean
-        JobRepository jobRepository() {
-            return Mockito.mock(JobRepository.class);
-        }
+        // Infra minimale requise par les builders
+        @Bean(name = "transactionManager") PlatformTransactionManager transactionManager() { return Mockito.mock(PlatformTransactionManager.class); }
+        @Bean JobRepository jobRepository() { return Mockito.mock(JobRepository.class); }
     }
 }
+
+Pourquoi ça résout ton erreur et augmente le coverage ?
+
+On fourni un bean BillingSpaceRepository (mock), ce qui lève l’UnsatisfiedDependencyException lors de la création du UpdateBillingSpaceToStatusClosedTasklet. 
+
+Chaque méthode @Bean de JobConfigurationBillingSpaceClosure est appelée lors de la création des beans → lignes exécutées = couverte par Sonar (job + 3 steps).
+
+Les assertions par réflexion cochent les choix de config (chunk=100, listener, allowStartIfComplete), donc on valide ce qui est construit, en plus de l’exécuter.
+
+
+Si tu veux gratter encore quelques lignes, je peux te donner une variante “smoke” qui lance chaque step via JobLauncherTestUtils (avec ResourcelessTransactionManager importé depuis org.springframework.batch.support.transaction) — mais ce n’est pas indispensable pour couvrir toutes les lignes de cette classe de configuration.
