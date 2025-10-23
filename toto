@@ -1,18 +1,12 @@
-Tu as une erreur de contexte Spring parce que le writer a une dépendance non fournie (DocaposteRepository) et, côté processor, il y a aussi CommandExecutorV2 à mocker. Ça ressort explicitement dans tes logs et dans le code existant du writer / processor.   
-
-Voici la classe de test corrigée qui se charge de tout mocker proprement (reader, processor, writer, tasklet + dépendances CommandExecutorV2, DocaposteRepository, DocaposteEventHistoryRepository) et qui câble le transactionManager. Elle vérifie aussi la présence du job et des trois steps déclarés dans la conf. (noms tels que définis dans ta JobConfigurationBillingSpaceClosure). 
-
 package com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.close.job;
 
 import com.bnpparibas.bddf.cqrs.command.v2.CommandExecutorV2;
-import com.bnpparibas.dsibddf.ap00420.streamfact.application.billingspace.close.pojo.BillingSpaceCloseToSend;
 import com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.close.processor.BillingSpaceClosureProcessor;
 import com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.close.reader.BillingSpaceClosureReader;
 import com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.close.reader.ReplayBillingspaceClosureReader;
 import com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.close.tasklet.UpdateBillingSpaceToStatusClosedTasklet;
 import com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.close.writer.BillingSpaceClosureWriter;
 import com.bnpparibas.dsibddf.ap00420.streamfact.batch.listener.CommonStepExecutionListener;
-import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.billingspace.model.BillingSpaceEntity;
 import com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.history.repository.DocaposteEventHistoryRepository;
 import com.bnpparibas.dsibddf.ap00420.streamfact.domain.repository.docaposte.DocaposteRepository;
 import org.junit.jupiter.api.Test;
@@ -20,6 +14,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mockito;
 import org.springframework.batch.core.Job;
 import org.springframework.batch.core.Step;
+import org.springframework.batch.core.repository.JobRepository;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
@@ -27,7 +23,6 @@ import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.context.junit.jupiter.SpringExtension;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.support.ResourcelessTransactionManager;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -38,7 +33,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 })
 class JobConfigurationBillingSpaceClosureTest {
 
-    @org.springframework.beans.factory.annotation.Autowired
+    @Autowired
     private ApplicationContext ctx;
 
     @Test
@@ -83,7 +78,6 @@ class JobConfigurationBillingSpaceClosureTest {
 
         @Bean
         UpdateBillingSpaceToStatusClosedTasklet updateBillingSpaceToStatusClosedTasklet() {
-            // pas exécuté pendant ces tests – un mock suffit
             return Mockito.mock(UpdateBillingSpaceToStatusClosedTasklet.class);
         }
 
@@ -92,10 +86,10 @@ class JobConfigurationBillingSpaceClosureTest {
             return Mockito.mock(CommonStepExecutionListener.class);
         }
 
-        // Transaction manager requis par la config des steps
+        // ✅ Pas de ResourcelessTransactionManager : on mocke simplement le TM
         @Bean(name = "transactionManager")
         PlatformTransactionManager transactionManager() {
-            return new ResourcelessTransactionManager();
+            return Mockito.mock(PlatformTransactionManager.class);
         }
 
         // === Dépendances manquantes qui faisaient planter le contexte ===
@@ -113,16 +107,11 @@ class JobConfigurationBillingSpaceClosureTest {
         DocaposteEventHistoryRepository docaposteEventHistoryRepository() {
             return Mockito.mock(DocaposteEventHistoryRepository.class);
         }
+
+        // Souvent requis par la conf Spring Batch 5 (constructeurs @Bean)
+        @Bean
+        JobRepository jobRepository() {
+            return Mockito.mock(JobRepository.class);
+        }
     }
 }
-
-Pourquoi ça corrige l’erreur :
-
-Le writer autowire DocaposteRepository et DocaposteEventHistoryRepository. On les fournit en mocks, donc le bean billingSpaceClosureWriter peut être créé sans échec.  
-
-Le processor autowire CommandExecutorV2. On le mock aussi pour éviter l’exception NoSuchBeanDefinitionException.  
-
-Les trois steps/test vérifient la présence des beans dont les noms sont ceux définis dans la conf (billingSpaceClosureStep, replayBillingSpaceClosureStep, updateBillingSpaceToStatusClosedStep). 
-
-
-Si tu préfères, on peut aussi refactorer le writer/processor en injection par constructeur (Lombok @RequiredArgsConstructor) pour des tests encore plus simples—mais ce n’est pas nécessaire ici pour faire passer le contexte et augmenter le coverage.
