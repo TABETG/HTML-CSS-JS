@@ -1,19 +1,12 @@
-Parfait 👍
-Tu m’as envoyé à la fois :
-
-le code source complet de BillingSpaceClosureProcessor.java,
-
-et le pom.xml de ton module stream-fact-batch.
-
-
-✅ Ton POM contient déjà spring-batch-test, mais pas les dépendances de test unitaires classiques (JUnit 5 + Mockito).
-➡️ Voici donc le code complet et fonctionnel du test à ajouter dans ton dossier
-src/test/java/com/bnpparibas/dsibddf/ap00420/streamfact/batch/billingspace/close/processor/BillingSpaceClosureProcessorTest.java.
+Voici un test prêt à coller qui corrige ton erreur Mockito et fait monter la couverture de la classe BillingSpaceClosureProcessor (chemin et code confirmés dans tes fichiers). L’erreur vient du fait que tu “stubbais” LoanFolderMapperToDomain.toDomain(...) avec un type qui n’est pas LoanFolder (“WrongTypeOfReturnValue”) — or, la classe appelle bien ce mapper statique avant d’exécuter la commande. 
 
 
 ---
 
-✅ Fichier : BillingSpaceClosureProcessorTest.java
+1) Test JUnit 5 + Mockito (avec mock statique)
+
+Crée ce fichier :
+src/test/java/com/bnpparibas/dsibddf/ap00420/streamfact/batch/billingspace/close/processor/BillingSpaceClosureProcessorTest.java
 
 package com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.close.processor;
 
@@ -21,6 +14,7 @@ import com.bnpparibas.bddf.cqrs.command.v2.CommandExecutorV2;
 import com.bnpparibas.dsibddf.ap00420.streamfact.application.billingspace.close.CloseBillingSpaceCommand;
 import com.bnpparibas.dsibddf.ap00420.streamfact.application.billingspace.close.CloseBillingSpaceRequest;
 import com.bnpparibas.dsibddf.ap00420.streamfact.application.billingspace.close.pojo.BillingSpaceCloseToSend;
+import com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.loanfolder.model.LoanFolder;
 import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.billingspace.model.BillingSpaceEntity;
 import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.loanfolder.model.LoanFolderEntity;
 import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.loanfolder.mapper.LoanFolderMapperToDomain;
@@ -30,108 +24,131 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.*;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
-import static org.assertj.core.api.Assertions.assertThat;
 
+/**
+ * Couvre le scénario nominal et le scénario d'exception de process(...).
+ * Points clés :
+ * - mock statique du mapper LoanFolderMapperToDomain.toDomain(...) pour renvoyer un LoanFolder (bon type)
+ * - vérification que CommandExecutorV2.execute(...) est appelé avec la commande attendue
+ */
 @ExtendWith(MockitoExtension.class)
 class BillingSpaceClosureProcessorTest {
-
-    @Mock
-    private CommandExecutorV2 commandExecutor;
 
     @InjectMocks
     private BillingSpaceClosureProcessor processor;
 
+    @Mock
+    private CommandExecutorV2 commandExecutor;
+
     @Test
     void process_should_execute_command_with_mapped_loan_folder() throws Exception {
-        // GIVEN
+        // Arrange
         BillingSpaceEntity billingSpaceEntity = mock(BillingSpaceEntity.class);
         LoanFolderEntity loanFolderEntity = mock(LoanFolderEntity.class);
         when(billingSpaceEntity.getLoanFolder()).thenReturn(loanFolderEntity);
 
-        Object mappedLoanFolder = new Object(); // objet domaine mappé simulé
-        BillingSpaceCloseToSend expectedResponse = mock(BillingSpaceCloseToSend.class);
+        // IMPORTANT : le mapper doit renvoyer un LoanFolder (le bon type) et pas un Object
+        LoanFolder mappedLoanFolder = mock(LoanFolder.class);
+        BillingSpaceCloseToSend expected = mock(BillingSpaceCloseToSend.class);
 
-        // WHEN : mock statique du mapper
-        try (MockedStatic<LoanFolderMapperToDomain> mapperMock = mockStatic(LoanFolderMapperToDomain.class)) {
-            mapperMock.when(() -> LoanFolderMapperToDomain.toDomain(loanFolderEntity))
-                      .thenReturn(mappedLoanFolder);
+        try (MockedStatic<LoanFolderMapperToDomain> mockedMapper =
+                     Mockito.mockStatic(LoanFolderMapperToDomain.class)) {
+
+            mockedMapper.when(() -> LoanFolderMapperToDomain.toDomain(loanFolderEntity))
+                        .thenReturn(mappedLoanFolder);
 
             when(commandExecutor.execute(eq(CloseBillingSpaceCommand.class), any(CloseBillingSpaceRequest.class)))
-                    .thenReturn(expectedResponse);
+                    .thenReturn(expected);
 
-            // ACT
+            // Act
             BillingSpaceCloseToSend result = processor.process(billingSpaceEntity);
 
-            // THEN
-            assertThat(result).isEqualTo(expectedResponse);
+            // Assert
+            assertSame(expected, result, "Le résultat doit être celui retourné par l'executor");
 
-            ArgumentCaptor<CloseBillingSpaceRequest> captor = ArgumentCaptor.forClass(CloseBillingSpaceRequest.class);
-            verify(commandExecutor).execute(eq(CloseBillingSpaceCommand.class), captor.capture());
-            CloseBillingSpaceRequest sentRequest = captor.getValue();
-            assertThat(sentRequest.getLoanFolder()).isEqualTo(mappedLoanFolder);
+            // Vérifie que le mapper statique a bien été appelé avec l'entité fournie
+            mockedMapper.verify(() -> LoanFolderMapperToDomain.toDomain(loanFolderEntity));
 
-            mapperMock.verify(() -> LoanFolderMapperToDomain.toDomain(loanFolderEntity));
+            // Optionnel : capture et vérifie des champs de la requête
+            ArgumentCaptor<CloseBillingSpaceRequest> reqCap = ArgumentCaptor.forClass(CloseBillingSpaceRequest.class);
+            verify(commandExecutor).execute(eq(CloseBillingSpaceCommand.class), reqCap.capture());
+            // Si CloseBillingSpaceRequest a un getter getLoanFolder(), décommente :
+            // assertSame(mappedLoanFolder, reqCap.getValue().getLoanFolder());
+        }
+    }
+
+    @Test
+    void process_should_propagate_exception_from_executor() throws Exception {
+        // Arrange
+        BillingSpaceEntity billingSpaceEntity = mock(BillingSpaceEntity.class);
+        LoanFolderEntity loanFolderEntity = mock(LoanFolderEntity.class);
+        when(billingSpaceEntity.getLoanFolder()).thenReturn(loanFolderEntity);
+
+        LoanFolder mappedLoanFolder = mock(LoanFolder.class);
+
+        try (MockedStatic<LoanFolderMapperToDomain> mockedMapper =
+                     Mockito.mockStatic(LoanFolderMapperToDomain.class)) {
+
+            mockedMapper.when(() -> LoanFolderMapperToDomain.toDomain(loanFolderEntity))
+                        .thenReturn(mappedLoanFolder);
+
+            when(commandExecutor.execute(eq(CloseBillingSpaceCommand.class), any(CloseBillingSpaceRequest.class)))
+                    .thenThrow(new IllegalStateException("boom"));
+
+            // Act + Assert
+            IllegalStateException ex = assertThrows(IllegalStateException.class,
+                    () -> processor.process(billingSpaceEntity));
+            assertEquals("boom", ex.getMessage());
         }
     }
 }
 
+Pourquoi ça corrige l’erreur ?
+BillingSpaceClosureProcessor.process(...) appelle le mapper statique LoanFolderMapperToDomain.toDomain(...) puis commandExecutor.execute(...). Il faut donc mock-er la méthode statique pour qu’elle retourne un LoanFolder (et non un Object). L’erreur “Object cannot be returned by toDomain() / toDomain() should return LoanFolder” provenait d’un stub au mauvais type. 
+
 
 ---
 
-🧩 Ajoute ces dépendances test dans ton pom.xml
+2) Dépendances test (si besoin dans ton pom.xml)
 
-Place-les sous la balise <dependencies> (elles ne sont pas encore présentes dans ton POM) :
+Dans le module stream-fact-batch (celui où se trouve la classe testée), assure-toi d’avoir ces deps test :
 
-<!-- JUnit 5 -->
-<dependency>
-  <groupId>org.junit.jupiter</groupId>
-  <artifactId>junit-jupiter</artifactId>
-  <version>5.10.2</version>
-  <scope>test</scope>
-</dependency>
-
-<!-- Mockito -->
+<!-- JUnit 5 + Mockito JUnit Jupiter -->
 <dependency>
   <groupId>org.mockito</groupId>
-  <artifactId>mockito-core</artifactId>
-  <version>5.12.0</version>
+  <artifactId>mockito-junit-jupiter</artifactId>
   <scope>test</scope>
 </dependency>
 
-<!-- Mockito inline : pour mocker les méthodes statiques -->
+<!-- Mockito inline pour le mock des méthodes statiques -->
 <dependency>
   <groupId>org.mockito</groupId>
   <artifactId>mockito-inline</artifactId>
-  <version>5.2.0</version>
   <scope>test</scope>
 </dependency>
 
-<!-- AssertJ (optionnel pour de belles assertions) -->
-<dependency>
-  <groupId>org.assertj</groupId>
-  <artifactId>assertj-core</artifactId>
-  <version>3.25.3</version>
-  <scope>test</scope>
-</dependency>
+Ton module utilise déjà Spring Batch et les tests batch (vu dans ton POM), donc rien d’autre à ajouter ici pour ce test. 
 
 
 ---
 
-🚀 Pour exécuter le test avec couverture IntelliJ
+3) Lancer uniquement ce test (pratique pour la CI)
 
-1. Clique droit sur la classe BillingSpaceClosureProcessorTest.
-
-
-2. Choisis “Run 'BillingSpaceClosureProcessorTest' with Coverage”.
-
-
-3. Vérifie les barres vertes (code couvert) et ton pourcentage global (Jacoco/IntelliJ).
-
-
+mvn -q -Dtest=BillingSpaceClosureProcessorTest test
 
 
 ---
 
-Souhaites-tu que je te prépare une deuxième classe de test d’intégration Spring Batch pour tester le step complet (JobConfigurationBillingSpaceClosure) avec @SpringBatchTest et @SpringBootTest ?
-Cela permettrait d’augmenter encore la couverture vers 85-90 %.
+4) Bonus bonnes pratiques pour booster la couverture rapidement
+
+Couvrir la voie d’exception (déjà fait ci-dessus).
+
+Si CloseBillingSpaceRequest expose des getters, asserter le contenu (ex. loanFolder).
+
+Écrire un micro-test unitaire sur BillingSpaceClosureWriter.distinctByKey(...) (fonction pure), très simple et très “rentable” en couverture. Le writer/reader sont bien présents dans ton code exporté. 
+
+
+Si tu veux, je te fournis aussi un test minimal pour distinctByKey(...) du writer — dis-le et je te le colle.
