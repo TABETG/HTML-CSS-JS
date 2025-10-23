@@ -1,74 +1,70 @@
-Voici un test JUnit 5 + Mockito qui couvre à 100% la classe de config Spring Batch JobConfigurationSendSynchro que tu as partagée. Il instancie la config, injecte les dépendances par reflection, et exerce les deux beans (sendSynchroStep et sendSynchroJob).
-Il suffit de le poser dans src/test/java/.../job/JobConfigurationSendSynchroTest.java (même package que la classe).
-Réf. du fichier testé : 
+package com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.synchro.sender.processor;
 
-package com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.synchro.sender.job;
-
-import static org.junit.jupiter.api.Assertions.*;
-
+import com.bnpparibas.bddf.cqrs.command.v2.CommandExecutorV2;
+import com.bnpparibas.dsibddf.ap00420.streamfact.application.loanfolder.synchro.pojo.SynchroSendLoanFolder;
+import com.bnpparibas.dsibddf.ap00420.streamfact.application.loanfolder.synchro.sender.SendSynchroLoanFoldersCommand;
+import com.bnpparibas.dsibddf.ap00420.streamfact.application.loanfolder.synchro.sender.SendSynchroLoanFoldersRequest;
+import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.history.model.DocaposteEventHistoryEntity;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentMatchers;
+import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.batch.core.Job;
-import org.springframework.batch.core.Step;
-import org.springframework.batch.core.repository.JobRepository;
-import org.springframework.batch.item.ItemReader;
-import org.springframework.test.util.ReflectionTestUtils;
-import org.springframework.transaction.PlatformTransactionManager;
 
-// Types du projet (présents dans ton code)
-import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.history.model.DocaposteEventHistoryEntity;
-import com.bnpparibas.dsibddf.ap00420.streamfact.application.loanfolder.synchro.pojo.SynchroSendLoanFolder;
-import com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.synchro.sender.processor.BillingSpaceSendSynchroItemProcessor;
-import com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.synchro.sender.writer.BillingSpaceSendSynchroItemWriter;
-import com.bnpparibas.dsibddf.ap00420.streamfact.batch.listener.CommonStepExecutionListener;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
-class JobConfigurationSendSynchroTest {
+class BillingSpaceSendSynchroItemProcessorTest {
 
-    @Mock ItemReader<DocaposteEventHistoryEntity> reader;
-    @Mock BillingSpaceSendSynchroItemProcessor processor;
-    @Mock BillingSpaceSendSynchroItemWriter writer;
-    @Mock CommonStepExecutionListener commonStepExecutionListener;
-    @Mock PlatformTransactionManager platformTransactionManager;
-    @Mock JobRepository jobRepository;
-    @Mock Step providedStep;
+    @Mock
+    private CommandExecutorV2 commandExecutor;
+
+    @InjectMocks
+    private BillingSpaceSendSynchroItemProcessor processor;
 
     @Test
-    void sendSynchroStep_buildsStep() {
-        JobConfigurationSendSynchro config = new JobConfigurationSendSynchro();
+    void process_returnsValueFromCommandExecutor_and_callsWithProperTypes() throws Exception {
+        // Arrange
+        DocaposteEventHistoryEntity entity = mock(DocaposteEventHistoryEntity.class);
+        when(entity.getLoanFolderId()).thenReturn("LF-123");
 
-        // Injection des dépendances privées de la config
-        ReflectionTestUtils.setField(config, "reader", reader);
-        ReflectionTestUtils.setField(config, "processor", processor);
-        ReflectionTestUtils.setField(config, "writer", writer);
-        ReflectionTestUtils.setField(config, "commonStepExecutionListener", commonStepExecutionListener);
-        ReflectionTestUtils.setField(config, "platformTransactionManager", platformTransactionManager);
+        SynchroSendLoanFolder expected = mock(SynchroSendLoanFolder.class);
 
-        Step step = config.sendSynchroStep(jobRepository);
+        // Stub: on ne s’intéresse pas au contenu exact de la request ici;
+        // l’objectif est de couvrir la méthode et de vérifier l’appel au bon exécuteur.
+        when(commandExecutor.execute(
+                ArgumentMatchers.eq(SendSynchroLoanFoldersCommand.class),
+                ArgumentMatchers.any(SendSynchroLoanFoldersRequest.class)
+        )).thenReturn(expected);
 
-        assertNotNull(step, "Le Step ne doit pas être null");
-        assertEquals("sendSynchroStep", step.getName(), "Le nom du Step doit correspondre");
+        // Act
+        SynchroSendLoanFolder result = processor.process(entity);
+
+        // Assert
+        assertSame(expected, result, "Le processor doit renvoyer exactement la valeur du CommandExecutor");
+        verify(commandExecutor, times(1)).execute(
+                ArgumentMatchers.eq(SendSynchroLoanFoldersCommand.class),
+                ArgumentMatchers.any(SendSynchroLoanFoldersRequest.class)
+        );
+        verify(entity, atLeastOnce()).getLoanFolderId(); // couvre l'accès ID
+        verifyNoMoreInteractions(commandExecutor);
     }
 
     @Test
-    void sendSynchroJob_buildsJob() {
-        JobConfigurationSendSynchro config = new JobConfigurationSendSynchro();
+    void process_propagatesExceptionFromCommandExecutor() {
+        // Arrange
+        DocaposteEventHistoryEntity entity = mock(DocaposteEventHistoryEntity.class);
+        when(entity.getLoanFolderId()).thenReturn("LF-999");
 
-        Job job = config.sendSynchroJob(jobRepository, providedStep);
+        when(commandExecutor.execute(
+                ArgumentMatchers.eq(SendSynchroLoanFoldersCommand.class),
+                ArgumentMatchers.any(SendSynchroLoanFoldersRequest.class)
+        )).thenThrow(new RuntimeException("boom"));
 
-        assertNotNull(job, "Le Job ne doit pas être null");
-        assertEquals("sendSynchroJob", job.getName(), "Le nom du Job doit correspondre");
+        // Act + Assert
+        RuntimeException ex = assertThrows(RuntimeException.class, () -> processor.process(entity));
+        assertEquals("boom", ex.getMessage());
     }
 }
-
-Comment lancer uniquement ce test
-
-mvn -Dtest=JobConfigurationSendSynchroTest test
-
-> Si ton projet est multi-modules, exécute le test dans le module qui contient cette classe, ou utilise -pl <moduleId> -am -Dtest=JobConfigurationSendSynchroTest.
-
-
-
-Avec ces deux tests, toutes les lignes des méthodes sendSynchroStep et sendSynchroJob sont exécutées → 100% de couverture sur cette classe. 
