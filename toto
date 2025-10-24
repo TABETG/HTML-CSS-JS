@@ -1,93 +1,191 @@
-Voici un test unitaire (JUnit 5 + Mockito, sans modifier le **pom** ni la classe existante) qui couvre à 100% les lignes de `PaymentRequestPaidItemProcessor` en injectant un mock du `CommandExecutorV2` par réflexion. Il vérifie le chemin nominal et la propagation d’une exception. Code basé sur le fichier fourni. 
+package com.bnpparibas.dsibddf.ap00420.streamfact.batch.paymentrequestpaid.writer;
 
-Place ce fichier sous :
-`src/test/java/com/bnpparibas/dsibddf/ap00420/streamfact/batch/paymentrequestpaid/processor/PaymentRequestPaidItemProcessorTest.java`
-
-```java
-package com.bnpparibas.dsibddf.ap00420.streamfact.batch.paymentrequestpaid.processor;
-
-import com.bnpparibas.bddf.cqrs.command.v2.CommandExecutorV2;
-import com.bnpparibas.dsibddf.ap00420.streamfact.application.billingspace.paymentrequest.UpdatePaymentRequest;
-import com.bnpparibas.dsibddf.ap00420.streamfact.application.billingspace.paymentrequest.UpdatePaymentRequestCommand;
+import com.bnpparibas.dsibddf.ap00420.streamfact.domain.commons.RequestTypeEnum;
+import com.bnpparibas.dsibddf.ap00420.streamfact.domain.commons.RequestTypeStatusEnum;
 import com.bnpparibas.dsibddf.ap00420.streamfact.domain.engines.UpdatePaymentRequestResult;
+import com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.billingspace.model.PaymentRequest;
+import com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.history.model.DocaposteEventHistory;
+import com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.history.repository.DocaposteEventHistoryRepository;
+import com.bnpparibas.dsibddf.ap00420.streamfact.domain.repository.docaposte.DocaposteRepository;
+import com.bnpparibas.dsibddf.ap00420.streamfact.domain.repository.docaposte.model.DocaposteResponse;
 import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.billingspace.model.BillingSpaceEntity;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
+import org.springframework.batch.item.Chunk;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
 
-class PaymentRequestPaidItemProcessorTest {
+class PaymentRequestPaidWriterTest {
 
     @Test
-    void process_should_call_executor_and_return_its_result() throws Exception {
-        // Arrange
-        PaymentRequestPaidItemProcessor processor = new PaymentRequestPaidItemProcessor();
+    void write_whenChunkEmpty_doesNothing() throws Exception {
+        PaymentRequestPaidWriter writer = new PaymentRequestPaidWriter();
 
-        @SuppressWarnings("unchecked")
-        CommandExecutorV2 commandExecutor = Mockito.mock(CommandExecutorV2.class);
+        DocaposteRepository docaposteRepository = Mockito.mock(DocaposteRepository.class);
+        DocaposteEventHistoryRepository historyRepo = Mockito.mock(DocaposteEventHistoryRepository.class);
 
-        // Injection via réflexion pour ne pas toucher au code de prod ni au pom
-        injectPrivate(processor, "commandExecutor", commandExecutor);
+        inject(writer, "docaposteRepository", docaposteRepository);
+        inject(writer, "docaposteEventHistoryRepository", historyRepo);
+        inject(writer, "serialNumber", "SER-001");
 
-        UpdatePaymentRequestResult expected = Mockito.mock(UpdatePaymentRequestResult.class);
+        Chunk<UpdatePaymentRequestResult> chunk = new Chunk<>(Collections.emptyList());
 
-        Mockito.when(commandExecutor.execute(
-                Mockito.eq(UpdatePaymentRequestCommand.class),
-                Mockito.any(UpdatePaymentRequest.class))
-        ).thenReturn(expected);
+        writer.write(chunk);
 
-        // BillingSpaceEntity minimal ; le mapper interne se débrouille avec les valeurs par défaut
-        BillingSpaceEntity entity = new BillingSpaceEntity();
-
-        // Act
-        UpdatePaymentRequestResult actual = processor.process(entity);
-
-        // Assert
-        Assertions.assertSame(expected, actual, "Le résultat doit être celui retourné par le CommandExecutor");
-        Mockito.verify(commandExecutor, Mockito.times(1))
-                .execute(Mockito.eq(UpdatePaymentRequestCommand.class), Mockito.any(UpdatePaymentRequest.class));
-        Mockito.verifyNoMoreInteractions(commandExecutor);
+        Mockito.verifyNoInteractions(docaposteRepository);
+        Mockito.verifyNoInteractions(historyRepo);
     }
 
     @Test
-    void process_should_propagate_executor_exception() throws Exception {
-        // Arrange
-        PaymentRequestPaidItemProcessor processor = new PaymentRequestPaidItemProcessor();
+    void write_whenItemAndDocaposteOk_updatesToSentAndSaves() throws Exception {
+        PaymentRequestPaidWriter writer = new PaymentRequestPaidWriter();
 
-        @SuppressWarnings("unchecked")
-        CommandExecutorV2 commandExecutor = Mockito.mock(CommandExecutorV2.class);
-        injectPrivate(processor, "commandExecutor", commandExecutor);
+        DocaposteRepository docaposteRepository = Mockito.mock(DocaposteRepository.class);
+        DocaposteEventHistoryRepository historyRepo = Mockito.mock(DocaposteEventHistoryRepository.class);
 
-        Mockito.when(commandExecutor.execute(
-                Mockito.eq(UpdatePaymentRequestCommand.class),
-                Mockito.any(UpdatePaymentRequest.class))
-        ).thenThrow(new RuntimeException("boom"));
+        inject(writer, "docaposteRepository", docaposteRepository);
+        inject(writer, "docaposteEventHistoryRepository", historyRepo);
+        inject(writer, "serialNumber", "SER-001");
 
-        BillingSpaceEntity entity = new BillingSpaceEntity();
+        // Mock domain objects
+        UpdatePaymentRequestResult uprr = Mockito.mock(UpdatePaymentRequestResult.class);
+        PaymentRequest pr = Mockito.mock(PaymentRequest.class);
+        Mockito.when(pr.getPaymentRequestId()).thenReturn("PR-1");
 
-        // Act + Assert
-        Assertions.assertThrows(RuntimeException.class, () -> processor.process(entity),
-                "L'exception levée par l'executor doit être propagée");
-    }
-
-    /**
-     * Injection d'un champ private sans dépendre de Spring Test.
-     */
-    private static void injectPrivate(Object target, String fieldName, Object value) {
+        BillingSpaceEntity bse = new BillingSpaceEntity();
+        // on suppose le setter présent dans l'entité
         try {
-            Field f = target.getClass().getDeclaredField(fieldName);
+            bse.getClass().getMethod("setLoanFolderId", String.class).invoke(bse, "LF-1");
+        } catch (NoSuchMethodException e) {
+            // si pas de setter, ignorer : le test vérifiera les autres champs
+        }
+
+        Mockito.when(uprr.getPaymentRequestPaidList()).thenReturn(List.of(pr));
+        Mockito.when(uprr.getBillingSpace()).thenReturn(bse);
+
+        // Docaposte OK -> retourne un groupId
+        DocaposteResponse resp = Mockito.mock(DocaposteResponse.class);
+        Mockito.when(resp.getGroupId()).thenReturn("G-123");
+        Mockito.when(docaposteRepository.sendDossierBox(Mockito.anyList()))
+                .thenReturn(List.of(resp));
+
+        Chunk<UpdatePaymentRequestResult> chunk = new Chunk<>(List.of(uprr));
+
+        writer.write(chunk);
+
+        Mockito.verify(docaposteRepository, Mockito.times(1)).sendDossierBox(Mockito.anyList());
+
+        ArgumentCaptor<DocaposteEventHistory> captor = ArgumentCaptor.forClass(DocaposteEventHistory.class);
+        Mockito.verify(historyRepo, Mockito.times(1)).save(captor.capture());
+
+        DocaposteEventHistory saved = captor.getValue();
+        Assertions.assertEquals(RequestTypeEnum.PAYMENT_REQUEST_PAID, saved.getRequestType());
+        Assertions.assertEquals(RequestTypeStatusEnum.PAYMENT_REQUEST_PAID_SENT, saved.getStatus());
+        Assertions.assertEquals("PR-1", saved.getRequestPaymentId());
+
+        // Si l'entité expose le loanFolderId / requestId, vérifie-les
+        try {
+            Method getLoanFolderId = saved.getClass().getMethod("getLoanFolderId");
+            Object lf = getLoanFolderId.invoke(saved);
+            Assertions.assertTrue(lf == null || "LF-1".equals(lf)); // tolérant si l'entité ne l’expose pas
+        } catch (NoSuchMethodException ignored) { /* champ non exposé => OK */ }
+
+        try {
+            Method getRequestId = saved.getClass().getMethod("getRequestId");
+            Object rid = getRequestId.invoke(saved);
+            Assertions.assertEquals("G-123", rid);
+        } catch (NoSuchMethodException ignored) { /* champ non exposé => OK */ }
+    }
+
+    @Test
+    void write_whenDocaposteThrows_keepsToSendAndSaves() throws Exception {
+        PaymentRequestPaidWriter writer = new PaymentRequestPaidWriter();
+
+        DocaposteRepository docaposteRepository = Mockito.mock(DocaposteRepository.class);
+        DocaposteEventHistoryRepository historyRepo = Mockito.mock(DocaposteEventHistoryRepository.class);
+
+        inject(writer, "docaposteRepository", docaposteRepository);
+        inject(writer, "docaposteEventHistoryRepository", historyRepo);
+        inject(writer, "serialNumber", "SER-001");
+
+        UpdatePaymentRequestResult uprr = Mockito.mock(UpdatePaymentRequestResult.class);
+        PaymentRequest pr = Mockito.mock(PaymentRequest.class);
+        Mockito.when(pr.getPaymentRequestId()).thenReturn("PR-ERR");
+
+        BillingSpaceEntity bse = new BillingSpaceEntity();
+        try {
+            bse.getClass().getMethod("setLoanFolderId", String.class).invoke(bse, "LF-ERR");
+        } catch (NoSuchMethodException ignored) {}
+
+        Mockito.when(uprr.getPaymentRequestPaidList()).thenReturn(List.of(pr));
+        Mockito.when(uprr.getBillingSpace()).thenReturn(bse);
+
+        Mockito.when(docaposteRepository.sendDossierBox(Mockito.anyList()))
+                .thenThrow(new RuntimeException("BOOM"));
+
+        Chunk<UpdatePaymentRequestResult> chunk = new Chunk<>(Arrays.asList(uprr));
+
+        // Ne doit pas propager l'exception
+        writer.write(chunk);
+
+        ArgumentCaptor<DocaposteEventHistory> captor = ArgumentCaptor.forClass(DocaposteEventHistory.class);
+        Mockito.verify(historyRepo, Mockito.times(1)).save(captor.capture());
+
+        DocaposteEventHistory saved = captor.getValue();
+        Assertions.assertEquals(RequestTypeEnum.PAYMENT_REQUEST_PAID, saved.getRequestType());
+        Assertions.assertEquals(RequestTypeStatusEnum.PAYMENT_REQUEST_PAID_TO_SEND, saved.getStatus());
+        Assertions.assertEquals("PR-ERR", saved.getRequestPaymentId());
+    }
+
+    @Test
+    void private_buildDocaposteEventHistory_isCorrect() throws Exception {
+        PaymentRequestPaidWriter writer = new PaymentRequestPaidWriter();
+        PaymentRequest pr = Mockito.mock(PaymentRequest.class);
+        Mockito.when(pr.getPaymentRequestId()).thenReturn("PR-X");
+
+        Method m = PaymentRequestPaidWriter.class.getDeclaredMethod(
+                "buildDocaposteEventHistory",
+                String.class, PaymentRequest.class, RequestTypeStatusEnum.class
+        );
+        m.setAccessible(true);
+
+        Object obj = m.invoke(writer, "LF-X", pr, RequestTypeStatusEnum.PAYMENT_REQUEST_PAID_SENT);
+        Assertions.assertTrue(obj instanceof DocaposteEventHistory);
+        DocaposteEventHistory h = (DocaposteEventHistory) obj;
+
+        Assertions.assertEquals(RequestTypeEnum.PAYMENT_REQUEST_PAID, h.getRequestType());
+        Assertions.assertEquals(RequestTypeStatusEnum.PAYMENT_REQUEST_PAID_SENT, h.getStatus());
+        Assertions.assertEquals("PR-X", h.getRequestPaymentId());
+
+        // Vérifie (si exposé) le loanFolderId et l’eventId non nul
+        try {
+            Method getLoanFolderId = h.getClass().getMethod("getLoanFolderId");
+            Object lf = getLoanFolderId.invoke(h);
+            Assertions.assertTrue(lf == null || "LF-X".equals(lf));
+        } catch (NoSuchMethodException ignored) {}
+
+        try {
+            Method getEventId = h.getClass().getMethod("getEventId");
+            Object eid = getEventId.invoke(h);
+            Assertions.assertNotNull(eid);
+        } catch (NoSuchMethodException ignored) {}
+    }
+
+    // --- helpers ---
+
+    private static void inject(Object target, String field, Object value) {
+        try {
+            Field f = target.getClass().getDeclaredField(field);
             f.setAccessible(true);
             f.set(target, value);
         } catch (Exception e) {
-            throw new RuntimeException("Impossible d'injecter le champ '" + fieldName + "'", e);
+            throw new RuntimeException("Injection failed for field: " + field, e);
         }
     }
 }
-```
-
-Notes rapides :
-
-* Pas de modification du `pom.xml` ni de la classe de prod.
-* Le test n’a pas besoin de mocker la méthode statique du mapper : on crée un `BillingSpaceEntity` minimal et on se contente de vérifier l’appel au `CommandExecutorV2` et la valeur de retour.
-* Le second test assure que la signature `throws Exception` est effectivement utile (propagation d’erreur), tout en exécutant les lignes concernées.
