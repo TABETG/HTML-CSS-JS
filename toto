@@ -21,51 +21,42 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.*;
 
-/**
- * 100% coverage for RecalculCompletudeItemProcessor.process(...)
- */
 @ExtendWith(MockitoExtension.class)
 class RecalculCompletudeItemProcessorTest {
 
     @Test
-    void process_should_map_entity_fetch_contracts_build_calculator_and_return_updated_folder() throws Exception {
+    void process_should_cover_all_lines() throws Exception {
         // Arrange
         RecalculCompletudeItemProcessor processor = new RecalculCompletudeItemProcessor();
 
-        // Mock du @Autowired ContractRepository et injection par réflexion
         ContractRepository contractRepository = mock(ContractRepository.class);
         Field f = RecalculCompletudeItemProcessor.class.getDeclaredField("contractRepository");
         f.setAccessible(true);
         f.set(processor, contractRepository);
 
-        // Mocks de l'entrée et du domain
         LoanFolderEntity entity = mock(LoanFolderEntity.class);
         LoanFolder loanFolder = mock(LoanFolder.class);
 
-        // Mapper statique: entity -> domain
         try (MockedStatic<LoanFolderMapperToDomain> mapperStatic =
                      Mockito.mockStatic(LoanFolderMapperToDomain.class)) {
 
             mapperStatic.when(() -> LoanFolderMapperToDomain.toDomain(entity))
                         .thenReturn(loanFolder);
 
-            // Le LoanFolder possède 2 contracts avec loanId
             Contract c1 = mock(Contract.class);
             Contract c2 = mock(Contract.class);
             when(loanFolder.getContracts()).thenReturn(List.of(c1, c2));
             when(c1.getLoanId()).thenReturn("L1");
             when(c2.getLoanId()).thenReturn("L2");
 
-            // Chaque loanId -> ContractResponse
             ContractResponse r1 = mock(ContractResponse.class);
             ContractResponse r2 = mock(ContractResponse.class);
             when(contractRepository.searchContract("L1")).thenReturn(r1);
             when(contractRepository.searchContract("L2")).thenReturn(r2);
 
-            // On doit aussi mocker la chaîne statique LoanFoldersCalculator.domainBuilder()...
-            // Builder chaîné (RETURNS_SELF pour supporter .contractResponseList(...).build())
-            LoanFoldersCalculator.LoanFoldersCalculatorBuilder builder =
-                    mock(LoanFoldersCalculator.LoanFoldersCalculatorBuilder.class, RETURNS_SELF);
+            // <<< DIFF ICI : type du builder >>>
+            LoanFoldersCalculator.DomainBuilder builder =
+                    mock(LoanFoldersCalculator.DomainBuilder.class, RETURNS_SELF);
 
             LoanFoldersCalculator calculator = mock(LoanFoldersCalculator.class);
             when(builder.build()).thenReturn(calculator);
@@ -75,20 +66,17 @@ class RecalculCompletudeItemProcessorTest {
 
             try (MockedStatic<LoanFoldersCalculator> calcStatic =
                          Mockito.mockStatic(LoanFoldersCalculator.class)) {
+
                 calcStatic.when(LoanFoldersCalculator::domainBuilder).thenReturn(builder);
 
                 // Act
                 LoanFolder result = processor.process(entity);
 
                 // Assert
-                assertSame(expected, result, "Le processor doit renvoyer le LoanFolder mis à jour");
-                // Vérifie que la liste responses a été passée au builder
+                assertSame(expected, result);
                 verify(builder, times(1)).contractResponseList(anyList());
-                // Vérifie les appels aux repositories
-                verify(contractRepository, times(1)).searchContract("L1");
-                verify(contractRepository, times(1)).searchContract("L2");
-
-                // Vérifie les statiques appelés
+                verify(contractRepository).searchContract("L1");
+                verify(contractRepository).searchContract("L2");
                 mapperStatic.verify(() -> LoanFolderMapperToDomain.toDomain(entity), times(1));
                 calcStatic.verify(LoanFoldersCalculator::domainBuilder, times(1));
             }
