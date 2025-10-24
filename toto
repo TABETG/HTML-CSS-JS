@@ -1,177 +1,111 @@
-package com.bnpparibas.dsibddf.ap00420.streamfact.batch.paymentrequestpaid.writer;
-
-import com.bnpparibas.dsibddf.ap00420.streamfact.domain.commons.RequestTypeEnum;
-import com.bnpparibas.dsibddf.ap00420.streamfact.domain.commons.RequestTypeStatusEnum;
-import com.bnpparibas.dsibddf.ap00420.streamfact.domain.engines.UpdatePaymentRequestResult;
-import com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.billingspace.model.BillingSpace;
-import com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.billingspace.model.PaymentRequest;
-import com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.history.model.DocaposteEventHistory;
-import com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.history.repository.DocaposteEventHistoryRepository;
-import com.bnpparibas.dsibddf.ap00420.streamfact.domain.repository.docaposte.DocaposteRepository;
-import com.bnpparibas.dsibddf.ap00420.streamfact.domain.repository.docaposte.model.DocaposteResponse;
-import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
-import org.mockito.Mockito;
-import org.springframework.batch.item.Chunk;
-
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
-
-class PaymentRequestPaidWriterTest {
-
-    @Test
-    void write_whenChunkEmpty_doesNothing() throws Exception {
-        PaymentRequestPaidWriter writer = new PaymentRequestPaidWriter();
-        DocaposteRepository docaposteRepository = Mockito.mock(DocaposteRepository.class);
-        DocaposteEventHistoryRepository historyRepo = Mockito.mock(DocaposteEventHistoryRepository.class);
-
-        inject(writer, "docaposteRepository", docaposteRepository);
-        inject(writer, "docaposteEventHistoryRepository", historyRepo);
-        inject(writer, "serialNumber", "SER-001");
-
-        Chunk<UpdatePaymentRequestResult> chunk = new Chunk<>(Collections.emptyList());
-        writer.write(chunk);
-
-        Mockito.verifyNoInteractions(docaposteRepository);
-        Mockito.verifyNoInteractions(historyRepo);
-    }
-
-    @Test
-    void write_whenItemAndDocaposteOk_updatesToSentAndSaves() throws Exception {
-        PaymentRequestPaidWriter writer = new PaymentRequestPaidWriter();
-        DocaposteRepository docaposteRepository = Mockito.mock(DocaposteRepository.class);
-        DocaposteEventHistoryRepository historyRepo = Mockito.mock(DocaposteEventHistoryRepository.class);
-
-        inject(writer, "docaposteRepository", docaposteRepository);
-        inject(writer, "docaposteEventHistoryRepository", historyRepo);
-        inject(writer, "serialNumber", "SER-001");
-
-        // Mocks domaine
-        UpdatePaymentRequestResult uprr = Mockito.mock(UpdatePaymentRequestResult.class);
-        PaymentRequest pr = Mockito.mock(PaymentRequest.class);
-        Mockito.when(pr.getPaymentRequestId()).thenReturn("PR-1");
-
-        BillingSpace billingSpace = Mockito.mock(BillingSpace.class);
-        Mockito.when(billingSpace.getLoanFolderId()).thenReturn("LF-1");
-
-        Mockito.when(uprr.getPaymentRequestPaidList()).thenReturn(List.of(pr));
-        Mockito.when(uprr.getBillingSpace()).thenReturn(billingSpace);
-
-        // Docaposte OK -> retourne un groupId
-        DocaposteResponse resp = Mockito.mock(DocaposteResponse.class);
-        Mockito.when(resp.getGroupId()).thenReturn("G-123");
-        Mockito.when(docaposteRepository.sendDossierBox(Mockito.anyList()))
-               .thenReturn(List.of(resp));
-
-        Chunk<UpdatePaymentRequestResult> chunk = new Chunk<>(List.of(uprr));
-        writer.write(chunk);
-
-        Mockito.verify(docaposteRepository, Mockito.times(1)).sendDossierBox(Mockito.anyList());
-
-        ArgumentCaptor<DocaposteEventHistory> captor = ArgumentCaptor.forClass(DocaposteEventHistory.class);
-        Mockito.verify(historyRepo, Mockito.times(1)).save(captor.capture());
-
-        DocaposteEventHistory saved = captor.getValue();
-        Assertions.assertEquals(RequestTypeEnum.PAYMENT_REQUEST_PAID, saved.getRequestType());
-        Assertions.assertEquals(RequestTypeStatusEnum.PAYMENT_REQUEST_PAID_SENT, saved.getStatus());
-        Assertions.assertEquals("PR-1", saved.getRequestPaymentId());
-
-        // Vérifs tolérantes si getters absents côté modèle
-        try {
-            Method getLoanFolderId = saved.getClass().getMethod("getLoanFolderId");
-            Object lf = getLoanFolderId.invoke(saved);
-            Assertions.assertTrue(lf == null || "LF-1".equals(lf));
-        } catch (NoSuchMethodException ignored) { /* champ non exposé => OK */ }
-
-        try {
-            Method getRequestId = saved.getClass().getMethod("getRequestId");
-            Object rid = getRequestId.invoke(saved);
-            Assertions.assertEquals("G-123", rid);
-        } catch (NoSuchMethodException ignored) { /* champ non exposé => OK */ }
-    }
-
-    @Test
-    void write_whenDocaposteThrows_keepsToSendAndSaves() throws Exception {
-        PaymentRequestPaidWriter writer = new PaymentRequestPaidWriter();
-        DocaposteRepository docaposteRepository = Mockito.mock(DocaposteRepository.class);
-        DocaposteEventHistoryRepository historyRepo = Mockito.mock(DocaposteEventHistoryRepository.class);
-
-        inject(writer, "docaposteRepository", docaposteRepository);
-        inject(writer, "docaposteEventHistoryRepository", historyRepo);
-        inject(writer, "serialNumber", "SER-001");
-
-        UpdatePaymentRequestResult uprr = Mockito.mock(UpdatePaymentRequestResult.class);
-        PaymentRequest pr = Mockito.mock(PaymentRequest.class);
-        Mockito.when(pr.getPaymentRequestId()).thenReturn("PR-ERR");
-
-        BillingSpace billingSpace = Mockito.mock(BillingSpace.class);
-        Mockito.when(billingSpace.getLoanFolderId()).thenReturn("LF-ERR");
-
-        Mockito.when(uprr.getPaymentRequestPaidList()).thenReturn(List.of(pr));
-        Mockito.when(uprr.getBillingSpace()).thenReturn(billingSpace);
-
-        Mockito.when(docaposteRepository.sendDossierBox(Mockito.anyList()))
-               .thenThrow(new RuntimeException("BOOM"));
-
-        Chunk<UpdatePaymentRequestResult> chunk = new Chunk<>(Arrays.asList(uprr));
-
-        // Ne doit pas propager l'exception
-        writer.write(chunk);
-
-        ArgumentCaptor<DocaposteEventHistory> captor = ArgumentCaptor.forClass(DocaposteEventHistory.class);
-        Mockito.verify(historyRepo, Mockito.times(1)).save(captor.capture());
-
-        DocaposteEventHistory saved = captor.getValue();
-        Assertions.assertEquals(RequestTypeEnum.PAYMENT_REQUEST_PAID, saved.getRequestType());
-        Assertions.assertEquals(RequestTypeStatusEnum.PAYMENT_REQUEST_PAID_TO_SEND, saved.getStatus());
-        Assertions.assertEquals("PR-ERR", saved.getRequestPaymentId());
-    }
-
-    @Test
-    void private_buildDocaposteEventHistory_isCorrect() throws Exception {
-        PaymentRequestPaidWriter writer = new PaymentRequestPaidWriter();
-        PaymentRequest pr = Mockito.mock(PaymentRequest.class);
-        Mockito.when(pr.getPaymentRequestId()).thenReturn("PR-X");
-
-        Method m = PaymentRequestPaidWriter.class.getDeclaredMethod(
-                "buildDocaposteEventHistory",
-                String.class, PaymentRequest.class, RequestTypeStatusEnum.class
-        );
-        m.setAccessible(true);
-        Object obj = m.invoke(writer, "LF-X", pr, RequestTypeStatusEnum.PAYMENT_REQUEST_PAID_SENT);
-
-        Assertions.assertTrue(obj instanceof DocaposteEventHistory);
-        DocaposteEventHistory h = (DocaposteEventHistory) obj;
-
-        Assertions.assertEquals(RequestTypeEnum.PAYMENT_REQUEST_PAID, h.getRequestType());
-        Assertions.assertEquals(RequestTypeStatusEnum.PAYMENT_REQUEST_PAID_SENT, h.getStatus());
-        Assertions.assertEquals("PR-X", h.getRequestPaymentId());
-
-        try {
-            Method getLoanFolderId = h.getClass().getMethod("getLoanFolderId");
-            Object lf = getLoanFolderId.invoke(h);
-            Assertions.assertTrue(lf == null || "LF-X".equals(lf));
-        } catch (NoSuchMethodException ignored) {}
-
-        try {
-            Method getEventId = h.getClass().getMethod("getEventId");
-            Object eid = getEventId.invoke(h);
-            Assertions.assertNotNull(eid);
-        } catch (NoSuchMethodException ignored) {}
-    }
-
-    // --- helpers ---
-    private static void inject(Object target, String field, Object value) {
-        try {
-            Field f = target.getClass().getDeclaredField(field);
-            f.setAccessible(true);
-            f.set(target, value);
-        } catch (Exception e) {
-            throw new RuntimeException("Injection failed for field: " + field, e);
-        }
-    }
-}
+<sonar.exclusions>
+    **/*config.java,
+    **/*Config.java,
+    <!-- Exclure individuellement les autres JobConfiguration, sauf celles à inclure -->
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/batch/replay/sendpaymentrequestpaid/job/JobConfigurationReplaySendPaymentRequestPaid.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/batch/replay/sendpaymentrequestprocessed/job/JobConfigurationSendPaymentRequestProcessed.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/batch/replay/sendtransferavrequest/job/JobConfigurationReplaySendTransferAvRequest.java,
+    <!-- Exclure individuellement les autres *Configuration sous batch/, sauf BillingSpaceConfiguration -->
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/batch/sendtobmd/job/SendExportStockBillingSpaceToBmdConfiguration.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/batch/stockintegration/job/StockIntegrationConfiguration.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/domain/cft/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/domain/commons/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/gdn/**/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/exposition/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/exposition/api/ZosConnectTestResource.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/exposition/rest/errors/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/exposition/rest/config/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/exposition/rest/config/**/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/exposition/rest/dto/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/exposition/rest/support/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/exposition/dto/**/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/exposition/jms/**/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/exposition/dto/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/exposition/mapper/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/http/config/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/soap/config/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/soap/sharepoint/*.java,
+    **/com/microsoft/schemas/sharepoint/soap/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/domain/repository/docaposte/model/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/domain/engines/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/jms/clientnotif/NotificationParameters.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/jms/clientnotif/MessageNotificationBuilder.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/jms/clientnotif/LmMessageConverter.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/jms/clientnotif/ClientNotificationRepositoryMockImpl.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/jms/clientnotif/ClientMessagePostProcessor.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/domain/entity/**/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/domain/entity/**/**/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/domain/errors/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/domain/logging/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/domain/mapper/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/domain/mapper/**/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/domain/mapper/**/**/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/domain/service/**/validator/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/tier/appartbqdigit/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/tier/appartbqdigit/**/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/alias/**/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/alias/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/config/sslconfig/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/alias/response/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/vision360/response/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/vision360/synthesisresponse/response/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/jms/config/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/jms/tracing/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/batch/maestro/s3cos/*Reader.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/batch/paymentrequestpaid/reader/*Reader.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/batch/sendtobmd/reader/*Reader.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/batch/stockintegration/reader/*Reader.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/batch/replay/billingspacecreation/creationerror/reader/*Reader.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/batch/replay/recalculcompletude/reader/*Reader.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/batch/replay/sendpaymentrequestpaid/reader/*Reader.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/batch/replay/sendpaymentrequestprocessed/reader/*Reader.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/batch/replay/sendtransferavrequest/reader/*Reader.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/batch/billingspace/synchro/update/reader/*Reader.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/domain/repository/clientinformation/ClientInformationResponse.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/batch/purge/reader/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/omega/*MockImpl.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/sql/entities/billingspace/repository/*MockImpl.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/vision360/*MockImpl.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/docaposte/document/*MockImpl.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/docaposte/*MockImpl.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/eventBaseDetails/*MockImpl.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/eventBase/*MockImpl.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/juridiction/*MockImpl.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/sql/entities/maestro_stock/repository/*MockImpl.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/sharepoint/*MockImpl.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/tenuedeposition/*MockImpl.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/tenuedeposition/request/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/tenuedeposition/response/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/tdp/response/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/tdp/request/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/sharepoint/response/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/juridiction/response/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/juridiction/request/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/goal/contract/response/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/goal/contract/request/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/iban/response/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/iban/request/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/omega/**/response/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/omega/**/request/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/gdn/response/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/gdn/request/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/gdn/config/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/gdn/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/eventBaseDetails/response/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/eventBaseDetails/request/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/eventBase/response/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/eventBase/request/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/goal/contract/request/Meta.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/goal/contract/response/Error.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/soap/sharepoint/client/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/domain/repository/collabinformation/CollabInformationResponse.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/domain/repository/contrat/ContractResponse.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/domain/repository/gdn/model/*.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/application/billingspace/paymentrequest/*Request.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/application/loanfolder/synchro/sender/*Request.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/application/loanfolder/recallReferences/*Request.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/juridiction/request/*Request.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/batch/replay/sendtransferavrequest/job/*Request.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/application/billingspace/create/sender/*Request.java,
+    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/jms/virtuo/*MockImpl.java
+</sonar.exclusions>
