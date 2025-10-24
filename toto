@@ -11,23 +11,25 @@ import java.lang.reflect.Field;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.mockito.Mockito.when;
 
-/**
- * Tests de couverture 100% pour AbstractSpringBootLauncher.
- * Couvre :
- *  - initApplication() avec profils non conflictuels (branche info)
- *  - initApplication() avec profils MQ + ACTIVEMQ (branche erreur)
- *  - launch(...) avec démarrage "headless" (web-application-type=NONE)
- */
 class AbstractSpringBootLauncherTest {
 
-    /** Sous-classe concrète minimale pour tester la classe abstraite. */
+    /** Implémentation concrète minimale pour tester la classe abstraite. */
     static class TestLauncher extends AbstractSpringBootLauncher { }
 
-    /** Petite application Spring Boot minimale pour tester launch(...). */
-    @SpringBootApplication
+    /**
+     * Mini app pour le test de launch(...).
+     * On EXCLUT explicitement les autoconfigs Vault par nom (pas besoin d'importer leurs classes).
+     */
+    @SpringBootApplication(
+            excludeName = {
+                    "org.springframework.cloud.vault.config.VaultAutoConfiguration",
+                    "org.springframework.cloud.vault.config.VaultBootstrapConfiguration",
+                    "org.springframework.cloud.vault.config.VaultBootstrapPropertySourceConfiguration"
+            }
+    )
     static class DummyApp { }
 
-    /** Utilitaire : injecte un mock d'Environment dans l'instance via réflexion. */
+    /** Injecte un mock Environment dans le champ 'env' via réflexion. */
     private static void injectEnv(AbstractSpringBootLauncher launcher, Environment env) throws Exception {
         Field f = AbstractSpringBootLauncher.class.getDeclaredField("env");
         f.setAccessible(true);
@@ -36,19 +38,16 @@ class AbstractSpringBootLauncherTest {
 
     @Test
     void initApplication_withNonConflictingProfiles_logsInfoOnly() throws Exception {
-        // given
         TestLauncher launcher = new TestLauncher();
         Environment env = Mockito.mock(Environment.class);
-        when(env.getActiveProfiles()).thenReturn(new String[] { "dev" }); // aucun conflit
+        when(env.getActiveProfiles()).thenReturn(new String[] {"dev"});
         injectEnv(launcher, env);
 
-        // when / then: on vérifie simplement que tout s'exécute (les logs suffisent pour la couverture)
-        launcher.initApplication();
+        launcher.initApplication(); // branche "info"
     }
 
     @Test
     void initApplication_withMqAndActiveMq_logsErrorBranch() throws Exception {
-        // given
         TestLauncher launcher = new TestLauncher();
         Environment env = Mockito.mock(Environment.class);
         when(env.getActiveProfiles()).thenReturn(new String[] {
@@ -57,20 +56,30 @@ class AbstractSpringBootLauncherTest {
         });
         injectEnv(launcher, env);
 
-        // when / then: exécution de la branche "erreur" (les logs suffisent pour la couverture)
-        launcher.initApplication();
+        launcher.initApplication(); // branche "error"
     }
 
     @Test
-    void launch_runsHeadlessAndLogsBanner() {
-        // given: on passe des args pour éviter tout serveur web et définir des props lues par le code
+    void launch_runsHeadless_withoutVault_or_Bootstrap() {
+        // Désactive TOUT ce qui déclenche Vault et le bootstrap context,
+        // et empêche tout serveur web/port d’être ouvert.
         String[] args = new String[] {
-                "--spring.main.web-application-type=NONE", // pas de serveur web
+                "--spring.main.web-application-type=NONE",
+                "--spring.main.lazy-initialization=true",
                 "--spring.application.name=test-app",
-                "--server.port=0" // valeur lue par le log, pas d'ouverture de port
+                "--server.port=0",
+
+                // Désactivation explicite Spring Cloud Vault + Bootstrap
+                "--spring.cloud.vault.enabled=false",
+                "--spring.cloud.bootstrap.enabled=false",
+
+                // Double sécurité : on exclut les autoconfigs Vault si elles sont présentes au classpath
+                "--spring.autoconfigure.exclude=" +
+                        "org.springframework.cloud.vault.config.VaultAutoConfiguration," +
+                        "org.springframework.cloud.vault.config.VaultBootstrapConfiguration," +
+                        "org.springframework.cloud.vault.config.VaultBootstrapPropertySourceConfiguration"
         };
 
-        // when / then: aucune exception, exécution de toutes les lignes de launch(...)
         assertDoesNotThrow(() ->
                 AbstractSpringBootLauncher.launch(DummyApp.class, args)
         );
