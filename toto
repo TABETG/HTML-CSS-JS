@@ -1,147 +1,95 @@
-package com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.close.job;
+package com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.close.processor;
 
 import com.bnpparibas.bddf.cqrs.command.v2.CommandExecutorV2;
-import com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.close.processor.BillingSpaceClosureProcessor;
-import com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.close.reader.BillingSpaceClosureReader;
-import com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.close.reader.ReplayBillingspaceClosureReader;
-import com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.close.tasklet.UpdateBillingSpaceToStatusClosedTasklet;
-import com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.close.writer.BillingSpaceClosureWriter;
-import com.bnpparibas.dsibddf.ap00420.streamfact.batch.listener.CommonStepExecutionListener;
-import com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.billingspace.repository.BillingSpaceRepository;
-import com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.history.repository.DocaposteEventHistoryRepository;
-import com.bnpparibas.dsibddf.ap00420.streamfact.domain.repository.docaposte.DocaposteRepository;
-
-import org.junit.Before;
+import com.bnpparibas.dsibddf.ap00420.streamfact.application.billingspace.close.CloseBillingSpaceCommand;
+import com.bnpparibas.dsibddf.ap00420.streamfact.application.billingspace.close.CloseBillingSpaceRequest;
+import com.bnpparibas.dsibddf.ap00420.streamfact.application.billingspace.close.pojo.BillingSpaceCloseToSend;
+import com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.loanfolder.model.LoanFolder;
+import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.billingspace.model.BillingSpaceEntity;
+import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.loanfolder.model.LoanFolderEntity;
+import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.loanfolder.mapper.LoanFolderMapperToDomain;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.mockito.Mockito;
-import org.springframework.batch.core.Job;
-import org.springframework.batch.core.Step;
-import org.springframework.batch.core.job.flow.FlowJob;
-import org.springframework.batch.core.launch.support.RunIdIncrementer;
-import org.springframework.batch.core.repository.JobRepository;
-import org.springframework.batch.core.step.tasklet.Tasklet;
-import org.springframework.batch.core.step.tasklet.TaskletStep;
-import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Import;
-import org.springframework.context.annotation.Primary;
-import org.springframework.test.context.ContextConfiguration;
-import org.springframework.test.context.junit4.SpringRunner;
-import org.springframework.test.util.ReflectionTestUtils;
-import org.springframework.transaction.PlatformTransactionManager;
+import org.mockito.*;
+import org.mockito.junit.MockitoJUnitRunner;
 
 import static org.junit.Assert.*;
-import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
 
 /**
- * ✅ JUnit4 + SpringRunner + Mockito → 100% compatible Sonar/Jenkins
+ * ✅ Version JUnit4 compatible Sonar / Jenkins
+ * Couvre le scénario nominal et le scénario d'exception de process(...).
  */
-@RunWith(SpringRunner.class)
-@ContextConfiguration(classes = {
-        JobConfigurationBillingSpaceClosure.class,
-        JobConfigurationBillingSpaceClosureTest.TestBeans.class
-})
-public class JobConfigurationBillingSpaceClosureTest {
+@RunWith(MockitoJUnitRunner.class)
+public class BillingSpaceClosureProcessorTest {
 
-    @org.springframework.beans.factory.annotation.Autowired
-    private org.springframework.context.ApplicationContext ctx;
+    @InjectMocks
+    private BillingSpaceClosureProcessor processor;
 
-    @org.springframework.beans.factory.annotation.Autowired
-    private Job job;
-
-    @org.springframework.beans.factory.annotation.Autowired
-    @org.springframework.beans.factory.annotation.Qualifier("billingSpaceClosureStep")
-    private Step billingSpaceClosureStepBean;
-
-    @org.springframework.beans.factory.annotation.Autowired
-    @org.springframework.beans.factory.annotation.Qualifier("replayBillingSpaceClosureStep")
-    private Step replayBillingSpaceClosureStepBean;
-
-    @org.springframework.beans.factory.annotation.Autowired
-    @org.springframework.beans.factory.annotation.Qualifier("updateBillingSpaceToStatusClosedStep")
-    private Step updateBillingSpaceToStatusClosedStepBean;
-
-    @org.springframework.beans.factory.annotation.Autowired
-    private CommonStepExecutionListener commonStepExecutionListener;
-
-    @Before
-    public void setUp() {
-        assertNotNull("Le contexte Spring n’a pas été injecté", ctx);
-    }
+    @Mock
+    private CommandExecutorV2 commandExecutor;
 
     @Test
-    public void context_ok() {
-        assertNotNull(job);
-        assertNotNull(billingSpaceClosureStepBean);
-        assertNotNull(replayBillingSpaceClosureStepBean);
-        assertNotNull(updateBillingSpaceToStatusClosedStepBean);
+    public void process_should_execute_command_with_mapped_loan_folder() throws Exception {
+        // Arrange
+        BillingSpaceEntity billingSpaceEntity = mock(BillingSpaceEntity.class);
+        LoanFolderEntity loanFolderEntity = mock(LoanFolderEntity.class);
+        when(billingSpaceEntity.getLoanFolder()).thenReturn(loanFolderEntity);
+
+        LoanFolder mappedLoanFolder = mock(LoanFolder.class);
+        BillingSpaceCloseToSend expected = mock(BillingSpaceCloseToSend.class);
+
+        try (MockedStatic<LoanFolderMapperToDomain> mockedMapper =
+                     Mockito.mockStatic(LoanFolderMapperToDomain.class)) {
+
+            mockedMapper.when(() -> LoanFolderMapperToDomain.toDomain(loanFolderEntity))
+                    .thenReturn(mappedLoanFolder);
+
+            when(commandExecutor.execute(eq(CloseBillingSpaceCommand.class),
+                    any(CloseBillingSpaceRequest.class)))
+                    .thenReturn(expected);
+
+            // Act
+            BillingSpaceCloseToSend result = processor.process(billingSpaceEntity);
+
+            // Assert
+            assertSame("Le résultat doit être celui retourné par l'executor", expected, result);
+
+            // Vérifie que le mapper statique a bien été appelé avec l'entité
+            mockedMapper.verify(() -> LoanFolderMapperToDomain.toDomain(loanFolderEntity));
+
+            // Capture et vérifie la requête envoyée
+            ArgumentCaptor<CloseBillingSpaceRequest> reqCap =
+                    ArgumentCaptor.forClass(CloseBillingSpaceRequest.class);
+            verify(commandExecutor).execute(eq(CloseBillingSpaceCommand.class), reqCap.capture());
+            assertNotNull(reqCap.getValue());
+        }
     }
 
-    @Test
-    public void job_has_name_and_incrementer() {
-        assertTrue(job instanceof FlowJob);
-        FlowJob fj = (FlowJob) job;
-        assertEquals("billingSpaceClosureJob", fj.getName());
-        assertTrue(fj.getJobParametersIncrementer() instanceof RunIdIncrementer);
-    }
+    @Test(expected = IllegalStateException.class)
+    public void process_should_propagate_exception_from_executor() throws Exception {
+        // Arrange
+        BillingSpaceEntity billingSpaceEntity = mock(BillingSpaceEntity.class);
+        LoanFolderEntity loanFolderEntity = mock(LoanFolderEntity.class);
+        when(billingSpaceEntity.getLoanFolder()).thenReturn(loanFolderEntity);
 
-    @Test
-    public void job_contains_expected_steps_in_flow() {
-        FlowJob fj = (FlowJob) job;
-        assertNotNull(fj.getStep("billingSpaceClosureStep"));
-        assertNotNull(fj.getStep("replayBillingSpaceClosureStep"));
-        assertNotNull(fj.getStep("updateBillingSpaceToStatusClosed"));
-    }
+        LoanFolder mappedLoanFolder = mock(LoanFolder.class);
 
-    @Test
-    public void updateBillingSpaceToStatusClosed_allowStartIfComplete_true() {
-        assertTrue(updateBillingSpaceToStatusClosedStepBean instanceof TaskletStep);
-        TaskletStep ts = (TaskletStep) updateBillingSpaceToStatusClosedStepBean;
-        Object allow = ReflectionTestUtils.getField(ts, "allowStartIfComplete");
-        assertTrue(allow instanceof Boolean);
-        assertTrue((Boolean) allow);
-    }
+        try (MockedStatic<LoanFolderMapperToDomain> mockedMapper =
+                     Mockito.mockStatic(LoanFolderMapperToDomain.class)) {
 
-    private void assertChunkStep(Step step, int expectedChunk) {
-        assertTrue(step instanceof TaskletStep);
-        TaskletStep ts = (TaskletStep) step;
+            mockedMapper.when(() -> LoanFolderMapperToDomain.toDomain(loanFolderEntity))
+                    .thenReturn(mappedLoanFolder);
 
-        Object allow = ReflectionTestUtils.getField(ts, "allowStartIfComplete");
-        assertTrue(allow instanceof Boolean);
-        assertTrue((Boolean) allow);
+            when(commandExecutor.execute(eq(CloseBillingSpaceCommand.class),
+                    any(CloseBillingSpaceRequest.class)))
+                    .thenThrow(new IllegalStateException("boom"));
 
-        Object compositeListener = ReflectionTestUtils.getField(ts, "stepExecutionListener");
-        Object listeners = ReflectionTestUtils.getField(compositeListener, "listeners");
-        assertTrue(listeners instanceof java.util.Collection);
-        assertTrue(((java.util.Collection<?>) listeners).contains(commonStepExecutionListener));
+            // Act
+            processor.process(billingSpaceEntity);
 
-        Tasklet tasklet = (Tasklet) ReflectionTestUtils.getField(ts, "tasklet");
-        assertNotNull(tasklet);
-        Object chunkProvider = ReflectionTestUtils.getField(tasklet, "chunkProvider");
-        Object completionPolicy = ReflectionTestUtils.getField(chunkProvider, "completionPolicy");
-        Integer chunkSize = (Integer) ReflectionTestUtils.getField(completionPolicy, "chunkSize");
-        assertEquals(Integer.valueOf(expectedChunk), chunkSize);
-    }
-
-    @TestConfiguration
-    static class TestBeans {
-        @Bean @Primary BillingSpaceClosureReader billingSpaceClosureReader() { return Mockito.mock(BillingSpaceClosureReader.class); }
-        @Bean @Primary ReplayBillingspaceClosureReader replayBillingSpaceClosureReader() { return Mockito.mock(ReplayBillingspaceClosureReader.class); }
-        @Bean @Primary BillingSpaceClosureProcessor billingSpaceClosureProcessor() { return Mockito.mock(BillingSpaceClosureProcessor.class); }
-        @Bean @Primary BillingSpaceClosureWriter billingSpaceClosureWriter() { return Mockito.mock(BillingSpaceClosureWriter.class); }
-        @Bean UpdateBillingSpaceToStatusClosedTasklet updateBillingSpaceToStatusClosedTasklet() { return Mockito.mock(UpdateBillingSpaceToStatusClosedTasklet.class); }
-        @Bean CommonStepExecutionListener commonStepExecutionListener() { return Mockito.mock(CommonStepExecutionListener.class); }
-        @Bean CommandExecutorV2 commandExecutor() { return Mockito.mock(CommandExecutorV2.class); }
-        @Bean DocaposteRepository docaposteRepository() { return Mockito.mock(DocaposteRepository.class); }
-        @Bean DocaposteEventHistoryRepository docaposteEventHistoryRepository() { return Mockito.mock(DocaposteEventHistoryRepository.class); }
-        @Bean BillingSpaceRepository billingSpaceRepository() { return Mockito.mock(BillingSpaceRepository.class); }
-        @Bean(name = "transactionManager") PlatformTransactionManager transactionManager() { return Mockito.mock(PlatformTransactionManager.class); }
-        @Bean JobRepository jobRepository() { return Mockito.mock(JobRepository.class); }
-    }
-
-    @Test
-    public void verify_no_interactions_with_mocks() {
-        verifyNoInteractions(commonStepExecutionListener);
+            // Assert : l'exception attendue est levée
+        }
     }
 }
