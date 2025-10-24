@@ -1,100 +1,106 @@
-package com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.synchro.sender.job;
+package com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.synchro.sender.processor;
 
+import com.bnpparibas.bddf.cqrs.command.v2.CommandExecutorV2;
 import com.bnpparibas.dsibddf.ap00420.streamfact.application.loanfolder.synchro.pojo.SynchroSendLoanFolder;
-import com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.synchro.sender.processor.BillingSpaceSendSynchroItemProcessor;
-import com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.synchro.sender.writer.BillingSpaceSendSynchroItemWriter;
-import com.bnpparibas.dsibddf.ap00420.streamfact.batch.listener.CommonStepExecutionListener;
+import com.bnpparibas.dsibddf.ap00420.streamfact.application.loanfolder.synchro.sender.SendSynchroLoanFoldersCommand;
+import com.bnpparibas.dsibddf.ap00420.streamfact.application.loanfolder.synchro.sender.SendSynchroLoanFoldersRequest;
+import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.history.mapper.DocaposteEventHistoryEntityMapperToDomain;
 import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.history.model.DocaposteEventHistoryEntity;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
+import org.mockito.*;
 import org.mockito.junit.MockitoJUnitRunner;
-import org.springframework.batch.core.Job;
-import org.springframework.batch.core.Step;
-import org.springframework.batch.core.job.flow.FlowJob;
-import org.springframework.batch.core.repository.JobRepository;
-import org.springframework.batch.core.step.tasklet.TaskletStep;
-import org.springframework.batch.item.ItemReader;
-import org.springframework.transaction.PlatformTransactionManager;
 
 import static org.junit.Assert.*;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 /**
- * Test JUnit4 100% coverage pour JobConfigurationSendSynchro.
+ * Test JUnit4 100% coverage pour BillingSpaceSendSynchroItemProcessor.
+ * Compatible Sonar / Jenkins / Jacoco.
  */
 @RunWith(MockitoJUnitRunner.class)
-public class JobConfigurationSendSynchroTest {
+public class BillingSpaceSendSynchroItemProcessorTest {
 
     @InjectMocks
-    private JobConfigurationSendSynchro configuration;
-
-    @Mock
-    private ItemReader<DocaposteEventHistoryEntity> reader;
-
-    @Mock
     private BillingSpaceSendSynchroItemProcessor processor;
 
     @Mock
-    private BillingSpaceSendSynchroItemWriter writer;
+    private CommandExecutorV2 commandExecutor;
 
     @Mock
-    private CommonStepExecutionListener commonStepExecutionListener;
+    private DocaposteEventHistoryEntity entity;
 
     @Mock
-    private PlatformTransactionManager platformTransactionManager;
-
-    @Mock
-    private JobRepository jobRepository;
-
-    private Step sendSynchroStep;
+    private SynchroSendLoanFolder expectedResponse;
 
     @Before
     public void setUp() {
-        sendSynchroStep = configuration.sendSynchroStep(jobRepository);
+        when(entity.getLoanFolderId()).thenReturn("LF123");
     }
 
     @Test
-    public void sendSynchroStep_should_create_valid_tasklet_step() {
-        assertNotNull(sendSynchroStep);
-        assertEquals("sendSynchroStep", sendSynchroStep.getName());
-        assertTrue(sendSynchroStep instanceof TaskletStep);
+    public void process_should_execute_command_and_return_result() {
+        try (MockedStatic<DocaposteEventHistoryEntityMapperToDomain> mockedMapper =
+                     Mockito.mockStatic(DocaposteEventHistoryEntityMapperToDomain.class)) {
 
-        TaskletStep ts = (TaskletStep) sendSynchroStep;
-        Object allow = org.springframework.test.util.ReflectionTestUtils.getField(ts, "allowStartIfComplete");
-        assertTrue(allow instanceof Boolean);
-        assertTrue((Boolean) allow);
+            Object mappedDomain = new Object();
+            mockedMapper.when(() -> DocaposteEventHistoryEntityMapperToDomain.toDomain(entity))
+                    .thenReturn(mappedDomain);
+
+            when(commandExecutor.execute(eq(SendSynchroLoanFoldersCommand.class),
+                    any(SendSynchroLoanFoldersRequest.class)))
+                    .thenReturn(expectedResponse);
+
+            SynchroSendLoanFolder result = processor.process(entity);
+
+            assertNotNull(result);
+            assertSame(expectedResponse, result);
+
+            // Vérifie l'appel du mapper
+            mockedMapper.verify(() -> DocaposteEventHistoryEntityMapperToDomain.toDomain(entity));
+            // Vérifie l'appel du commandExecutor
+            verify(commandExecutor, times(1))
+                    .execute(eq(SendSynchroLoanFoldersCommand.class), any(SendSynchroLoanFoldersRequest.class));
+        }
+    }
+
+    @Test(expected = RuntimeException.class)
+    public void process_should_throw_exception_when_executor_fails() {
+        try (MockedStatic<DocaposteEventHistoryEntityMapperToDomain> mockedMapper =
+                     Mockito.mockStatic(DocaposteEventHistoryEntityMapperToDomain.class)) {
+
+            Object mappedDomain = new Object();
+            mockedMapper.when(() -> DocaposteEventHistoryEntityMapperToDomain.toDomain(entity))
+                    .thenReturn(mappedDomain);
+
+            when(commandExecutor.execute(eq(SendSynchroLoanFoldersCommand.class),
+                    any(SendSynchroLoanFoldersRequest.class)))
+                    .thenThrow(new RuntimeException("failure"));
+
+            processor.process(entity);
+        }
     }
 
     @Test
-    public void sendSynchroJob_should_create_flow_job_and_include_step() {
-        Job job = configuration.sendSynchroJob(jobRepository, sendSynchroStep);
+    public void process_should_call_mapper_and_use_loanFolderId() {
+        try (MockedStatic<DocaposteEventHistoryEntityMapperToDomain> mockedMapper =
+                     Mockito.mockStatic(DocaposteEventHistoryEntityMapperToDomain.class)) {
 
-        assertNotNull(job);
-        assertTrue(job instanceof FlowJob);
+            Object mappedDomain = new Object();
+            mockedMapper.when(() -> DocaposteEventHistoryEntityMapperToDomain.toDomain(entity))
+                    .thenReturn(mappedDomain);
 
-        FlowJob flowJob = (FlowJob) job;
-        assertEquals("sendSynchroJob", flowJob.getName());
-        assertNotNull(flowJob.getStep("sendSynchroStep"));
-    }
+            when(commandExecutor.execute(eq(SendSynchroLoanFoldersCommand.class),
+                    any(SendSynchroLoanFoldersRequest.class)))
+                    .thenReturn(expectedResponse);
 
-    @Test
-    public void dependencies_should_not_be_null() {
-        assertNotNull(configuration);
-        assertNotNull(reader);
-        assertNotNull(processor);
-        assertNotNull(writer);
-        assertNotNull(commonStepExecutionListener);
-        assertNotNull(platformTransactionManager);
-        assertNotNull(jobRepository);
-    }
+            SynchroSendLoanFolder result = processor.process(entity);
 
-    @Test
-    public void all_methods_can_be_invoked_without_error() {
-        configuration.sendSynchroStep(jobRepository);
-        configuration.sendSynchroJob(jobRepository, sendSynchroStep);
-        verifyNoInteractions(commonStepExecutionListener);
+            assertEquals(expectedResponse, result);
+            verify(commandExecutor).execute(eq(SendSynchroLoanFoldersCommand.class),
+                    ArgumentMatchers.any(SendSynchroLoanFoldersRequest.class));
+        }
     }
 }
