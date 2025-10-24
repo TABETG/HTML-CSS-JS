@@ -36,7 +36,9 @@ public class BillingSpaceSendSynchroItemWriterTest {
 
     @Before
     public void setUp() {
+        // Le Runner initialise déjà les mocks, l'appel ci-dessous est optionnel.
         MockitoAnnotations.initMocks(this);
+        // Injection des champs privés si la classe tested n’a pas de constructeur pour ses deps
         ReflectionTestUtils.setField(writer, "docaposteRepository", docaposteRepository);
         ReflectionTestUtils.setField(writer, "docaposteEventHistoryRepository", docaposteEventHistoryRepository);
     }
@@ -144,13 +146,14 @@ public class BillingSpaceSendSynchroItemWriterTest {
 
         // Then
         verify(docaposteRepository).sendDossierBox(anyList());
-        verifyZeroInteractions(docaposteEventHistoryRepository);
+        verifyNoInteractions(docaposteEventHistoryRepository); // ✅ remplace verifyZeroInteractions
     }
 
     // --------- Helpers ---------
 
     private SynchroSendLoanFolder createSynchroFolder(DossierBox dossierBox, DocaposteEventHistory eventHistory) {
         SynchroSendLoanFolder folder = mock(SynchroSendLoanFolder.class);
+        // lenient() évite UnnecessaryStubbingException si un stub n’est pas consommé dans certains tests
         lenient().when(folder.getDossierBox()).thenReturn(dossierBox);
         lenient().when(folder.getDocaposteEventHistory()).thenReturn(eventHistory);
         return folder;
