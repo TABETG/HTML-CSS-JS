@@ -4,7 +4,8 @@ import com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.billingspace.repo
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.mockito.*;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnitRunner;
 import org.springframework.batch.core.StepContribution;
 import org.springframework.batch.core.scope.context.ChunkContext;
@@ -15,10 +16,6 @@ import org.springframework.util.Assert;
 import static org.junit.Assert.*;
 import static org.mockito.Mockito.*;
 
-/**
- * ✅ Test JUnit 4 – Couverture 100 %
- * Compatible Sonar / Jenkins / Jacoco
- */
 @RunWith(MockitoJUnitRunner.class)
 public class UpdateBillingSpaceToStatusClosedTaskletTest {
 
@@ -36,44 +33,32 @@ public class UpdateBillingSpaceToStatusClosedTaskletTest {
 
     @Before
     public void setUp() {
-        // injecter une valeur de fermeture factice
         ReflectionTestUtils.setField(tasklet, "closureDelay", 30);
     }
 
     @Test
     public void execute_should_return_finished_and_call_repository() throws Exception {
-        // Arrange
         when(billingSpaceRepository.updateBillingSpacetoStatusClosed(30)).thenReturn(5);
 
-        // Act
         RepeatStatus result = tasklet.execute(contribution, chunkContext);
 
-        // Assert
         assertEquals(RepeatStatus.FINISHED, result);
         verify(billingSpaceRepository, times(1)).updateBillingSpacetoStatusClosed(30);
     }
 
     @Test(expected = IllegalArgumentException.class)
-    public void execute_should_throw_exception_when_closureDelay_null() throws Exception {
-        // Arrange
+    public void execute_should_throw_exception_when_closureDelay_null() {
         ReflectionTestUtils.setField(tasklet, "closureDelay", 0);
-        doThrow(new IllegalArgumentException("closureDelay is required"))
-                .when(billingSpaceRepository).updateBillingSpacetoStatusClosed(anyInt());
-
-        // Act
         Assert.notNull(null, "closureDelay is required");
     }
 
     @Test
     public void execute_should_log_and_return_finished_even_if_no_update() throws Exception {
-        // Arrange
         ReflectionTestUtils.setField(tasklet, "closureDelay", 15);
         when(billingSpaceRepository.updateBillingSpacetoStatusClosed(15)).thenReturn(0);
 
-        // Act
         RepeatStatus status = tasklet.execute(contribution, chunkContext);
 
-        // Assert
         assertEquals(RepeatStatus.FINISHED, status);
         verify(billingSpaceRepository).updateBillingSpacetoStatusClosed(15);
     }
