@@ -3,12 +3,12 @@ package com.bnpparibas.dsibddf.ap00420.streamfact.batch.paymentrequestpaid.write
 import com.bnpparibas.dsibddf.ap00420.streamfact.domain.commons.RequestTypeEnum;
 import com.bnpparibas.dsibddf.ap00420.streamfact.domain.commons.RequestTypeStatusEnum;
 import com.bnpparibas.dsibddf.ap00420.streamfact.domain.engines.UpdatePaymentRequestResult;
+import com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.billingspace.model.BillingSpace;
 import com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.billingspace.model.PaymentRequest;
 import com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.history.model.DocaposteEventHistory;
 import com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.history.repository.DocaposteEventHistoryRepository;
 import com.bnpparibas.dsibddf.ap00420.streamfact.domain.repository.docaposte.DocaposteRepository;
 import com.bnpparibas.dsibddf.ap00420.streamfact.domain.repository.docaposte.model.DocaposteResponse;
-import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.billingspace.model.BillingSpaceEntity;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -26,7 +26,6 @@ class PaymentRequestPaidWriterTest {
     @Test
     void write_whenChunkEmpty_doesNothing() throws Exception {
         PaymentRequestPaidWriter writer = new PaymentRequestPaidWriter();
-
         DocaposteRepository docaposteRepository = Mockito.mock(DocaposteRepository.class);
         DocaposteEventHistoryRepository historyRepo = Mockito.mock(DocaposteEventHistoryRepository.class);
 
@@ -35,7 +34,6 @@ class PaymentRequestPaidWriterTest {
         inject(writer, "serialNumber", "SER-001");
 
         Chunk<UpdatePaymentRequestResult> chunk = new Chunk<>(Collections.emptyList());
-
         writer.write(chunk);
 
         Mockito.verifyNoInteractions(docaposteRepository);
@@ -45,7 +43,6 @@ class PaymentRequestPaidWriterTest {
     @Test
     void write_whenItemAndDocaposteOk_updatesToSentAndSaves() throws Exception {
         PaymentRequestPaidWriter writer = new PaymentRequestPaidWriter();
-
         DocaposteRepository docaposteRepository = Mockito.mock(DocaposteRepository.class);
         DocaposteEventHistoryRepository historyRepo = Mockito.mock(DocaposteEventHistoryRepository.class);
 
@@ -53,30 +50,24 @@ class PaymentRequestPaidWriterTest {
         inject(writer, "docaposteEventHistoryRepository", historyRepo);
         inject(writer, "serialNumber", "SER-001");
 
-        // Mock domain objects
+        // Mocks domaine
         UpdatePaymentRequestResult uprr = Mockito.mock(UpdatePaymentRequestResult.class);
         PaymentRequest pr = Mockito.mock(PaymentRequest.class);
         Mockito.when(pr.getPaymentRequestId()).thenReturn("PR-1");
 
-        BillingSpaceEntity bse = new BillingSpaceEntity();
-        // on suppose le setter présent dans l'entité
-        try {
-            bse.getClass().getMethod("setLoanFolderId", String.class).invoke(bse, "LF-1");
-        } catch (NoSuchMethodException e) {
-            // si pas de setter, ignorer : le test vérifiera les autres champs
-        }
+        BillingSpace billingSpace = Mockito.mock(BillingSpace.class);
+        Mockito.when(billingSpace.getLoanFolderId()).thenReturn("LF-1");
 
         Mockito.when(uprr.getPaymentRequestPaidList()).thenReturn(List.of(pr));
-        Mockito.when(uprr.getBillingSpace()).thenReturn(bse);
+        Mockito.when(uprr.getBillingSpace()).thenReturn(billingSpace);
 
         // Docaposte OK -> retourne un groupId
         DocaposteResponse resp = Mockito.mock(DocaposteResponse.class);
         Mockito.when(resp.getGroupId()).thenReturn("G-123");
         Mockito.when(docaposteRepository.sendDossierBox(Mockito.anyList()))
-                .thenReturn(List.of(resp));
+               .thenReturn(List.of(resp));
 
         Chunk<UpdatePaymentRequestResult> chunk = new Chunk<>(List.of(uprr));
-
         writer.write(chunk);
 
         Mockito.verify(docaposteRepository, Mockito.times(1)).sendDossierBox(Mockito.anyList());
@@ -89,11 +80,11 @@ class PaymentRequestPaidWriterTest {
         Assertions.assertEquals(RequestTypeStatusEnum.PAYMENT_REQUEST_PAID_SENT, saved.getStatus());
         Assertions.assertEquals("PR-1", saved.getRequestPaymentId());
 
-        // Si l'entité expose le loanFolderId / requestId, vérifie-les
+        // Vérifs tolérantes si getters absents côté modèle
         try {
             Method getLoanFolderId = saved.getClass().getMethod("getLoanFolderId");
             Object lf = getLoanFolderId.invoke(saved);
-            Assertions.assertTrue(lf == null || "LF-1".equals(lf)); // tolérant si l'entité ne l’expose pas
+            Assertions.assertTrue(lf == null || "LF-1".equals(lf));
         } catch (NoSuchMethodException ignored) { /* champ non exposé => OK */ }
 
         try {
@@ -106,7 +97,6 @@ class PaymentRequestPaidWriterTest {
     @Test
     void write_whenDocaposteThrows_keepsToSendAndSaves() throws Exception {
         PaymentRequestPaidWriter writer = new PaymentRequestPaidWriter();
-
         DocaposteRepository docaposteRepository = Mockito.mock(DocaposteRepository.class);
         DocaposteEventHistoryRepository historyRepo = Mockito.mock(DocaposteEventHistoryRepository.class);
 
@@ -118,16 +108,14 @@ class PaymentRequestPaidWriterTest {
         PaymentRequest pr = Mockito.mock(PaymentRequest.class);
         Mockito.when(pr.getPaymentRequestId()).thenReturn("PR-ERR");
 
-        BillingSpaceEntity bse = new BillingSpaceEntity();
-        try {
-            bse.getClass().getMethod("setLoanFolderId", String.class).invoke(bse, "LF-ERR");
-        } catch (NoSuchMethodException ignored) {}
+        BillingSpace billingSpace = Mockito.mock(BillingSpace.class);
+        Mockito.when(billingSpace.getLoanFolderId()).thenReturn("LF-ERR");
 
         Mockito.when(uprr.getPaymentRequestPaidList()).thenReturn(List.of(pr));
-        Mockito.when(uprr.getBillingSpace()).thenReturn(bse);
+        Mockito.when(uprr.getBillingSpace()).thenReturn(billingSpace);
 
         Mockito.when(docaposteRepository.sendDossierBox(Mockito.anyList()))
-                .thenThrow(new RuntimeException("BOOM"));
+               .thenThrow(new RuntimeException("BOOM"));
 
         Chunk<UpdatePaymentRequestResult> chunk = new Chunk<>(Arrays.asList(uprr));
 
@@ -154,8 +142,8 @@ class PaymentRequestPaidWriterTest {
                 String.class, PaymentRequest.class, RequestTypeStatusEnum.class
         );
         m.setAccessible(true);
-
         Object obj = m.invoke(writer, "LF-X", pr, RequestTypeStatusEnum.PAYMENT_REQUEST_PAID_SENT);
+
         Assertions.assertTrue(obj instanceof DocaposteEventHistory);
         DocaposteEventHistory h = (DocaposteEventHistory) obj;
 
@@ -163,7 +151,6 @@ class PaymentRequestPaidWriterTest {
         Assertions.assertEquals(RequestTypeStatusEnum.PAYMENT_REQUEST_PAID_SENT, h.getStatus());
         Assertions.assertEquals("PR-X", h.getRequestPaymentId());
 
-        // Vérifie (si exposé) le loanFolderId et l’eventId non nul
         try {
             Method getLoanFolderId = h.getClass().getMethod("getLoanFolderId");
             Object lf = getLoanFolderId.invoke(h);
@@ -178,7 +165,6 @@ class PaymentRequestPaidWriterTest {
     }
 
     // --- helpers ---
-
     private static void inject(Object target, String field, Object value) {
         try {
             Field f = target.getClass().getDeclaredField(field);
