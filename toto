@@ -6,6 +6,7 @@ import com.bnpparibas.dsibddf.ap00420.streamfact.application.loanfolder.synchro.
 import com.bnpparibas.dsibddf.ap00420.streamfact.application.loanfolder.synchro.sender.SendSynchroLoanFoldersRequest;
 import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.history.mapper.DocaposteEventHistoryEntityMapperToDomain;
 import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.history.model.DocaposteEventHistoryEntity;
+import com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.history.model.DocaposteEventHistory;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -17,7 +18,8 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 /**
- * Test JUnit4 100% coverage pour BillingSpaceSendSynchroItemProcessor.
+ * Test JUnit 4 avec 100% de couverture
+ * pour BillingSpaceSendSynchroItemProcessor
  * Compatible Sonar / Jenkins / Jacoco.
  */
 @RunWith(MockitoJUnitRunner.class)
@@ -35,9 +37,12 @@ public class BillingSpaceSendSynchroItemProcessorTest {
     @Mock
     private SynchroSendLoanFolder expectedResponse;
 
+    @Mock
+    private DocaposteEventHistory mappedHistory;
+
     @Before
     public void setUp() {
-        when(entity.getLoanFolderId()).thenReturn("LF123");
+        when(entity.getLoanFolderId()).thenReturn("LF001");
     }
 
     @Test
@@ -45,9 +50,8 @@ public class BillingSpaceSendSynchroItemProcessorTest {
         try (MockedStatic<DocaposteEventHistoryEntityMapperToDomain> mockedMapper =
                      Mockito.mockStatic(DocaposteEventHistoryEntityMapperToDomain.class)) {
 
-            Object mappedDomain = new Object();
             mockedMapper.when(() -> DocaposteEventHistoryEntityMapperToDomain.toDomain(entity))
-                    .thenReturn(mappedDomain);
+                    .thenReturn(mappedHistory);
 
             when(commandExecutor.execute(eq(SendSynchroLoanFoldersCommand.class),
                     any(SendSynchroLoanFoldersRequest.class)))
@@ -57,12 +61,9 @@ public class BillingSpaceSendSynchroItemProcessorTest {
 
             assertNotNull(result);
             assertSame(expectedResponse, result);
-
-            // Vérifie l'appel du mapper
             mockedMapper.verify(() -> DocaposteEventHistoryEntityMapperToDomain.toDomain(entity));
-            // Vérifie l'appel du commandExecutor
-            verify(commandExecutor, times(1))
-                    .execute(eq(SendSynchroLoanFoldersCommand.class), any(SendSynchroLoanFoldersRequest.class));
+            verify(commandExecutor).execute(eq(SendSynchroLoanFoldersCommand.class),
+                    any(SendSynchroLoanFoldersRequest.class));
         }
     }
 
@@ -71,26 +72,24 @@ public class BillingSpaceSendSynchroItemProcessorTest {
         try (MockedStatic<DocaposteEventHistoryEntityMapperToDomain> mockedMapper =
                      Mockito.mockStatic(DocaposteEventHistoryEntityMapperToDomain.class)) {
 
-            Object mappedDomain = new Object();
             mockedMapper.when(() -> DocaposteEventHistoryEntityMapperToDomain.toDomain(entity))
-                    .thenReturn(mappedDomain);
+                    .thenReturn(mappedHistory);
 
             when(commandExecutor.execute(eq(SendSynchroLoanFoldersCommand.class),
                     any(SendSynchroLoanFoldersRequest.class)))
-                    .thenThrow(new RuntimeException("failure"));
+                    .thenThrow(new RuntimeException("Command failure"));
 
             processor.process(entity);
         }
     }
 
     @Test
-    public void process_should_call_mapper_and_use_loanFolderId() {
+    public void process_should_use_correct_loanFolderId_and_mapping() {
         try (MockedStatic<DocaposteEventHistoryEntityMapperToDomain> mockedMapper =
                      Mockito.mockStatic(DocaposteEventHistoryEntityMapperToDomain.class)) {
 
-            Object mappedDomain = new Object();
             mockedMapper.when(() -> DocaposteEventHistoryEntityMapperToDomain.toDomain(entity))
-                    .thenReturn(mappedDomain);
+                    .thenReturn(mappedHistory);
 
             when(commandExecutor.execute(eq(SendSynchroLoanFoldersCommand.class),
                     any(SendSynchroLoanFoldersRequest.class)))
@@ -99,8 +98,9 @@ public class BillingSpaceSendSynchroItemProcessorTest {
             SynchroSendLoanFolder result = processor.process(entity);
 
             assertEquals(expectedResponse, result);
-            verify(commandExecutor).execute(eq(SendSynchroLoanFoldersCommand.class),
-                    ArgumentMatchers.any(SendSynchroLoanFoldersRequest.class));
+            verify(commandExecutor, times(1))
+                    .execute(eq(SendSynchroLoanFoldersCommand.class), any(SendSynchroLoanFoldersRequest.class));
+            mockedMapper.verify(() -> DocaposteEventHistoryEntityMapperToDomain.toDomain(entity));
         }
     }
 }
