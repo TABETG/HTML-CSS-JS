@@ -1,95 +1,134 @@
-package com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.close.processor;
+package com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.close.reader;
 
-import com.bnpparibas.bddf.cqrs.command.v2.CommandExecutorV2;
-import com.bnpparibas.dsibddf.ap00420.streamfact.application.billingspace.close.CloseBillingSpaceCommand;
-import com.bnpparibas.dsibddf.ap00420.streamfact.application.billingspace.close.CloseBillingSpaceRequest;
-import com.bnpparibas.dsibddf.ap00420.streamfact.application.billingspace.close.pojo.BillingSpaceCloseToSend;
-import com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.loanfolder.model.LoanFolder;
-import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.billingspace.model.BillingSpaceEntity;
-import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.loanfolder.model.LoanFolderEntity;
-import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.loanfolder.mapper.LoanFolderMapperToDomain;
+import com.bnpparibas.dsibddf.ap00420.streamfact.domain.commons.BillingSpaceStatusEnum;
+import com.bnpparibas.dsibddf.ap00420.streamfact.domain.commons.RequestTypeEnum;
+import com.bnpparibas.dsibddf.ap00420.streamfact.domain.commons.RequestTypeStatusEnum;
+import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.billingspace.repository.BillingSpaceJpaRepository;
+import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.mockito.*;
+import org.mockito.Mock;
+import org.mockito.MockitoAnnotations;
 import org.mockito.junit.MockitoJUnitRunner;
+import org.springframework.data.domain.Sort;
+
+import java.lang.reflect.Field;
+import java.util.List;
+import java.util.Map;
 
 import static org.junit.Assert.*;
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
 
 /**
- * ✅ Version JUnit4 compatible Sonar / Jenkins
- * Couvre le scénario nominal et le scénario d'exception de process(...).
+ * ✅ Version JUnit4 / MockitoRunner
+ * Teste la configuration et l'initialisation du reader ReplayBillingspaceClosureReader.
  */
 @RunWith(MockitoJUnitRunner.class)
-public class BillingSpaceClosureProcessorTest {
-
-    @InjectMocks
-    private BillingSpaceClosureProcessor processor;
+public class ReplayBillingspaceClosureReaderTest {
 
     @Mock
-    private CommandExecutorV2 commandExecutor;
+    private BillingSpaceJpaRepository repository;
 
-    @Test
-    public void process_should_execute_command_with_mapped_loan_folder() throws Exception {
-        // Arrange
-        BillingSpaceEntity billingSpaceEntity = mock(BillingSpaceEntity.class);
-        LoanFolderEntity loanFolderEntity = mock(LoanFolderEntity.class);
-        when(billingSpaceEntity.getLoanFolder()).thenReturn(loanFolderEntity);
+    private ReplayBillingspaceClosureReader reader;
 
-        LoanFolder mappedLoanFolder = mock(LoanFolder.class);
-        BillingSpaceCloseToSend expected = mock(BillingSpaceCloseToSend.class);
-
-        try (MockedStatic<LoanFolderMapperToDomain> mockedMapper =
-                     Mockito.mockStatic(LoanFolderMapperToDomain.class)) {
-
-            mockedMapper.when(() -> LoanFolderMapperToDomain.toDomain(loanFolderEntity))
-                    .thenReturn(mappedLoanFolder);
-
-            when(commandExecutor.execute(eq(CloseBillingSpaceCommand.class),
-                    any(CloseBillingSpaceRequest.class)))
-                    .thenReturn(expected);
-
-            // Act
-            BillingSpaceCloseToSend result = processor.process(billingSpaceEntity);
-
-            // Assert
-            assertSame("Le résultat doit être celui retourné par l'executor", expected, result);
-
-            // Vérifie que le mapper statique a bien été appelé avec l'entité
-            mockedMapper.verify(() -> LoanFolderMapperToDomain.toDomain(loanFolderEntity));
-
-            // Capture et vérifie la requête envoyée
-            ArgumentCaptor<CloseBillingSpaceRequest> reqCap =
-                    ArgumentCaptor.forClass(CloseBillingSpaceRequest.class);
-            verify(commandExecutor).execute(eq(CloseBillingSpaceCommand.class), reqCap.capture());
-            assertNotNull(reqCap.getValue());
-        }
+    @Before
+    public void setUp() {
+        MockitoAnnotations.openMocks(this);
+        reader = new ReplayBillingspaceClosureReader(repository);
     }
 
-    @Test(expected = IllegalStateException.class)
-    public void process_should_propagate_exception_from_executor() throws Exception {
-        // Arrange
-        BillingSpaceEntity billingSpaceEntity = mock(BillingSpaceEntity.class);
-        LoanFolderEntity loanFolderEntity = mock(LoanFolderEntity.class);
-        when(billingSpaceEntity.getLoanFolder()).thenReturn(loanFolderEntity);
+    @Test
+    public void constructor_setsRepositoryField() throws Exception {
+        // Vérifie le champ privé final du reader
+        assertSame(repository, getField(reader, "repository"));
+    }
 
-        LoanFolder mappedLoanFolder = mock(LoanFolder.class);
+    @Test
+    public void init_configuresRepositorySortMethodAndArguments() throws Exception {
+        // When
+        reader.init();
 
-        try (MockedStatic<LoanFolderMapperToDomain> mockedMapper =
-                     Mockito.mockStatic(LoanFolderMapperToDomain.class)) {
+        // Repository propagé
+        assertSame(repository, getField(reader, "repository"));
 
-            mockedMapper.when(() -> LoanFolderMapperToDomain.toDomain(loanFolderEntity))
-                    .thenReturn(mappedLoanFolder);
+        // ----- Tri: compatible Map<String,Direction> ou Sort -----
+        Object sortField = getAnyField(reader, "sort", "sorts");
+        assertNotNull("Le champ de tri doit être initialisé", sortField);
 
-            when(commandExecutor.execute(eq(CloseBillingSpaceCommand.class),
-                    any(CloseBillingSpaceRequest.class)))
-                    .thenThrow(new IllegalStateException("boom"));
-
-            // Act
-            processor.process(billingSpaceEntity);
-
-            // Assert : l'exception attendue est levée
+        if (sortField instanceof Map) {
+            @SuppressWarnings("unchecked")
+            Map<String, Sort.Direction> sorts = (Map<String, Sort.Direction>) sortField;
+            assertEquals(Sort.Direction.ASC, sorts.get("loanFolderId"));
+        } else if (sortField instanceof Sort) {
+            Sort sort = (Sort) sortField;
+            Sort.Order order = sort.getOrderFor("loanFolderId");
+            assertNotNull("Un ordre doit exister pour loanFolderId", order);
+            assertEquals(Sort.Direction.ASC, order.getDirection());
+        } else {
+            fail("Type de champ 'sort' inattendu: " + sortField.getClass());
         }
+
+        // methodName
+        assertEquals("findReplayBillingSpacesToClose", getField(reader, "methodName"));
+
+        // arguments: [ [TO_CLOSE, CLOSED], CLOSING, [CLOSURE_TO_SEND, CLOSURE_REJECTED] ]
+        @SuppressWarnings("unchecked")
+        List<Object> args = (List<Object>) getAnyField(reader, "arguments", "args");
+        assertNotNull(args);
+        assertEquals(3, args.size());
+
+        // 1) List<BillingSpaceStatusEnum>
+        assertTrue(args.get(0) instanceof List);
+        @SuppressWarnings("unchecked")
+        List<?> statuses = (List<?>) args.get(0);
+        assertTrue(statuses.contains(BillingSpaceStatusEnum.TO_CLOSE));
+        assertTrue(statuses.contains(BillingSpaceStatusEnum.CLOSED));
+
+        // 2) RequestTypeEnum
+        assertEquals(RequestTypeEnum.CLOSING, args.get(1));
+
+        // 3) List<RequestTypeStatusEnum>
+        assertTrue(args.get(2) instanceof List);
+        @SuppressWarnings("unchecked")
+        List<?> reqStatuses = (List<?>) args.get(2);
+        assertTrue(reqStatuses.contains(RequestTypeStatusEnum.CLOSURE_TO_SEND));
+        assertTrue(reqStatuses.contains(RequestTypeStatusEnum.CLOSURE_REJECTED));
+    }
+
+    // --- Helpers réflexion : parcourent la hiérarchie (superclasses comprises) ---
+    private Object getField(Object target, String name) throws Exception {
+        Field f = findField(target.getClass(), name);
+        assertNotNull("Champ introuvable: " + name, f);
+        f.setAccessible(true);
+        return f.get(target);
+    }
+
+    private Object getAnyField(Object target, String... candidates) throws Exception {
+        for (String name : candidates) {
+            Field f = findField(target.getClass(), name);
+            if (f != null) {
+                f.setAccessible(true);
+                return f.get(target);
+            }
+        }
+        // fallback : premier champ Map ou Sort trouvé
+        for (Class<?> c = target.getClass(); c != null; c = c.getSuperclass()) {
+            for (Field f : c.getDeclaredFields()) {
+                if (Map.class.isAssignableFrom(f.getType()) || Sort.class.isAssignableFrom(f.getType())) {
+                    f.setAccessible(true);
+                    return f.get(target);
+                }
+            }
+        }
+        return null;
+    }
+
+    private Field findField(Class<?> type, String name) {
+        for (Class<?> c = type; c != null; c = c.getSuperclass()) {
+            try {
+                return c.getDeclaredField(name);
+            } catch (NoSuchFieldException ignored) {
+            }
+        }
+        return null;
     }
 }
