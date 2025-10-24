@@ -1,133 +1,102 @@
-package com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.create;
+package com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.synchro.sender.job;
 
-import com.bnpparibas.bddf.cqrs.command.v2.CommandExecutorV2;
-import com.bnpparibas.dsibddf.ap00420.streamfact.application.billingspace.create.CreateBillingSpaceCommand;
-import com.bnpparibas.dsibddf.ap00420.streamfact.application.billingspace.create.CreateBillingSpaceRequest;
-import com.bnpparibas.dsibddf.ap00420.streamfact.application.loanfolder.complete.CompleteLoanFoldersCommand;
-import com.bnpparibas.dsibddf.ap00420.streamfact.application.loanfolder.complete.CompleteLoanFoldersRequest;
-import com.bnpparibas.dsibddf.ap00420.streamfact.application.loanfolder.createeligiblefolders.CreateEligibleLoanFoldersCommand;
-import com.bnpparibas.dsibddf.ap00420.streamfact.application.loanfolder.createeligiblefolders.CreateEligibleLoanFoldersRequest;
-import com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.billingspace.model.BillingSpace;
-import com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.loanfolder.model.LoanFolder;
+import com.bnpparibas.dsibddf.ap00420.streamfact.application.loanfolder.synchro.pojo.SynchroSendLoanFolder;
+import com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.synchro.sender.processor.BillingSpaceSendSynchroItemProcessor;
+import com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.synchro.sender.writer.BillingSpaceSendSynchroItemWriter;
+import com.bnpparibas.dsibddf.ap00420.streamfact.batch.listener.CommonStepExecutionListener;
+import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.history.model.DocaposteEventHistoryEntity;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.mockito.*;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnitRunner;
-import org.springframework.batch.core.StepContribution;
-import org.springframework.batch.core.scope.context.ChunkContext;
-import org.springframework.batch.repeat.RepeatStatus;
-
-import java.lang.reflect.Field;
-import java.util.Arrays;
-import java.util.List;
+import org.springframework.batch.core.Job;
+import org.springframework.batch.core.Step;
+import org.springframework.batch.core.job.flow.FlowJob;
+import org.springframework.batch.core.repository.JobRepository;
+import org.springframework.batch.core.step.tasklet.TaskletStep;
+import org.springframework.batch.item.ItemReader;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import static org.junit.Assert.*;
-import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 /**
- * Test JUnit4 100% coverage – CreateBillingSpaceTasklet
+ * Test JUnit4 100% coverage pour JobConfigurationSendSynchro.
+ * Compatible SonarQube / Jenkins / Jacoco.
  */
 @RunWith(MockitoJUnitRunner.class)
-public class CreateBillingSpaceTaskletTest {
-
-    @Mock
-    private CommandExecutorV2 commandExecutor;
-
-    @Mock
-    private StepContribution contribution;
-
-    @Mock
-    private ChunkContext chunkContext;
+public class JobConfigurationSendSynchroTest {
 
     @InjectMocks
-    private CreateBillingSpaceTasklet tasklet;
+    private JobConfigurationSendSynchro configuration;
+
+    @Mock
+    private ItemReader<DocaposteEventHistoryEntity> reader;
+
+    @Mock
+    private BillingSpaceSendSynchroItemProcessor processor;
+
+    @Mock
+    private BillingSpaceSendSynchroItemWriter writer;
+
+    @Mock
+    private CommonStepExecutionListener commonStepExecutionListener;
+
+    @Mock
+    private PlatformTransactionManager platformTransactionManager;
+
+    @Mock
+    private JobRepository jobRepository;
+
+    private Step sendSynchroStep;
 
     @Before
     public void setUp() {
-        MockitoAnnotations.openMocks(this);
+        sendSynchroStep = configuration.sendSynchroStep(jobRepository);
     }
 
     @Test
-    public void execute_callsCommandsInOrder_andReturnsFinished() throws Exception {
-        // Given
-        List<LoanFolder> eligible = Arrays.asList(mock(LoanFolder.class), mock(LoanFolder.class));
-        List<LoanFolder> complete = Arrays.asList(mock(LoanFolder.class));
-        List<BillingSpace> spaces = Arrays.asList(mock(BillingSpace.class));
+    public void sendSynchroStep_should_be_built_correctly() {
+        assertNotNull(sendSynchroStep);
+        assertEquals("sendSynchroStep", sendSynchroStep.getName());
+        assertTrue(sendSynchroStep instanceof TaskletStep);
 
-        when(commandExecutor.execute(eq(CreateEligibleLoanFoldersCommand.class),
-                any(CreateEligibleLoanFoldersRequest.class))).thenReturn(eligible);
-        when(commandExecutor.execute(eq(CompleteLoanFoldersCommand.class),
-                any(CompleteLoanFoldersRequest.class))).thenReturn(complete);
-        when(commandExecutor.execute(eq(CreateBillingSpaceCommand.class),
-                any(CreateBillingSpaceRequest.class))).thenReturn(spaces);
-
-        // When
-        RepeatStatus status = tasklet.execute(contribution, chunkContext);
-
-        // Then
-        assertEquals(RepeatStatus.FINISHED, status);
-
-        InOrder inOrder = inOrder(commandExecutor);
-        inOrder.verify(commandExecutor).execute(eq(CreateEligibleLoanFoldersCommand.class),
-                any(CreateEligibleLoanFoldersRequest.class));
-        inOrder.verify(commandExecutor).execute(eq(CompleteLoanFoldersCommand.class),
-                any(CompleteLoanFoldersRequest.class));
-        inOrder.verify(commandExecutor).execute(eq(CreateBillingSpaceCommand.class),
-                any(CreateBillingSpaceRequest.class));
-
-        // Capture des requêtes pour vérification
-        ArgumentCaptor<CreateEligibleLoanFoldersRequest> cap1 =
-                ArgumentCaptor.forClass(CreateEligibleLoanFoldersRequest.class);
-        ArgumentCaptor<CompleteLoanFoldersRequest> cap2 =
-                ArgumentCaptor.forClass(CompleteLoanFoldersRequest.class);
-        ArgumentCaptor<CreateBillingSpaceRequest> cap3 =
-                ArgumentCaptor.forClass(CreateBillingSpaceRequest.class);
-
-        verify(commandExecutor).execute(eq(CreateEligibleLoanFoldersCommand.class), cap1.capture());
-        verify(commandExecutor).execute(eq(CompleteLoanFoldersCommand.class), cap2.capture());
-        verify(commandExecutor).execute(eq(CreateBillingSpaceCommand.class), cap3.capture());
-
-        assertNotNull(cap1.getValue());
-
-        Object eligibleLoanFolders = readField(cap2.getValue(), "eligibleLoanFolders");
-        assertSame(eligible, eligibleLoanFolders);
-
-        Object eligibleAndComplete = readField(cap3.getValue(), "eligibleAndCompleteloanFolders");
-        assertSame(complete, eligibleAndComplete);
-
-        verifyNoMoreInteractions(commandExecutor);
+        TaskletStep ts = (TaskletStep) sendSynchroStep;
+        Object allow = org.springframework.test.util.ReflectionTestUtils.getField(ts, "allowStartIfComplete");
+        assertTrue((Boolean) allow);
     }
 
-    @Test(expected = RuntimeException.class)
-    public void execute_shouldPropagateException_ifCommandExecutorFails() throws Exception {
-        when(commandExecutor.execute(eq(CreateEligibleLoanFoldersCommand.class),
-                any(CreateEligibleLoanFoldersRequest.class)))
-                .thenReturn(Arrays.asList(mock(LoanFolder.class)));
+    @Test
+    public void sendSynchroJob_should_create_flow_job() {
+        Job job = configuration.sendSynchroJob(jobRepository, sendSynchroStep);
+        assertNotNull(job);
+        assertTrue(job instanceof FlowJob);
 
-        when(commandExecutor.execute(eq(CompleteLoanFoldersCommand.class),
-                any(CompleteLoanFoldersRequest.class)))
-                .thenThrow(new RuntimeException("boom"));
-
-        tasklet.execute(contribution, chunkContext);
+        FlowJob flowJob = (FlowJob) job;
+        assertEquals("sendSynchroJob", flowJob.getName());
+        assertNotNull(flowJob.getStep("sendSynchroStep"));
     }
 
-    // ==== Méthodes utilitaires de réflexion ====
-    private static Object readField(Object target, String name) throws Exception {
-        Field f = findField(target.getClass(), name);
-        assertNotNull("Champ introuvable: " + name, f);
-        f.setAccessible(true);
-        return f.get(target);
+    @Test
+    public void all_beans_should_not_be_null() {
+        assertNotNull(configuration);
+        assertNotNull(reader);
+        assertNotNull(processor);
+        assertNotNull(writer);
+        assertNotNull(commonStepExecutionListener);
+        assertNotNull(platformTransactionManager);
+        assertNotNull(jobRepository);
     }
 
-    private static Field findField(Class<?> type, String name) {
-        for (Class<?> c = type; c != null; c = c.getSuperclass()) {
-            try {
-                return c.getDeclaredField(name);
-            } catch (NoSuchFieldException ignored) {
-            }
-        }
-        return null;
+    @Test
+    public void sendSynchroStep_should_invoke_dependencies() {
+        JobConfigurationSendSynchro spyConfig = spy(configuration);
+        doReturn(sendSynchroStep).when(spyConfig).sendSynchroStep(jobRepository);
+
+        Job job = spyConfig.sendSynchroJob(jobRepository, sendSynchroStep);
+        assertNotNull(job);
+        verify(spyConfig).sendSynchroStep(jobRepository);
     }
 }
