@@ -1,124 +1,26 @@
-package com.bnpparibas.dsibddf.ap00420.streamfact.batch.replay.billingspacecreation.creationerror.writer;
+@Test
+void write_success_path_shouldSendEvent_callDocaposte_updateHistory_andSave() throws Exception {
+    // GIVEN
+    BillingSpaceCreationToSend toSend = mock(BillingSpaceCreationToSend.class);
 
-import com.bnpparibas.dsibddf.ap00420.streamfact.application.billingspace.create.pojo.BillingSpaceCreationToSend;
-import com.bnpparibas.dsibddf.ap00420.streamfact.application.dpo.DPOSaveDataRequestEvent;
-import com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.history.model.DocaposteEventHistory;
-import com.bnpparibas.dsibddf.ap00420.streamfact.domain.repository.docaposte.DocaposteRepository;
-import com.bnpparibas.dsibddf.ap00420.streamfact.domain.repository.docaposte.model.DocaposteResponse;
-import com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.history.repository.DocaposteEventHistoryRepository;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
-import org.springframework.batch.item.Chunk;
-import org.springframework.context.event.ApplicationEventMulticaster;
+    // Correction : on mocke le bon type de DossierBox
+    com.bnpparibas.dsibddf.ap00420.streamfact.domain.repository.docaposte.model.DossierBox dossierBox =
+            mock(com.bnpparibas.dsibddf.ap00420.streamfact.domain.repository.docaposte.model.DossierBox.class);
+    when(dossierBox.getValue()).thenReturn("DBOX-VALUE");
+    when(toSend.getDossierBox()).thenReturn(dossierBox);
 
-import java.lang.reflect.Field;
-import java.time.LocalDateTime;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
+    DocaposteEventHistory history = mock(DocaposteEventHistory.class);
+    when(toSend.getDocaposteEventHistory()).thenReturn(history);
 
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
+    DocaposteResponse response = mock(DocaposteResponse.class);
+    when(response.getGroupId()).thenReturn("group-123");
+    when(docaposteRepository.sendDossierBox(anyList())).thenReturn(Collections.singletonList(response));
 
-/**
- * Tests 100% coverage for SendBillingSpaceWriter.
- * On ne modifie ni le code de prod ni le POM.
- */
-class SendBillingSpaceWriterTest {
+    // WHEN
+    writer.write(new Chunk<>(Collections.singletonList(toSend)));
 
-    private SendBillingSpaceWriter writer;
-
-    private DocaposteRepository docaposteRepository;
-    private DocaposteEventHistoryRepository docaposteEventHistoryRepository;
-    private ApplicationEventMulticaster applicationEventMulticaster;
-
-    @BeforeEach
-    void setUp() throws Exception {
-        writer = new SendBillingSpaceWriter();
-        docaposteRepository = mock(DocaposteRepository.class);
-        docaposteEventHistoryRepository = mock(DocaposteEventHistoryRepository.class);
-        applicationEventMulticaster = mock(ApplicationEventMulticaster.class);
-
-        // Injection par réflexion des champs @Autowired
-        inject("docaposteRepository", docaposteRepository);
-        inject("docaposteEventHistoryRepository", docaposteEventHistoryRepository);
-        inject("applicationEventMulticaster", applicationEventMulticaster);
-    }
-
-    private void inject(String field, Object value) throws Exception {
-        Field f = SendBillingSpaceWriter.class.getDeclaredField(field);
-        f.setAccessible(true);
-        f.set(writer, value);
-    }
-
-    @Test
-    void write_success_path_shouldSendEvent_callDocaposte_updateHistory_andSave() throws Exception {
-        // GIVEN
-        // 1 élément à traiter
-        BillingSpaceCreationToSend toSend = mock(BillingSpaceCreationToSend.class);
-        // mocks imbriqués utilisés par le writer
-        Object dossierBox = mock(Object.class);
-        when(toSend.getDossierBox()).thenReturn(new Object() {
-            public String getValue() { return "DBOX-VALUE"; }
-        });
-        DocaposteEventHistory history = mock(DocaposteEventHistory.class);
-        when(toSend.getDocaposteEventHistory()).thenReturn(history);
-
-        // Docaposte renvoie un groupId
-        DocaposteResponse response = mock(DocaposteResponse.class);
-        when(response.getGroupId()).thenReturn("group-123");
-        when(docaposteRepository.sendDossierBox(anyList())).thenReturn(Collections.singletonList(response));
-
-        // WHEN
-        writer.write(new Chunk<>(Collections.singletonList(toSend)));
-
-        // THEN
-        // 1) évènement DPO émis
-        ArgumentCaptor<DPOSaveDataRequestEvent> evtCaptor = ArgumentCaptor.forClass(DPOSaveDataRequestEvent.class);
-        verify(applicationEventMulticaster, times(1)).multicastEvent(evtCaptor.capture());
-        assertNotNull(evtCaptor.getValue(), "L'évènement DPO doit être émis");
-
-        // 2) appel repository Docaposte OK
-        verify(docaposteRepository, times(1)).sendDossierBox(anyList());
-
-        // 3) statut mis à jour via nouvel objet puis sauvegarde
-        // (on ne peut pas inspecter l'objet reconstruit ici, mais on vérifie bien la persistance)
-        verify(docaposteEventHistoryRepository, times(1)).save(any(DocaposteEventHistory.class));
-    }
-
-    @Test
-    void write_failure_path_shouldStillSaveHistory_withoutUpdateLoop() throws Exception {
-        // GIVEN
-        BillingSpaceCreationToSend toSend = mock(BillingSpaceCreationToSend.class);
-        DocaposteEventHistory history = mock(DocaposteEventHistory.class);
-        when(toSend.getDocaposteEventHistory()).thenReturn(history);
-        // Force une exception côté Docaposte → result=false → pas de boucle d'update
-        when(docaposteRepository.sendDossierBox(anyList())).thenThrow(new RuntimeException("boom"));
-
-        // WHEN
-        writer.write(new Chunk<>(Collections.singletonList(toSend)));
-
-        // THEN
-        // évènement DPO quand même émis
-        verify(applicationEventMulticaster, times(1)).multicastEvent(any(DPOSaveDataRequestEvent.class));
-        // pas d'appel de getGroupId() (boucle non exécutée)
-        verifyNoInteractions(history); // on ne dépend pas de setters ici
-        // mais on sauvegarde tout de même l'historique existant
-        verify(docaposteEventHistoryRepository, times(1)).save(history);
-    }
-
-    @Test
-    void convertListToMap_shouldIndexItemsByOrder() {
-        BillingSpaceCreationToSend a = mock(BillingSpaceCreationToSend.class);
-        BillingSpaceCreationToSend b = mock(BillingSpaceCreationToSend.class);
-        List<BillingSpaceCreationToSend> input = List.of(a, b);
-
-        Map<Integer, BillingSpaceCreationToSend> map = writer.convertListToMapBillingSpaceCreationToSend(input);
-
-        assertEquals(2, map.size());
-        assertSame(a, map.get(0));
-        assertSame(b, map.get(1));
-    }
+    // THEN
+    verify(applicationEventMulticaster, times(1)).multicastEvent(any(DPOSaveDataRequestEvent.class));
+    verify(docaposteRepository, times(1)).sendDossierBox(anyList());
+    verify(docaposteEventHistoryRepository, times(1)).save(any(DocaposteEventHistory.class));
 }
