@@ -1,99 +1,93 @@
-com.bnpparibas.dsibddf.ap00420.streamfact.batch.paymentrequestpaid.processor.PaymentRequestPaidItemProcessor 
+Voici un test unitaire (JUnit 5 + Mockito, sans modifier le **pom** ni la classe existante) qui couvre à 100% les lignes de `PaymentRequestPaidItemProcessor` en injectant un mock du `CommandExecutorV2` par réflexion. Il vérifie le chemin nominal et la propagation d’une exception. Code basé sur le fichier fourni. 
 
-com.bnpparibas.dsibddf.ap00420.streamfact.batch.paymentrequestpaid.writer.PaymentRequestPaidWriter 
+Place ce fichier sous :
+`src/test/java/com/bnpparibas/dsibddf/ap00420/streamfact/batch/paymentrequestpaid/processor/PaymentRequestPaidItemProcessorTest.java`
 
-com.bnpparibas.dsibddf.ap00420.streamfact.batch.paymentrequestpaid.writer.BillingSpaceUpdatePaymentRequestItemWriter 
+```java
+package com.bnpparibas.dsibddf.ap00420.streamfact.batch.paymentrequestpaid.processor;
 
-com.bnpparibas.dsibddf.ap00420.streamfact.batch.replay.sendpaymentrequestprocessed.processor.SendPaymentRequestProcessedProcessor 
+import com.bnpparibas.bddf.cqrs.command.v2.CommandExecutorV2;
+import com.bnpparibas.dsibddf.ap00420.streamfact.application.billingspace.paymentrequest.UpdatePaymentRequest;
+import com.bnpparibas.dsibddf.ap00420.streamfact.application.billingspace.paymentrequest.UpdatePaymentRequestCommand;
+import com.bnpparibas.dsibddf.ap00420.streamfact.domain.engines.UpdatePaymentRequestResult;
+import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.billingspace.model.BillingSpaceEntity;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
-com.bnpparibas.dsibddf.ap00420.streamfact.batch.replay.sendpaymentrequestprocessed.writer.SendPaymentRequestProcessedWriter 
+import java.lang.reflect.Field;
 
-com.bnpparibas.dsibddf.ap00420.streamfact.batch.replay.sendpaymentrequestpaid.writer.ReplaySendPaymentRequestPaidWriter 
+class PaymentRequestPaidItemProcessorTest {
 
-com.bnpparibas.dsibddf.ap00420.streamfact.batch.replay.billingspacecreation.processor.BillingSpaceCreationErrorItemProcessor 
+    @Test
+    void process_should_call_executor_and_return_its_result() throws Exception {
+        // Arrange
+        PaymentRequestPaidItemProcessor processor = new PaymentRequestPaidItemProcessor();
 
-com.bnpparibas.dsibddf.ap00420.streamfact.batch.replay.billingspacecreation.creationerror.writer.SendBillingSpaceWriter 
+        @SuppressWarnings("unchecked")
+        CommandExecutorV2 commandExecutor = Mockito.mock(CommandExecutorV2.class);
 
-com.bnpparibas.dsibddf.ap00420.streamfact.batch.replay.recalculcompletude.processor.RecalculCompletudeItemProcessor 
+        // Injection via réflexion pour ne pas toucher au code de prod ni au pom
+        injectPrivate(processor, "commandExecutor", commandExecutor);
 
-com.bnpparibas.dsibddf.ap00420.streamfact.batch.replay.recalculcompletude.writer.RecalculCompletudeItemWriter 
+        UpdatePaymentRequestResult expected = Mockito.mock(UpdatePaymentRequestResult.class);
 
-com.bnpparibas.dsibddf.ap00420.streamfact.batch.stockintegration.CreateEligibleLoanFoldersTasklet 
+        Mockito.when(commandExecutor.execute(
+                Mockito.eq(UpdatePaymentRequestCommand.class),
+                Mockito.any(UpdatePaymentRequest.class))
+        ).thenReturn(expected);
 
-com.bnpparibas.dsibddf.ap00420.streamfact.batch.stockintegration.StockIntegrationFileTasklet 
+        // BillingSpaceEntity minimal ; le mapper interne se débrouille avec les valeurs par défaut
+        BillingSpaceEntity entity = new BillingSpaceEntity();
 
-com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.synchro.update.processor.BillingSpaceSynchroItemProcessor 
+        // Act
+        UpdatePaymentRequestResult actual = processor.process(entity);
 
-com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.synchro.update.writer.BillingSpaceSynchroItemWriter 
+        // Assert
+        Assertions.assertSame(expected, actual, "Le résultat doit être celui retourné par le CommandExecutor");
+        Mockito.verify(commandExecutor, Mockito.times(1))
+                .execute(Mockito.eq(UpdatePaymentRequestCommand.class), Mockito.any(UpdatePaymentRequest.class));
+        Mockito.verifyNoMoreInteractions(commandExecutor);
+    }
 
-com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.synchro.sender.processor.BillingSpaceSendSynchroItemProcessor 
+    @Test
+    void process_should_propagate_executor_exception() throws Exception {
+        // Arrange
+        PaymentRequestPaidItemProcessor processor = new PaymentRequestPaidItemProcessor();
 
-com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.synchro.sender.writer.BillingSpaceSendSynchroItemWriter 
+        @SuppressWarnings("unchecked")
+        CommandExecutorV2 commandExecutor = Mockito.mock(CommandExecutorV2.class);
+        injectPrivate(processor, "commandExecutor", commandExecutor);
 
-com.bnpparibas.dsibddf.ap00420.streamfact.batch.sendtobmd.tasklet.SendToBMDArchiveCOSTasklet 
+        Mockito.when(commandExecutor.execute(
+                Mockito.eq(UpdatePaymentRequestCommand.class),
+                Mockito.any(UpdatePaymentRequest.class))
+        ).thenThrow(new RuntimeException("boom"));
 
-com.bnpparibas.dsibddf.ap00420.streamfact.batch.sendtobmd.tasklet.SendToBMDSendCFTTasklet 
+        BillingSpaceEntity entity = new BillingSpaceEntity();
 
-com.bnpparibas.dsibddf.ap00420.streamfact.batch.sendtobmd.service.batch.security.openpgp.OnePassSignatureProcessor 
+        // Act + Assert
+        Assertions.assertThrows(RuntimeException.class, () -> processor.process(entity),
+                "L'exception levée par l'executor doit être propagée");
+    }
 
-com.bnpparibas.dsibddf.ap00420.streamfact.batch.sendtobmd.service.batch.security.openpgp.LiteralDataOutputStream 
+    /**
+     * Injection d'un champ private sans dépendre de Spring Test.
+     */
+    private static void injectPrivate(Object target, String fieldName, Object value) {
+        try {
+            Field f = target.getClass().getDeclaredField(fieldName);
+            f.setAccessible(true);
+            f.set(target, value);
+        } catch (Exception e) {
+            throw new RuntimeException("Impossible d'injecter le champ '" + fieldName + "'", e);
+        }
+    }
+}
+```
 
-com.bnpparibas.dsibddf.ap00420.streamfact.batch.purge.processor.ClosedBillingSpaceProcessor 
+Notes rapides :
 
-com.bnpparibas.dsibddf.ap00420.streamfact.batch.purge.processor.FolderWithoutBillingSpaceProcessor 
-
-com.bnpparibas.dsibddf.ap00420.streamfact.batch.purge.writer.ItemsToPurgeWriter 
-
-com.bnpparibas.dsibddf.ap00420.streamfact.batch.purge.CustomSkipPolicy 
-
-com.bnpparibas.dsibddf.ap00420.streamfact.batch.dpo.tasklet.PurgeDpoTableTasklet 
-
-com.bnpparibas.dsibddf.ap00420.streamfact.batch.dpo.tasklet.SendMailDPOTasklet 
-
-com.bnpparibas.dsibddf.ap00420.streamfact.batch.dailymeteorintegration.manager.FileManager 
-
-com.bnpparibas.dsibddf.ap00420.streamfact.batch.dailymeteorintegration.manager.LocalFileManager 
-
-com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.parameters.ParametersRepositoryImpl 
-
-com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.parameters.DeploymentAgencyCSV 
-
-com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.smtp.MailSenderRepositoryImpl 
-
-com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.smtp.MailContentBuilder 
-
-com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.smtp.MailNotificationUtils 
-
-com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.history.model.DPOMailToSendEntity 
-
-com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.history.model.DocaposteEventHistoryEntity 
-
-com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.integration_stock.model.StockInegrationEntity 
-
-com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.event.repository.OtherEventHistoryJpaRepository 
-
-com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.event.repository.OtherEventHistoryRepositoryImpl 
-
-com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.history.repository.DPOMailToSendJpaRepository 
-
-com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.history.repository.DocaposteEventHistoryJpaRepository 
-
-com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.history.repository.DocaposteEventHistoryRepositoryImpl 
-
-com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.history.mapper.DPOMailToSendMapperToDomain 
-
-com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.history.mapper.DPOMailToSendMapperToJpa 
-
-com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.history.mapper.DocaposteEventHistoryEntityMapperToDomain 
-
-com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.history.mapper.DocaposteEventHistoryEntityMapperToJpa 
-
-com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.loanfolder.repository.LoanFolderAnswerJpaRepository 
-
-com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.integration_stock.repository.StockInegrationJpaRepository 
-
-com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.billingspace.repository.BillingSpaceJpaRepository 
-
-com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.billingspace.mapper.BillingSpaceMapperToJpa 
-
-com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.event.model.OtherEventHistoryEntity 
+* Pas de modification du `pom.xml` ni de la classe de prod.
+* Le test n’a pas besoin de mocker la méthode statique du mapper : on crée un `BillingSpaceEntity` minimal et on se contente de vérifier l’appel au `CommandExecutorV2` et la valeur de retour.
+* Le second test assure que la signature `throws Exception` est effectivement utile (propagation d’erreur), tout en exécutant les lignes concernées.
