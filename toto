@@ -1,46 +1,42 @@
-# fichier: tree_dots.py
-# Usage:  python tree_dots.py [chemin_du_projet]
-# But   : affiche l'arborescence sous forme "racine.sousdossier.fichier"
+Voici la réponse courte et opérationnelle : tout ce qui matche sonar.exclusions dans ton POM ne comptera pas dans Sonar (ni bugs/code smells, ni couverture). Dans ton parent POM, la propriété est bien présente, avec une longue liste de patterns. 
 
-import os
-import sys
+Ce qui ne sera pas pris en compte par Sonar (à éviter si tu veux faire monter la couverture)
 
-# Dossiers souvent bruyants que l'on peut ignorer (modifiez selon vos besoins)
-SKIP_DIRS = {'.git', '__pycache__', 'node_modules', '.idea', '.venv', '.mypy_cache'}
+Module stream-fact-exposition : quasiment toute la couche d’expo est exclue
+(exposition/*.java, exposition/rest/**, exposition/jms/**, DTO, mappers, config, errors, etc., et même exposition/api/ZosConnectTestResource.java). 
+(Modules listés dans le parent POM : stream-fact-exposition fait bien partie du build.) 
 
-def is_hidden(name: str) -> bool:
-    return name.startswith('.') and name not in {'.git'}  # gardez .git si vous voulez
+Infra REST clients : de larges pans sont exclus, notamment
+infrastructure/rest/gdn/**, infrastructure/rest/http/config/*, infrastructure/rest/alias/**, réponses Vision360/alias, .../config/sslconfig/*, etc.
 
-def walk_dots(root_abs: str, current_abs: str, prefix: str) -> None:
-    try:
-        entries = sorted(os.listdir(current_abs))
-    except PermissionError:
-        return  # on ignore les emplacements non accessibles
+Infra SOAP clients : infrastructure/soap/config/*, infrastructure/soap/sharepoint/* et les stubs com/microsoft/schemas/sharepoint/soap/*. 
 
-    for name in entries:
-        # Filtrage basique
-        if name in SKIP_DIRS:
-            continue
-        if is_hidden(name):
-            continue
+Infra JMS (parties précises) : infrastructure/jms/config/*, infrastructure/jms/tracing/* et, dans clientnotif, plusieurs classes ciblées (NotificationParameters, MessageNotificationBuilder, LmMessageConverter, ClientMessagePostProcessor, ClientNotificationRepositoryMockImpl). 
 
-        path = os.path.join(current_abs, name)
-        # Éviter les boucles via liens symboliques
-        if os.path.islink(path):
-            continue
+Domaine (grande partie) :
+domain/entity/**, domain/commons/*, domain/mapper/**, domain/errors/*, domain/logging/*, domain/engines/*, et les validateurs domain/service/**/validator/*.java. Certains modèles de repository sont aussi exclus (ex. docaposte).
 
-        dotted = f"{prefix}.{name}" if prefix else name
-        print(dotted)
+Batch – configuration & certains readers :
+tous les *Config.java, JobConfiguration*.java, batch/**/*Configuration.java + plusieurs readers ciblés (ex. batch/maestro/s3cos/*Reader.java, batch/paymentrequestpaid/reader/*Reader.java, batch/sendtobmd/reader/*Reader.java).
 
-        if os.path.isdir(path):
-            walk_dots(root_abs, path, dotted)
 
-def main():
-    start = sys.argv[1] if len(sys.argv) > 1 else os.getcwd()
-    start_abs = os.path.abspath(start)
-    root_name = os.path.basename(start_abs.rstrip(os.sep)) or start_abs
-    print(root_name)  # racine
-    walk_dots(start_abs, start_abs, root_name)
+> 👉 En résumé, des pans entiers de exposition/**, beaucoup de infrastructure/rest|soap/**, de domain/** (entités/mappers/engines/validators), ainsi que la config Spring & une partie des readers Batch sont exclus. 
 
-if __name__ == "__main__":
-    main()
+
+
+Où investir tes tests pour que la couverture Sonar monte vraiment
+
+stream-fact-application (commands/handlers/services applicatifs) : non listé dans les exclusions → bon candidat. (Parent POM confirme la présence du module.) 
+
+Batch hors exclusions : processors, writers, tasklets (les exclusions visent surtout la config & certains readers). Exemples concrets présents dans le code : PaymentRequestPaidItemProcessor, ItemsToPurgeWriter, SendToBMDSendCFTTasklet — ce type de classes n’apparaît pas dans la liste d’exclusion.
+
+Infra SQL (repositories/mappers côté infrastructure/sql/** non explicitement exclus) : bon levier si ta logique passe par là. (Les exclusions visent surtout REST/SOAP/JMS config et certains mocks.) 
+
+Domaine hors paquets exclus : services métiers (hors entity/, mapper/, engines/, service/**/validator/) restent pertinents pour la couverture. 
+
+
+Détail important
+
+Dans ton POM, c’est sonar.exclusions (global) et non sonar.coverage.exclusions : les fichiers listés sont totalement exclus de l’analyse Sonar, pas seulement de la couverture. Tester ces classes ne changera donc pas la métrique de couverture Sonar. 
+
+Si tu veux, je peux te fournir une checklist ciblée (classes prioritaires par module) en partant de ce tri, pour maximiser le gain de couverture utile.
