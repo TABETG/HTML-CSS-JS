@@ -2,7 +2,6 @@ package com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.close.reade
 
 import com.bnpparibas.dsibddf.ap00420.streamfact.domain.commons.BillingSpaceStatusEnum;
 import com.bnpparibas.dsibddf.ap00420.streamfact.domain.commons.RequestTypeEnum;
-import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.billingspace.model.BillingSpaceEntity;
 import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.billingspace.repository.BillingSpaceJpaRepository;
 import org.junit.Before;
 import org.junit.Test;
@@ -19,8 +18,8 @@ import static org.junit.Assert.*;
 import static org.mockito.Mockito.*;
 
 /**
- * ✅ Test JUnit 4 – couverture 100 % BillingSpaceClosureReader
- * Compatible Jenkins / SonarQube / Jacoco.
+ * ✅ Test JUnit 4 corrigé — compatible toutes versions Spring Batch
+ * 100 % coverage pour Sonar / Jenkins / Jacoco.
  */
 @RunWith(MockitoJUnitRunner.class)
 public class BillingSpaceClosureReaderTest {
@@ -49,34 +48,40 @@ public class BillingSpaceClosureReaderTest {
         // Act
         reader.init();
 
-        // Assert sort field
-        Object sortField = getFieldValue(reader, "sort");
-        assertNotNull(sortField);
-        assertTrue(sortField instanceof Map);
-        Map<?, ?> map = (Map<?, ?>) sortField;
-        assertTrue(map.containsKey("loanFolderId"));
-        assertEquals(Sort.Direction.ASC, map.get("loanFolderId"));
-
-        // Assert repository field
+        // Vérifie repository
         Object repo = getFieldValue(reader, "repository");
         assertSame(repository, repo);
 
-        // Assert method name
-        Object methodName = getFieldValue(reader, "methodName");
-        assertEquals("findBillingSpacesToClose", methodName);
+        // Vérifie le champ de tri (Map ou Sort selon version Spring)
+        Object sortField = getAnyField(reader, "sort", "sorts");
+        assertNotNull("Le champ de tri doit être initialisé", sortField);
 
-        // Assert arguments
-        Object args = getFieldValue(reader, "arguments");
+        if (sortField instanceof Map) {
+            @SuppressWarnings("unchecked")
+            Map<String, Sort.Direction> map = (Map<String, Sort.Direction>) sortField;
+            assertEquals(Sort.Direction.ASC, map.get("loanFolderId"));
+        } else if (sortField instanceof Sort) {
+            Sort sort = (Sort) sortField;
+            Sort.Order order = sort.getOrderFor("loanFolderId");
+            assertNotNull("Un ordre doit exister pour loanFolderId", order);
+            assertEquals(Sort.Direction.ASC, order.getDirection());
+        } else {
+            fail("Type inattendu pour le champ de tri: " + sortField.getClass());
+        }
+
+        // Vérifie la méthode et les arguments
+        assertEquals("findBillingSpacesToClose", getFieldValue(reader, "methodName"));
+
+        Object args = getAnyField(reader, "arguments", "args");
         assertTrue(args instanceof List);
-        @SuppressWarnings("unchecked")
-        List<Object> params = (List<Object>) args;
-        assertEquals(2, params.size());
-        assertEquals(BillingSpaceStatusEnum.TO_CLOSE, params.get(0));
-        assertEquals(RequestTypeEnum.CLOSING, params.get(1));
+        List<?> parameters = (List<?>) args;
+        assertEquals(2, parameters.size());
+        assertEquals(BillingSpaceStatusEnum.TO_CLOSE, parameters.get(0));
+        assertEquals(RequestTypeEnum.CLOSING, parameters.get(1));
     }
 
     @Test
-    public void init_should_call_spring_batch_setters() {
+    public void init_should_call_all_setters_via_spy() {
         BillingSpaceClosureReader spyReader = spy(new BillingSpaceClosureReader(repository));
         doNothing().when(spyReader).setRepository(any());
         doNothing().when(spyReader).setSort(any());
@@ -86,25 +91,45 @@ public class BillingSpaceClosureReaderTest {
         spyReader.init();
 
         verify(spyReader).setRepository(repository);
-        verify(spyReader).setSort(anyMap());
+        verify(spyReader).setSort(any());
         verify(spyReader).setMethodName("findBillingSpacesToClose");
         verify(spyReader).setArguments(anyList());
     }
 
-    // --- Reflection utilitaire ---
+    // --- Reflection helpers compatibles héritage ---
     private Object getFieldValue(Object target, String name) throws Exception {
-        Field f = null;
-        Class<?> clazz = target.getClass();
-        while (clazz != null) {
-            try {
-                f = clazz.getDeclaredField(name);
-                break;
-            } catch (NoSuchFieldException e) {
-                clazz = clazz.getSuperclass();
-            }
-        }
-        assertNotNull("Champ introuvable: " + name, f);
+        Field f = findField(target.getClass(), name);
+        assertNotNull("Champ introuvable : " + name, f);
         f.setAccessible(true);
         return f.get(target);
+    }
+
+    private Object getAnyField(Object target, String... candidates) throws Exception {
+        for (String name : candidates) {
+            Field f = findField(target.getClass(), name);
+            if (f != null) {
+                f.setAccessible(true);
+                return f.get(target);
+            }
+        }
+        // fallback : premier champ Map ou Sort trouvé
+        for (Class<?> c = target.getClass(); c != null; c = c.getSuperclass()) {
+            for (Field f : c.getDeclaredFields()) {
+                if (Map.class.isAssignableFrom(f.getType()) || Sort.class.isAssignableFrom(f.getType())) {
+                    f.setAccessible(true);
+                    return f.get(target);
+                }
+            }
+        }
+        return null;
+    }
+
+    private Field findField(Class<?> type, String name) {
+        for (Class<?> c = type; c != null; c = c.getSuperclass()) {
+            try {
+                return c.getDeclaredField(name);
+            } catch (NoSuchFieldException ignored) {}
+        }
+        return null;
     }
 }
