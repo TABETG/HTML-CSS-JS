@@ -1,101 +1,110 @@
-package com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.close.processor;
+package com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.close.reader;
 
-import com.bnpparibas.bddf.cqrs.command.v2.CommandExecutorV2;
-import com.bnpparibas.dsibddf.ap00420.streamfact.application.billingspace.close.CloseBillingSpaceCommand;
-import com.bnpparibas.dsibddf.ap00420.streamfact.application.billingspace.close.CloseBillingSpaceRequest;
-import com.bnpparibas.dsibddf.ap00420.streamfact.application.billingspace.close.pojo.BillingSpaceCloseToSend;
+import com.bnpparibas.dsibddf.ap00420.streamfact.domain.commons.BillingSpaceStatusEnum;
+import com.bnpparibas.dsibddf.ap00420.streamfact.domain.commons.RequestTypeEnum;
 import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.billingspace.model.BillingSpaceEntity;
-import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.loanfolder.mapper.LoanFolderMapperToDomain;
-import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.loanfolder.model.LoanFolderEntity;
-import com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.loanfolder.model.LoanFolder;
+import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.billingspace.repository.BillingSpaceJpaRepository;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.mockito.*;
+import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnitRunner;
+import org.springframework.data.domain.Sort;
+
+import java.lang.reflect.Field;
+import java.util.List;
+import java.util.Map;
 
 import static org.junit.Assert.*;
-import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 /**
- * ✅ Test JUnit 4 100% coverage de BillingSpaceClosureProcessor
- * Compatible Sonar / Jenkins / Jacoco.
+ * ✅ Test JUnit 4 – couverture 100 % BillingSpaceClosureReader
+ * Compatible Jenkins / SonarQube / Jacoco.
  */
 @RunWith(MockitoJUnitRunner.class)
-public class BillingSpaceClosureProcessorTest {
-
-    @InjectMocks
-    private BillingSpaceClosureProcessor processor;
+public class BillingSpaceClosureReaderTest {
 
     @Mock
-    private CommandExecutorV2 commandExecutor;
+    private BillingSpaceJpaRepository repository;
 
-    @Mock
-    private BillingSpaceEntity billingSpaceEntity;
-
-    @Mock
-    private LoanFolderEntity loanFolderEntity;
-
-    @Mock
-    private BillingSpaceCloseToSend expectedResponse;
-
-    @Mock
-    private LoanFolder mappedLoanFolder;
+    private BillingSpaceClosureReader reader;
 
     @Before
     public void setUp() {
-        when(billingSpaceEntity.getLoanFolder()).thenReturn(loanFolderEntity);
+        reader = new BillingSpaceClosureReader(repository);
     }
 
     @Test
-    public void process_should_execute_command_and_return_expected_result() throws Exception {
-        try (MockedStatic<LoanFolderMapperToDomain> mockedMapper = Mockito.mockStatic(LoanFolderMapperToDomain.class)) {
-            // Arrange
-            mockedMapper.when(() -> LoanFolderMapperToDomain.toDomain(loanFolderEntity))
-                    .thenReturn(mappedLoanFolder);
-            when(commandExecutor.execute(eq(CloseBillingSpaceCommand.class), any(CloseBillingSpaceRequest.class)))
-                    .thenReturn(expectedResponse);
-
-            // Act
-            BillingSpaceCloseToSend result = processor.process(billingSpaceEntity);
-
-            // Assert
-            assertNotNull(result);
-            assertSame(expectedResponse, result);
-            mockedMapper.verify(() -> LoanFolderMapperToDomain.toDomain(loanFolderEntity));
-            verify(commandExecutor, times(1)).execute(eq(CloseBillingSpaceCommand.class), any(CloseBillingSpaceRequest.class));
-        }
-    }
-
-    @Test(expected = IllegalStateException.class)
-    public void process_should_throw_exception_when_executor_fails() throws Exception {
-        try (MockedStatic<LoanFolderMapperToDomain> mockedMapper = Mockito.mockStatic(LoanFolderMapperToDomain.class)) {
-            // Arrange
-            mockedMapper.when(() -> LoanFolderMapperToDomain.toDomain(loanFolderEntity))
-                    .thenReturn(mappedLoanFolder);
-            when(commandExecutor.execute(eq(CloseBillingSpaceCommand.class), any(CloseBillingSpaceRequest.class)))
-                    .thenThrow(new IllegalStateException("executor failed"));
-
-            // Act
-            processor.process(billingSpaceEntity);
-        }
+    public void constructor_should_set_repository_field() throws Exception {
+        assertNotNull(reader);
+        Field f = reader.getClass().getDeclaredField("repository");
+        f.setAccessible(true);
+        Object repoValue = f.get(reader);
+        assertSame(repository, repoValue);
     }
 
     @Test
-    public void process_should_use_loanFolder_from_entity() throws Exception {
-        try (MockedStatic<LoanFolderMapperToDomain> mockedMapper = Mockito.mockStatic(LoanFolderMapperToDomain.class)) {
-            mockedMapper.when(() -> LoanFolderMapperToDomain.toDomain(loanFolderEntity))
-                    .thenReturn(mappedLoanFolder);
-            when(commandExecutor.execute(eq(CloseBillingSpaceCommand.class), any(CloseBillingSpaceRequest.class)))
-                    .thenReturn(expectedResponse);
+    public void init_should_initialize_sort_method_and_arguments() throws Exception {
+        // Act
+        reader.init();
 
-            BillingSpaceCloseToSend result = processor.process(billingSpaceEntity);
-            assertEquals(expectedResponse, result);
+        // Assert sort field
+        Object sortField = getFieldValue(reader, "sort");
+        assertNotNull(sortField);
+        assertTrue(sortField instanceof Map);
+        Map<?, ?> map = (Map<?, ?>) sortField;
+        assertTrue(map.containsKey("loanFolderId"));
+        assertEquals(Sort.Direction.ASC, map.get("loanFolderId"));
 
-            ArgumentCaptor<CloseBillingSpaceRequest> requestCaptor = ArgumentCaptor.forClass(CloseBillingSpaceRequest.class);
-            verify(commandExecutor).execute(eq(CloseBillingSpaceCommand.class), requestCaptor.capture());
-            assertNotNull(requestCaptor.getValue());
+        // Assert repository field
+        Object repo = getFieldValue(reader, "repository");
+        assertSame(repository, repo);
+
+        // Assert method name
+        Object methodName = getFieldValue(reader, "methodName");
+        assertEquals("findBillingSpacesToClose", methodName);
+
+        // Assert arguments
+        Object args = getFieldValue(reader, "arguments");
+        assertTrue(args instanceof List);
+        @SuppressWarnings("unchecked")
+        List<Object> params = (List<Object>) args;
+        assertEquals(2, params.size());
+        assertEquals(BillingSpaceStatusEnum.TO_CLOSE, params.get(0));
+        assertEquals(RequestTypeEnum.CLOSING, params.get(1));
+    }
+
+    @Test
+    public void init_should_call_spring_batch_setters() {
+        BillingSpaceClosureReader spyReader = spy(new BillingSpaceClosureReader(repository));
+        doNothing().when(spyReader).setRepository(any());
+        doNothing().when(spyReader).setSort(any());
+        doNothing().when(spyReader).setMethodName(anyString());
+        doNothing().when(spyReader).setArguments(anyList());
+
+        spyReader.init();
+
+        verify(spyReader).setRepository(repository);
+        verify(spyReader).setSort(anyMap());
+        verify(spyReader).setMethodName("findBillingSpacesToClose");
+        verify(spyReader).setArguments(anyList());
+    }
+
+    // --- Reflection utilitaire ---
+    private Object getFieldValue(Object target, String name) throws Exception {
+        Field f = null;
+        Class<?> clazz = target.getClass();
+        while (clazz != null) {
+            try {
+                f = clazz.getDeclaredField(name);
+                break;
+            } catch (NoSuchFieldException e) {
+                clazz = clazz.getSuperclass();
+            }
         }
+        assertNotNull("Champ introuvable: " + name, f);
+        f.setAccessible(true);
+        return f.get(target);
     }
 }
