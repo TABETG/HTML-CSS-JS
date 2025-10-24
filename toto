@@ -1,6 +1,7 @@
 package com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.config;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.autoconfigure.domain.EntityScan;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
@@ -8,9 +9,9 @@ import org.springframework.data.jpa.convert.threeten.Jsr310JpaConverters;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 import org.springframework.orm.jpa.JpaTransactionManager;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
-import org.springframework.boot.autoconfigure.domain.EntityScan;
 
 import java.lang.reflect.Method;
+import java.util.Arrays;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -18,13 +19,8 @@ class JPAConfigTest {
 
     @Test
     void transactionManager_returnsJpaTransactionManager() {
-        // Arrange
         JPAConfig config = new JPAConfig();
-
-        // Act
         var tm = config.transactionManager();
-
-        // Assert
         assertNotNull(tm, "Le PlatformTransactionManager ne doit pas être null");
         assertTrue(tm instanceof JpaTransactionManager, "Le bean doit être un JpaTransactionManager");
     }
@@ -56,15 +52,33 @@ class JPAConfigTest {
         // @EntityScan(basePackages=..., basePackageClasses=Jsr310JpaConverters.class)
         EntityScan entityScan = JPAConfig.class.getAnnotation(EntityScan.class);
         assertNotNull(entityScan, "@EntityScan manquant");
-        assertNotNull(entityScan.basePackages(), "basePackages ne doit pas être null");
-        assertTrue(entityScan.basePackages().length > 0, "basePackages doit contenir au moins un package");
-        assertEquals(Jsr310JpaConverters.class, entityScan.basePackageClasses(), "basePackageClasses doit contenir Jsr310JpaConverters");
+
+        String[] basePackages = entityScan.basePackages();
+        assertNotNull(basePackages, "basePackages ne doit pas être null");
+        assertTrue(basePackages.length > 0, "basePackages doit contenir au moins un package");
+        // Optionnel : vérifier que le package attendu est présent (évite les faux positifs)
+        assertTrue(Arrays.asList(basePackages).contains(
+                "com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities"
+        ), "Le package des entités attendu doit être présent dans @EntityScan.basePackages");
+
+        Class<?>[] basePackageClasses = entityScan.basePackageClasses();
+        assertNotNull(basePackageClasses, "basePackageClasses ne doit pas être null");
+        assertEquals(1, basePackageClasses.length, "basePackageClasses doit contenir exactement un élément");
+        assertEquals(Jsr310JpaConverters.class, basePackageClasses[0],
+                "basePackageClasses[0] doit être Jsr310JpaConverters");
 
         // @EnableJpaRepositories(basePackages=..., transactionManagerRef="transactionManager")
         EnableJpaRepositories repos = JPAConfig.class.getAnnotation(EnableJpaRepositories.class);
         assertNotNull(repos, "@EnableJpaRepositories manquant");
-        assertNotNull(repos.basePackages(), "basePackages ne doit pas être null");
-        assertTrue(repos.basePackages().length > 0, "basePackages doit contenir au moins un package");
-        assertEquals("transactionManager", repos.transactionManagerRef(), "transactionManagerRef doit être 'transactionManager'");
+
+        String[] repoPkgs = repos.basePackages();
+        assertNotNull(repoPkgs, "basePackages ne doit pas être null");
+        assertTrue(repoPkgs.length > 0, "basePackages doit contenir au moins un package");
+        assertTrue(Arrays.asList(repoPkgs).contains(
+                "com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql"
+        ), "Le package des repositories attendu doit être présent dans @EnableJpaRepositories.basePackages");
+
+        assertEquals("transactionManager", repos.transactionManagerRef(),
+                "transactionManagerRef doit être 'transactionManager'");
     }
 }
