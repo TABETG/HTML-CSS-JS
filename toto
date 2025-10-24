@@ -1,111 +1,70 @@
-<sonar.exclusions>
-    **/*config.java,
-    **/*Config.java,
-    <!-- Exclure individuellement les autres JobConfiguration, sauf celles à inclure -->
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/batch/replay/sendpaymentrequestpaid/job/JobConfigurationReplaySendPaymentRequestPaid.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/batch/replay/sendpaymentrequestprocessed/job/JobConfigurationSendPaymentRequestProcessed.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/batch/replay/sendtransferavrequest/job/JobConfigurationReplaySendTransferAvRequest.java,
-    <!-- Exclure individuellement les autres *Configuration sous batch/, sauf BillingSpaceConfiguration -->
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/batch/sendtobmd/job/SendExportStockBillingSpaceToBmdConfiguration.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/batch/stockintegration/job/StockIntegrationConfiguration.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/domain/cft/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/domain/commons/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/gdn/**/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/exposition/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/exposition/api/ZosConnectTestResource.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/exposition/rest/errors/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/exposition/rest/config/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/exposition/rest/config/**/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/exposition/rest/dto/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/exposition/rest/support/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/exposition/dto/**/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/exposition/jms/**/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/exposition/dto/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/exposition/mapper/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/http/config/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/soap/config/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/soap/sharepoint/*.java,
-    **/com/microsoft/schemas/sharepoint/soap/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/domain/repository/docaposte/model/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/domain/engines/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/jms/clientnotif/NotificationParameters.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/jms/clientnotif/MessageNotificationBuilder.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/jms/clientnotif/LmMessageConverter.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/jms/clientnotif/ClientNotificationRepositoryMockImpl.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/jms/clientnotif/ClientMessagePostProcessor.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/domain/entity/**/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/domain/entity/**/**/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/domain/errors/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/domain/logging/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/domain/mapper/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/domain/mapper/**/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/domain/mapper/**/**/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/domain/service/**/validator/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/tier/appartbqdigit/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/tier/appartbqdigit/**/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/alias/**/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/alias/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/config/sslconfig/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/alias/response/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/vision360/response/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/vision360/synthesisresponse/response/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/jms/config/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/jms/tracing/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/batch/maestro/s3cos/*Reader.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/batch/paymentrequestpaid/reader/*Reader.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/batch/sendtobmd/reader/*Reader.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/batch/stockintegration/reader/*Reader.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/batch/replay/billingspacecreation/creationerror/reader/*Reader.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/batch/replay/recalculcompletude/reader/*Reader.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/batch/replay/sendpaymentrequestpaid/reader/*Reader.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/batch/replay/sendpaymentrequestprocessed/reader/*Reader.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/batch/replay/sendtransferavrequest/reader/*Reader.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/batch/billingspace/synchro/update/reader/*Reader.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/domain/repository/clientinformation/ClientInformationResponse.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/batch/purge/reader/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/omega/*MockImpl.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/sql/entities/billingspace/repository/*MockImpl.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/vision360/*MockImpl.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/docaposte/document/*MockImpl.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/docaposte/*MockImpl.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/eventBaseDetails/*MockImpl.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/eventBase/*MockImpl.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/juridiction/*MockImpl.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/sql/entities/maestro_stock/repository/*MockImpl.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/sharepoint/*MockImpl.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/tenuedeposition/*MockImpl.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/tenuedeposition/request/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/tenuedeposition/response/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/tdp/response/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/tdp/request/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/sharepoint/response/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/juridiction/response/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/juridiction/request/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/goal/contract/response/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/goal/contract/request/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/iban/response/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/iban/request/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/omega/**/response/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/omega/**/request/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/gdn/response/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/gdn/request/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/gdn/config/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/gdn/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/eventBaseDetails/response/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/eventBaseDetails/request/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/eventBase/response/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/eventBase/request/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/goal/contract/request/Meta.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/goal/contract/response/Error.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/soap/sharepoint/client/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/domain/repository/collabinformation/CollabInformationResponse.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/domain/repository/contrat/ContractResponse.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/domain/repository/gdn/model/*.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/application/billingspace/paymentrequest/*Request.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/application/loanfolder/synchro/sender/*Request.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/application/loanfolder/recallReferences/*Request.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/rest/juridiction/request/*Request.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/batch/replay/sendtransferavrequest/job/*Request.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/application/billingspace/create/sender/*Request.java,
-    **/com/bnpparibas/dsibddf/ap00420/streamfact/infrastructure/jms/virtuo/*MockImpl.java
-</sonar.exclusions>
+package com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.config;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
+import org.springframework.data.jpa.convert.threeten.Jsr310JpaConverters;
+import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
+import org.springframework.orm.jpa.JpaTransactionManager;
+import org.springframework.transaction.annotation.EnableTransactionManagement;
+import org.springframework.boot.autoconfigure.domain.EntityScan;
+
+import java.lang.reflect.Method;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+class JPAConfigTest {
+
+    @Test
+    void transactionManager_returnsJpaTransactionManager() {
+        // Arrange
+        JPAConfig config = new JPAConfig();
+
+        // Act
+        var tm = config.transactionManager();
+
+        // Assert
+        assertNotNull(tm, "Le PlatformTransactionManager ne doit pas être null");
+        assertTrue(tm instanceof JpaTransactionManager, "Le bean doit être un JpaTransactionManager");
+    }
+
+    @Test
+    void beanMethod_hasBeanName_transactionManager_and_isPrimary() throws NoSuchMethodException {
+        Method m = JPAConfig.class.getMethod("transactionManager");
+
+        // @Bean("transactionManager")
+        Bean beanAnn = m.getAnnotation(Bean.class);
+        assertNotNull(beanAnn, "@Bean doit être présent");
+        String[] names = beanAnn.value();
+        assertNotNull(names, "Le nom du bean ne doit pas être null");
+        assertTrue(names.length > 0, "Le nom du bean doit être défini");
+        assertEquals("transactionManager", names[0], "Le bean doit s'appeler 'transactionManager'");
+
+        // @Primary
+        assertTrue(m.isAnnotationPresent(Primary.class), "Le bean 'transactionManager' doit être @Primary");
+    }
+
+    @Test
+    void class_has_expected_annotations_and_attributes() {
+        // @Configuration
+        assertTrue(JPAConfig.class.isAnnotationPresent(Configuration.class), "@Configuration manquant");
+
+        // @EnableTransactionManagement
+        assertTrue(JPAConfig.class.isAnnotationPresent(EnableTransactionManagement.class), "@EnableTransactionManagement manquant");
+
+        // @EntityScan(basePackages=..., basePackageClasses=Jsr310JpaConverters.class)
+        EntityScan entityScan = JPAConfig.class.getAnnotation(EntityScan.class);
+        assertNotNull(entityScan, "@EntityScan manquant");
+        assertNotNull(entityScan.basePackages(), "basePackages ne doit pas être null");
+        assertTrue(entityScan.basePackages().length > 0, "basePackages doit contenir au moins un package");
+        assertEquals(Jsr310JpaConverters.class, entityScan.basePackageClasses(), "basePackageClasses doit contenir Jsr310JpaConverters");
+
+        // @EnableJpaRepositories(basePackages=..., transactionManagerRef="transactionManager")
+        EnableJpaRepositories repos = JPAConfig.class.getAnnotation(EnableJpaRepositories.class);
+        assertNotNull(repos, "@EnableJpaRepositories manquant");
+        assertNotNull(repos.basePackages(), "basePackages ne doit pas être null");
+        assertTrue(repos.basePackages().length > 0, "basePackages doit contenir au moins un package");
+        assertEquals("transactionManager", repos.transactionManagerRef(), "transactionManagerRef doit être 'transactionManager'");
+    }
+}
