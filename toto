@@ -1,42 +1,99 @@
-Voici la réponse courte et opérationnelle : tout ce qui matche sonar.exclusions dans ton POM ne comptera pas dans Sonar (ni bugs/code smells, ni couverture). Dans ton parent POM, la propriété est bien présente, avec une longue liste de patterns. 
+com.bnpparibas.dsibddf.ap00420.streamfact.batch.paymentrequestpaid.processor.PaymentRequestPaidItemProcessor 
 
-Ce qui ne sera pas pris en compte par Sonar (à éviter si tu veux faire monter la couverture)
+com.bnpparibas.dsibddf.ap00420.streamfact.batch.paymentrequestpaid.writer.PaymentRequestPaidWriter 
 
-Module stream-fact-exposition : quasiment toute la couche d’expo est exclue
-(exposition/*.java, exposition/rest/**, exposition/jms/**, DTO, mappers, config, errors, etc., et même exposition/api/ZosConnectTestResource.java). 
-(Modules listés dans le parent POM : stream-fact-exposition fait bien partie du build.) 
+com.bnpparibas.dsibddf.ap00420.streamfact.batch.paymentrequestpaid.writer.BillingSpaceUpdatePaymentRequestItemWriter 
 
-Infra REST clients : de larges pans sont exclus, notamment
-infrastructure/rest/gdn/**, infrastructure/rest/http/config/*, infrastructure/rest/alias/**, réponses Vision360/alias, .../config/sslconfig/*, etc.
+com.bnpparibas.dsibddf.ap00420.streamfact.batch.replay.sendpaymentrequestprocessed.processor.SendPaymentRequestProcessedProcessor 
 
-Infra SOAP clients : infrastructure/soap/config/*, infrastructure/soap/sharepoint/* et les stubs com/microsoft/schemas/sharepoint/soap/*. 
+com.bnpparibas.dsibddf.ap00420.streamfact.batch.replay.sendpaymentrequestprocessed.writer.SendPaymentRequestProcessedWriter 
 
-Infra JMS (parties précises) : infrastructure/jms/config/*, infrastructure/jms/tracing/* et, dans clientnotif, plusieurs classes ciblées (NotificationParameters, MessageNotificationBuilder, LmMessageConverter, ClientMessagePostProcessor, ClientNotificationRepositoryMockImpl). 
+com.bnpparibas.dsibddf.ap00420.streamfact.batch.replay.sendpaymentrequestpaid.writer.ReplaySendPaymentRequestPaidWriter 
 
-Domaine (grande partie) :
-domain/entity/**, domain/commons/*, domain/mapper/**, domain/errors/*, domain/logging/*, domain/engines/*, et les validateurs domain/service/**/validator/*.java. Certains modèles de repository sont aussi exclus (ex. docaposte).
+com.bnpparibas.dsibddf.ap00420.streamfact.batch.replay.billingspacecreation.processor.BillingSpaceCreationErrorItemProcessor 
 
-Batch – configuration & certains readers :
-tous les *Config.java, JobConfiguration*.java, batch/**/*Configuration.java + plusieurs readers ciblés (ex. batch/maestro/s3cos/*Reader.java, batch/paymentrequestpaid/reader/*Reader.java, batch/sendtobmd/reader/*Reader.java).
+com.bnpparibas.dsibddf.ap00420.streamfact.batch.replay.billingspacecreation.creationerror.writer.SendBillingSpaceWriter 
 
+com.bnpparibas.dsibddf.ap00420.streamfact.batch.replay.recalculcompletude.processor.RecalculCompletudeItemProcessor 
 
-> 👉 En résumé, des pans entiers de exposition/**, beaucoup de infrastructure/rest|soap/**, de domain/** (entités/mappers/engines/validators), ainsi que la config Spring & une partie des readers Batch sont exclus. 
+com.bnpparibas.dsibddf.ap00420.streamfact.batch.replay.recalculcompletude.writer.RecalculCompletudeItemWriter 
 
+com.bnpparibas.dsibddf.ap00420.streamfact.batch.stockintegration.CreateEligibleLoanFoldersTasklet 
 
+com.bnpparibas.dsibddf.ap00420.streamfact.batch.stockintegration.StockIntegrationFileTasklet 
 
-Où investir tes tests pour que la couverture Sonar monte vraiment
+com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.synchro.update.processor.BillingSpaceSynchroItemProcessor 
 
-stream-fact-application (commands/handlers/services applicatifs) : non listé dans les exclusions → bon candidat. (Parent POM confirme la présence du module.) 
+com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.synchro.update.writer.BillingSpaceSynchroItemWriter 
 
-Batch hors exclusions : processors, writers, tasklets (les exclusions visent surtout la config & certains readers). Exemples concrets présents dans le code : PaymentRequestPaidItemProcessor, ItemsToPurgeWriter, SendToBMDSendCFTTasklet — ce type de classes n’apparaît pas dans la liste d’exclusion.
+com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.synchro.sender.processor.BillingSpaceSendSynchroItemProcessor 
 
-Infra SQL (repositories/mappers côté infrastructure/sql/** non explicitement exclus) : bon levier si ta logique passe par là. (Les exclusions visent surtout REST/SOAP/JMS config et certains mocks.) 
+com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.synchro.sender.writer.BillingSpaceSendSynchroItemWriter 
 
-Domaine hors paquets exclus : services métiers (hors entity/, mapper/, engines/, service/**/validator/) restent pertinents pour la couverture. 
+com.bnpparibas.dsibddf.ap00420.streamfact.batch.sendtobmd.tasklet.SendToBMDArchiveCOSTasklet 
 
+com.bnpparibas.dsibddf.ap00420.streamfact.batch.sendtobmd.tasklet.SendToBMDSendCFTTasklet 
 
-Détail important
+com.bnpparibas.dsibddf.ap00420.streamfact.batch.sendtobmd.service.batch.security.openpgp.OnePassSignatureProcessor 
 
-Dans ton POM, c’est sonar.exclusions (global) et non sonar.coverage.exclusions : les fichiers listés sont totalement exclus de l’analyse Sonar, pas seulement de la couverture. Tester ces classes ne changera donc pas la métrique de couverture Sonar. 
+com.bnpparibas.dsibddf.ap00420.streamfact.batch.sendtobmd.service.batch.security.openpgp.LiteralDataOutputStream 
 
-Si tu veux, je peux te fournir une checklist ciblée (classes prioritaires par module) en partant de ce tri, pour maximiser le gain de couverture utile.
+com.bnpparibas.dsibddf.ap00420.streamfact.batch.purge.processor.ClosedBillingSpaceProcessor 
+
+com.bnpparibas.dsibddf.ap00420.streamfact.batch.purge.processor.FolderWithoutBillingSpaceProcessor 
+
+com.bnpparibas.dsibddf.ap00420.streamfact.batch.purge.writer.ItemsToPurgeWriter 
+
+com.bnpparibas.dsibddf.ap00420.streamfact.batch.purge.CustomSkipPolicy 
+
+com.bnpparibas.dsibddf.ap00420.streamfact.batch.dpo.tasklet.PurgeDpoTableTasklet 
+
+com.bnpparibas.dsibddf.ap00420.streamfact.batch.dpo.tasklet.SendMailDPOTasklet 
+
+com.bnpparibas.dsibddf.ap00420.streamfact.batch.dailymeteorintegration.manager.FileManager 
+
+com.bnpparibas.dsibddf.ap00420.streamfact.batch.dailymeteorintegration.manager.LocalFileManager 
+
+com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.parameters.ParametersRepositoryImpl 
+
+com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.parameters.DeploymentAgencyCSV 
+
+com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.smtp.MailSenderRepositoryImpl 
+
+com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.smtp.MailContentBuilder 
+
+com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.smtp.MailNotificationUtils 
+
+com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.history.model.DPOMailToSendEntity 
+
+com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.history.model.DocaposteEventHistoryEntity 
+
+com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.integration_stock.model.StockInegrationEntity 
+
+com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.event.repository.OtherEventHistoryJpaRepository 
+
+com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.event.repository.OtherEventHistoryRepositoryImpl 
+
+com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.history.repository.DPOMailToSendJpaRepository 
+
+com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.history.repository.DocaposteEventHistoryJpaRepository 
+
+com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.history.repository.DocaposteEventHistoryRepositoryImpl 
+
+com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.history.mapper.DPOMailToSendMapperToDomain 
+
+com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.history.mapper.DPOMailToSendMapperToJpa 
+
+com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.history.mapper.DocaposteEventHistoryEntityMapperToDomain 
+
+com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.history.mapper.DocaposteEventHistoryEntityMapperToJpa 
+
+com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.loanfolder.repository.LoanFolderAnswerJpaRepository 
+
+com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.integration_stock.repository.StockInegrationJpaRepository 
+
+com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.billingspace.repository.BillingSpaceJpaRepository 
+
+com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.billingspace.mapper.BillingSpaceMapperToJpa 
+
+com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.event.model.OtherEventHistoryEntity 
