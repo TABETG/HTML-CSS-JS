@@ -1,26 +1,97 @@
-@Test
-void write_success_path_shouldSendEvent_callDocaposte_updateHistory_andSave() throws Exception {
-    // GIVEN
-    BillingSpaceCreationToSend toSend = mock(BillingSpaceCreationToSend.class);
+// src/test/java/com/bnpparibas/dsibddf/ap00420/streamfact/batch/replay/recalculcompletude/processor/RecalculCompletudeItemProcessorTest.java
+package com.bnpparibas.dsibddf.ap00420.streamfact.batch.replay.recalculcompletude.processor;
 
-    // Correction : on mocke le bon type de DossierBox
-    com.bnpparibas.dsibddf.ap00420.streamfact.domain.repository.docaposte.model.DossierBox dossierBox =
-            mock(com.bnpparibas.dsibddf.ap00420.streamfact.domain.repository.docaposte.model.DossierBox.class);
-    when(dossierBox.getValue()).thenReturn("DBOX-VALUE");
-    when(toSend.getDossierBox()).thenReturn(dossierBox);
+import com.bnpparibas.dsibddf.ap00420.streamfact.domain.engines.LoanFoldersCalculator;
+import com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.loanfolder.model.Contract;
+import com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.loanfolder.model.LoanFolder;
+import com.bnpparibas.dsibddf.ap00420.streamfact.domain.repository.contrat.ContractRepository;
+import com.bnpparibas.dsibddf.ap00420.streamfact.domain.repository.contrat.ContractResponse;
+import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.loanfolder.mapper.LoanFolderMapperToDomain;
+import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.loanfolder.model.LoanFolderEntity;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
+import org.mockito.junit.jupiter.MockitoExtension;
 
-    DocaposteEventHistory history = mock(DocaposteEventHistory.class);
-    when(toSend.getDocaposteEventHistory()).thenReturn(history);
+import java.lang.reflect.Field;
+import java.util.List;
 
-    DocaposteResponse response = mock(DocaposteResponse.class);
-    when(response.getGroupId()).thenReturn("group-123");
-    when(docaposteRepository.sendDossierBox(anyList())).thenReturn(Collections.singletonList(response));
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.Mockito.*;
 
-    // WHEN
-    writer.write(new Chunk<>(Collections.singletonList(toSend)));
+/**
+ * 100% coverage for RecalculCompletudeItemProcessor.process(...)
+ */
+@ExtendWith(MockitoExtension.class)
+class RecalculCompletudeItemProcessorTest {
 
-    // THEN
-    verify(applicationEventMulticaster, times(1)).multicastEvent(any(DPOSaveDataRequestEvent.class));
-    verify(docaposteRepository, times(1)).sendDossierBox(anyList());
-    verify(docaposteEventHistoryRepository, times(1)).save(any(DocaposteEventHistory.class));
+    @Test
+    void process_should_map_entity_fetch_contracts_build_calculator_and_return_updated_folder() throws Exception {
+        // Arrange
+        RecalculCompletudeItemProcessor processor = new RecalculCompletudeItemProcessor();
+
+        // Mock du @Autowired ContractRepository et injection par réflexion
+        ContractRepository contractRepository = mock(ContractRepository.class);
+        Field f = RecalculCompletudeItemProcessor.class.getDeclaredField("contractRepository");
+        f.setAccessible(true);
+        f.set(processor, contractRepository);
+
+        // Mocks de l'entrée et du domain
+        LoanFolderEntity entity = mock(LoanFolderEntity.class);
+        LoanFolder loanFolder = mock(LoanFolder.class);
+
+        // Mapper statique: entity -> domain
+        try (MockedStatic<LoanFolderMapperToDomain> mapperStatic =
+                     Mockito.mockStatic(LoanFolderMapperToDomain.class)) {
+
+            mapperStatic.when(() -> LoanFolderMapperToDomain.toDomain(entity))
+                        .thenReturn(loanFolder);
+
+            // Le LoanFolder possède 2 contracts avec loanId
+            Contract c1 = mock(Contract.class);
+            Contract c2 = mock(Contract.class);
+            when(loanFolder.getContracts()).thenReturn(List.of(c1, c2));
+            when(c1.getLoanId()).thenReturn("L1");
+            when(c2.getLoanId()).thenReturn("L2");
+
+            // Chaque loanId -> ContractResponse
+            ContractResponse r1 = mock(ContractResponse.class);
+            ContractResponse r2 = mock(ContractResponse.class);
+            when(contractRepository.searchContract("L1")).thenReturn(r1);
+            when(contractRepository.searchContract("L2")).thenReturn(r2);
+
+            // On doit aussi mocker la chaîne statique LoanFoldersCalculator.domainBuilder()...
+            // Builder chaîné (RETURNS_SELF pour supporter .contractResponseList(...).build())
+            LoanFoldersCalculator.LoanFoldersCalculatorBuilder builder =
+                    mock(LoanFoldersCalculator.LoanFoldersCalculatorBuilder.class, RETURNS_SELF);
+
+            LoanFoldersCalculator calculator = mock(LoanFoldersCalculator.class);
+            when(builder.build()).thenReturn(calculator);
+
+            LoanFolder expected = mock(LoanFolder.class);
+            when(calculator.updateWithContractResponses(loanFolder)).thenReturn(expected);
+
+            try (MockedStatic<LoanFoldersCalculator> calcStatic =
+                         Mockito.mockStatic(LoanFoldersCalculator.class)) {
+                calcStatic.when(LoanFoldersCalculator::domainBuilder).thenReturn(builder);
+
+                // Act
+                LoanFolder result = processor.process(entity);
+
+                // Assert
+                assertSame(expected, result, "Le processor doit renvoyer le LoanFolder mis à jour");
+                // Vérifie que la liste responses a été passée au builder
+                verify(builder, times(1)).contractResponseList(anyList());
+                // Vérifie les appels aux repositories
+                verify(contractRepository, times(1)).searchContract("L1");
+                verify(contractRepository, times(1)).searchContract("L2");
+
+                // Vérifie les statiques appelés
+                mapperStatic.verify(() -> LoanFolderMapperToDomain.toDomain(entity), times(1));
+                calcStatic.verify(LoanFoldersCalculator::domainBuilder, times(1));
+            }
+        }
+    }
 }
