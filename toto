@@ -1,75 +1,46 @@
-import com.bnpparibas.dsibddf.ap00420.streamfact.domain.commons.RequestTypeEnum;
-import com.bnpparibas.dsibddf.ap00420.streamfact.domain.commons.RequestTypeStatusEnum;
-import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entityes.history.model.DocaposteEventHistoryEntity;
-import jakarta.persistence.EntityManager;
-import jakarta.persistence.EntityManagerFactory;
-import org.hibernate.SessionFactory;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.batch.item.ItemReader;
-import org.springframework.batch.item.database.JpaCursorItemReader;
+# fichier: tree_dots.py
+# Usage:  python tree_dots.py [chemin_du_projet]
+# But   : affiche l'arborescence sous forme "racine.sousdossier.fichier"
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.when;
+import os
+import sys
 
-@ExtendWith(MockitoExtension.class)
-class EventHistorySynchroItemReaderConfigTest {
+# Dossiers souvent bruyants que l'on peut ignorer (modifiez selon vos besoins)
+SKIP_DIRS = {'.git', '__pycache__', 'node_modules', '.idea', '.venv', '.mypy_cache'}
 
-    @Mock
-    private EntityManager entityManager;
+def is_hidden(name: str) -> bool:
+    return name.startswith('.') and name not in {'.git'}  # gardez .git si vous voulez
 
-    @Mock
-    private EntityManagerFactory entityManagerFactory;
+def walk_dots(root_abs: str, current_abs: str, prefix: str) -> None:
+    try:
+        entries = sorted(os.listdir(current_abs))
+    except PermissionError:
+        return  # on ignore les emplacements non accessibles
 
-    @Mock
-    private SessionFactory sessionFactory;
+    for name in entries:
+        # Filtrage basique
+        if name in SKIP_DIRS:
+            continue
+        if is_hidden(name):
+            continue
 
-    @Test
-    void reader_shouldCreateJpaCursorItemReader() {
-        // Given
-        EventHistorySynchroItemReaderConfig config = new EventHistorySynchroItemReaderConfig();
-        
-        when(entityManager.getEntityManagerFactory()).thenReturn(entityManagerFactory);
-        when(entityManagerFactory.unwrap(SessionFactory.class)).thenReturn(sessionFactory);
+        path = os.path.join(current_abs, name)
+        # Éviter les boucles via liens symboliques
+        if os.path.islink(path):
+            continue
 
-        // When
-        ItemReader<DocaposteEventHistoryEntity> reader = config.reader(entityManager);
+        dotted = f"{prefix}.{name}" if prefix else name
+        print(dotted)
 
-        // Then
-        assertThat(reader).isNotNull();
-        assertThat(reader).isInstanceOf(JpaCursorItemReader.class);
-    }
+        if os.path.isdir(path):
+            walk_dots(root_abs, path, dotted)
 
-    @Test
-    void reader_shouldReturnNonNullReader() {
-        // Given
-        EventHistorySynchroItemReaderConfig config = new EventHistorySynchroItemReaderConfig();
-        
-        when(entityManager.getEntityManagerFactory()).thenReturn(entityManagerFactory);
-        when(entityManagerFactory.unwrap(SessionFactory.class)).thenReturn(sessionFactory);
+def main():
+    start = sys.argv[1] if len(sys.argv) > 1 else os.getcwd()
+    start_abs = os.path.abspath(start)
+    root_name = os.path.basename(start_abs.rstrip(os.sep)) or start_abs
+    print(root_name)  # racine
+    walk_dots(start_abs, start_abs, root_name)
 
-        // When
-        ItemReader<DocaposteEventHistoryEntity> reader = config.reader(entityManager);
-
-        // Then
-        assertThat(reader).isNotNull();
-    }
-
-    @Test
-    void reader_shouldHandleEntityManagerFactoryUnwrap() {
-        // Given
-        EventHistorySynchroItemReaderConfig config = new EventHistorySynchroItemReaderConfig();
-        
-        when(entityManager.getEntityManagerFactory()).thenReturn(entityManagerFactory);
-        when(entityManagerFactory.unwrap(SessionFactory.class)).thenReturn(sessionFactory);
-
-        // When
-        ItemReader<DocaposteEventHistoryEntity> reader = config.reader(entityManager);
-
-        // Then
-        assertThat(reader).isNotNull();
-        // Le test passe si aucune exception n'est levée pendant l'exécution
-    }
-}
+if __name__ == "__main__":
+    main()
