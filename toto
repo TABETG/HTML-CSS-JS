@@ -1,167 +1,202 @@
-package com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.synchro.sender.writer;
+package com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.close.job;
 
-import com.bnpparibas.dsibddf.ap00420.streamfact.application.loanfolder.synchro.pojo.SynchroSendLoanFolder;
-import com.bnpparibas.dsibddf.ap00420.streamfact.domain.commons.RequestTypeStatusEnum;
-import com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.history.model.DocaposteEventHistory;
+import com.bnpparibas.bddf.cqrs.command.v2.CommandExecutorV2;
+import com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.close.processor.BillingSpaceClosureProcessor;
+import com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.close.reader.BillingSpaceClosureReader;
+import com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.close.reader.ReplayBillingspaceClosureReader;
+import com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.close.tasklet.UpdateBillingSpaceToStatusClosedTasklet;
+import com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.close.writer.BillingSpaceClosureWriter;
+import com.bnpparibas.dsibddf.ap00420.streamfact.batch.listener.CommonStepExecutionListener;
+import com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.billingspace.repository.BillingSpaceRepository;
 import com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.history.repository.DocaposteEventHistoryRepository;
 import com.bnpparibas.dsibddf.ap00420.streamfact.domain.repository.docaposte.DocaposteRepository;
-import com.bnpparibas.dsibddf.ap00420.streamfact.domain.repository.docaposte.model.DocaposteResponse;
-import com.bnpparibas.dsibddf.ap00420.streamfact.domain.repository.docaposte.model.DossierBox;
+
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.mockito.*;
-import org.springframework.batch.item.Chunk;
+import org.mockito.Mockito;
+import org.mockito.junit.MockitoJUnitRunner;
+import org.springframework.batch.core.Job;
+import org.springframework.batch.core.Step;
+import org.springframework.batch.core.job.flow.FlowJob;
+import org.springframework.batch.core.launch.support.RunIdIncrementer;
+import org.springframework.batch.core.repository.JobRepository;
+import org.springframework.batch.core.step.tasklet.Tasklet;
+import org.springframework.batch.core.step.tasklet.TaskletStep;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.ApplicationContext;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
+import org.springframework.context.annotation.Primary;
+import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.util.ReflectionTestUtils;
-
-import java.util.*;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import static org.junit.Assert.*;
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.verifyNoInteractions;
 
-@RunWith(org.mockito.junit.MockitoJUnitRunner.class)
-public class BillingSpaceSendSynchroItemWriterTest {
+/**
+ * Version JUnit 4 pour SonarQube & Jenkins :
+ * - Pas de JUnit Jupiter
+ * - @RunWith(MockitoJUnitRunner.class)
+ * - assertEquals / assertTrue / assertNotNull
+ */
+@RunWith(MockitoJUnitRunner.class)
+@ContextConfiguration(classes = {
+        JobConfigurationBillingSpaceClosure.class,
+        JobConfigurationBillingSpaceClosureTest.TestBeans.class
+})
+public class JobConfigurationBillingSpaceClosureTest {
 
-    @Mock
-    private DocaposteRepository docaposteRepository;
+    @org.springframework.beans.factory.annotation.Autowired
+    private ApplicationContext ctx;
 
-    @Mock
-    private DocaposteEventHistoryRepository docaposteEventHistoryRepository;
+    @org.springframework.beans.factory.annotation.Autowired
+    private Job job;
 
-    @Captor
-    private ArgumentCaptor<DocaposteEventHistory> historyCaptor;
+    @org.springframework.beans.factory.annotation.Autowired
+    @org.springframework.beans.factory.annotation.Qualifier("billingSpaceClosureStep")
+    private Step billingSpaceClosureStepBean;
 
-    @InjectMocks
-    private BillingSpaceSendSynchroItemWriter writer;
+    @org.springframework.beans.factory.annotation.Autowired
+    @org.springframework.beans.factory.annotation.Qualifier("replayBillingSpaceClosureStep")
+    private Step replayBillingSpaceClosureStepBean;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    @org.springframework.beans.factory.annotation.Qualifier("updateBillingSpaceToStatusClosedStep")
+    private Step updateBillingSpaceToStatusClosedStepBean;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    private CommonStepExecutionListener commonStepExecutionListener;
 
     @Before
     public void setUp() {
-        // Le Runner initialise déjà les mocks, l'appel ci-dessous est optionnel.
-        MockitoAnnotations.initMocks(this);
-        // Injection des champs privés si la classe tested n’a pas de constructeur pour ses deps
-        ReflectionTestUtils.setField(writer, "docaposteRepository", docaposteRepository);
-        ReflectionTestUtils.setField(writer, "docaposteEventHistoryRepository", docaposteEventHistoryRepository);
+        assertNotNull(ctx);
     }
 
     @Test
-    public void write_shouldSaveEventHistoryWhenResponseNotEmpty() {
-        // Given
-        DossierBox dossierBox1 = mock(DossierBox.class);
-        DossierBox dossierBox2 = mock(DossierBox.class);
-        when(dossierBox1.toJsonString()).thenReturn("dossier1");
-        when(dossierBox2.toJsonString()).thenReturn("dossier2");
-
-        DocaposteEventHistory existingHistory1 = new DocaposteEventHistory();
-        DocaposteEventHistory existingHistory2 = new DocaposteEventHistory();
-
-        SynchroSendLoanFolder folder1 = createSynchroFolder(dossierBox1, existingHistory1);
-        SynchroSendLoanFolder folder2 = createSynchroFolder(dossierBox2, existingHistory2);
-
-        Chunk<SynchroSendLoanFolder> chunk = new Chunk<>(Arrays.asList(folder1, folder2));
-
-        List<DocaposteResponse> responses = Arrays.asList(
-                createDocaposteResponse("groupId1"),
-                createDocaposteResponse("groupId2")
-        );
-        when(docaposteRepository.sendDossierBox(anyList())).thenReturn(responses);
-
-        // When
-        writer.write(chunk);
-
-        // Then
-        verify(docaposteRepository).sendDossierBox(anyList());
-        verify(docaposteEventHistoryRepository, times(2)).save(historyCaptor.capture());
-
-        List<DocaposteEventHistory> savedHistory = historyCaptor.getAllValues();
-        assertEquals(2, savedHistory.size());
-        assertEquals(RequestTypeStatusEnum.UPDATE_SENT, savedHistory.get(0).getStatus());
-        assertEquals("groupId1", savedHistory.get(0).getRequestId());
-        assertEquals(RequestTypeStatusEnum.UPDATE_SENT, savedHistory.get(1).getStatus());
-        assertEquals("groupId2", savedHistory.get(1).getRequestId());
+    public void context_ok() {
+        assertNotNull(job);
+        assertNotNull(billingSpaceClosureStepBean);
+        assertNotNull(replayBillingSpaceClosureStepBean);
+        assertNotNull(updateBillingSpaceToStatusClosedStepBean);
     }
 
     @Test
-    public void write_shouldNotSaveEventHistoryWhenResponseEmpty() {
-        // Given
-        DossierBox dossierBox = mock(DossierBox.class);
-        when(dossierBox.toJsonString()).thenReturn("dossier");
-
-        DocaposteEventHistory existingHistory = new DocaposteEventHistory();
-        SynchroSendLoanFolder folder = createSynchroFolder(dossierBox, existingHistory);
-
-        Chunk<SynchroSendLoanFolder> chunk = new Chunk<>(Collections.singletonList(folder));
-
-        when(docaposteRepository.sendDossierBox(anyList())).thenReturn(Collections.emptyList());
-
-        // When
-        writer.write(chunk);
-
-        // Then
-        verify(docaposteRepository).sendDossierBox(anyList());
-        verify(docaposteEventHistoryRepository, never()).save(any(DocaposteEventHistory.class));
+    public void job_has_name_and_incrementer() {
+        assertTrue(job instanceof FlowJob);
+        FlowJob fj = (FlowJob) job;
+        assertEquals("billingSpaceClosureJob", fj.getName());
+        assertTrue(fj.getJobParametersIncrementer() instanceof RunIdIncrementer);
     }
 
     @Test
-    public void write_shouldHandleSingleItem() {
-        // Given
-        DossierBox dossierBox = mock(DossierBox.class);
-        when(dossierBox.toJsonString()).thenReturn("singleDossier");
-
-        DocaposteEventHistory existingHistory = new DocaposteEventHistory();
-        SynchroSendLoanFolder folder = createSynchroFolder(dossierBox, existingHistory);
-
-        Chunk<SynchroSendLoanFolder> chunk = new Chunk<>(Collections.singletonList(folder));
-
-        List<DocaposteResponse> responses = Collections.singletonList(
-                createDocaposteResponse("singleGroupId")
-        );
-        when(docaposteRepository.sendDossierBox(anyList())).thenReturn(responses);
-
-        // When
-        writer.write(chunk);
-
-        // Then
-        verify(docaposteRepository).sendDossierBox(anyList());
-        verify(docaposteEventHistoryRepository).save(historyCaptor.capture());
-
-        DocaposteEventHistory savedHistory = historyCaptor.getValue();
-        assertEquals(RequestTypeStatusEnum.UPDATE_SENT, savedHistory.getStatus());
-        assertEquals("singleGroupId", savedHistory.getRequestId());
+    public void job_contains_expected_steps_in_flow() {
+        FlowJob fj = (FlowJob) job;
+        assertNotNull(fj.getStep("billingSpaceClosureStep"));
+        assertNotNull(fj.getStep("replayBillingSpaceClosureStep"));
+        assertNotNull(fj.getStep("updateBillingSpaceToStatusClosed"));
     }
 
-    @Test(expected = RuntimeException.class)
-    public void write_shouldPropagateExceptionFromRepository() {
-        // Given
-        DossierBox dossierBox = mock(DossierBox.class);
-        when(dossierBox.toJsonString()).thenReturn("errorDossier");
-
-        SynchroSendLoanFolder folder = createSynchroFolder(dossierBox, new DocaposteEventHistory());
-        Chunk<SynchroSendLoanFolder> chunk = new Chunk<>(Collections.singletonList(folder));
-
-        when(docaposteRepository.sendDossierBox(anyList()))
-                .thenThrow(new RuntimeException("Simulated exception"));
-
-        // When
-        writer.write(chunk);
-
-        // Then
-        verify(docaposteRepository).sendDossierBox(anyList());
-        verifyNoInteractions(docaposteEventHistoryRepository); // ✅ remplace verifyZeroInteractions
+    @Test
+    public void updateBillingSpaceToStatusClosed_allowStartIfComplete_true() {
+        assertTrue(updateBillingSpaceToStatusClosedStepBean instanceof TaskletStep);
+        TaskletStep ts = (TaskletStep) updateBillingSpaceToStatusClosedStepBean;
+        Object allow = ReflectionTestUtils.getField(ts, "allowStartIfComplete");
+        assertTrue(allow instanceof Boolean);
+        assertTrue((Boolean) allow);
     }
 
-    // --------- Helpers ---------
+    private void assertChunkStep(Step step, int expectedChunk) {
+        assertTrue(step instanceof TaskletStep);
+        TaskletStep ts = (TaskletStep) step;
 
-    private SynchroSendLoanFolder createSynchroFolder(DossierBox dossierBox, DocaposteEventHistory eventHistory) {
-        SynchroSendLoanFolder folder = mock(SynchroSendLoanFolder.class);
-        // lenient() évite UnnecessaryStubbingException si un stub n’est pas consommé dans certains tests
-        lenient().when(folder.getDossierBox()).thenReturn(dossierBox);
-        lenient().when(folder.getDocaposteEventHistory()).thenReturn(eventHistory);
-        return folder;
+        Object allow = ReflectionTestUtils.getField(ts, "allowStartIfComplete");
+        assertTrue(allow instanceof Boolean);
+        assertTrue((Boolean) allow);
+
+        Object compositeListener = ReflectionTestUtils.getField(ts, "stepExecutionListener");
+        Object listeners = ReflectionTestUtils.getField(compositeListener, "listeners");
+        assertTrue(listeners instanceof java.util.Collection);
+        assertTrue(((java.util.Collection<?>) listeners).contains(commonStepExecutionListener));
+
+        Tasklet tasklet = (Tasklet) ReflectionTestUtils.getField(ts, "tasklet");
+        assertNotNull(tasklet);
+        Object chunkProvider = ReflectionTestUtils.getField(tasklet, "chunkProvider");
+        Object completionPolicy = ReflectionTestUtils.getField(chunkProvider, "completionPolicy");
+        Integer chunkSize = (Integer) ReflectionTestUtils.getField(completionPolicy, "chunkSize");
+        assertEquals(Integer.valueOf(expectedChunk), chunkSize);
     }
 
-    private DocaposteResponse createDocaposteResponse(String groupId) {
-        DocaposteResponse response = mock(DocaposteResponse.class);
-        when(response.getGroupId()).thenReturn(groupId);
-        return response;
+    @TestConfiguration
+    static class TestBeans {
+        @Bean
+        @Primary
+        BillingSpaceClosureReader billingSpaceClosureReader() {
+            return Mockito.mock(BillingSpaceClosureReader.class);
+        }
+
+        @Bean
+        @Primary
+        ReplayBillingspaceClosureReader replayBillingSpaceClosureReader() {
+            return Mockito.mock(ReplayBillingspaceClosureReader.class);
+        }
+
+        @Bean
+        @Primary
+        BillingSpaceClosureProcessor billingSpaceClosureProcessor() {
+            return Mockito.mock(BillingSpaceClosureProcessor.class);
+        }
+
+        @Bean
+        @Primary
+        BillingSpaceClosureWriter billingSpaceClosureWriter() {
+            return Mockito.mock(BillingSpaceClosureWriter.class);
+        }
+
+        @Bean
+        UpdateBillingSpaceToStatusClosedTasklet updateBillingSpaceToStatusClosedTasklet() {
+            return Mockito.mock(UpdateBillingSpaceToStatusClosedTasklet.class);
+        }
+
+        @Bean
+        CommonStepExecutionListener commonStepExecutionListener() {
+            return Mockito.mock(CommonStepExecutionListener.class);
+        }
+
+        @Bean
+        CommandExecutorV2 commandExecutor() {
+            return Mockito.mock(CommandExecutorV2.class);
+        }
+
+        @Bean
+        DocaposteRepository docaposteRepository() {
+            return Mockito.mock(DocaposteRepository.class);
+        }
+
+        @Bean
+        DocaposteEventHistoryRepository docaposteEventHistoryRepository() {
+            return Mockito.mock(DocaposteEventHistoryRepository.class);
+        }
+
+        @Bean
+        BillingSpaceRepository billingSpaceRepository() {
+            return Mockito.mock(BillingSpaceRepository.class);
+        }
+
+        @Bean(name = "transactionManager")
+        PlatformTransactionManager transactionManager() {
+            return Mockito.mock(PlatformTransactionManager.class);
+        }
+
+        @Bean
+        JobRepository jobRepository() {
+            return Mockito.mock(JobRepository.class);
+        }
+    }
+
+    @Test
+    public void verify_no_interactions_with_mocks() {
+        verifyNoInteractions(commonStepExecutionListener);
     }
 }
