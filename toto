@@ -15,7 +15,6 @@ import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mockito;
-import org.mockito.junit.MockitoJUnitRunner;
 import org.springframework.batch.core.Job;
 import org.springframework.batch.core.Step;
 import org.springframework.batch.core.job.flow.FlowJob;
@@ -24,11 +23,11 @@ import org.springframework.batch.core.repository.JobRepository;
 import org.springframework.batch.core.step.tasklet.Tasklet;
 import org.springframework.batch.core.step.tasklet.TaskletStep;
 import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
 import org.springframework.test.context.ContextConfiguration;
+import org.springframework.test.context.junit4.SpringRunner;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.PlatformTransactionManager;
 
@@ -36,12 +35,9 @@ import static org.junit.Assert.*;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 /**
- * Version JUnit 4 pour SonarQube & Jenkins :
- * - Pas de JUnit Jupiter
- * - @RunWith(MockitoJUnitRunner.class)
- * - assertEquals / assertTrue / assertNotNull
+ * ✅ JUnit4 + SpringRunner + Mockito → 100% compatible Sonar/Jenkins
  */
-@RunWith(MockitoJUnitRunner.class)
+@RunWith(SpringRunner.class)
 @ContextConfiguration(classes = {
         JobConfigurationBillingSpaceClosure.class,
         JobConfigurationBillingSpaceClosureTest.TestBeans.class
@@ -49,7 +45,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 public class JobConfigurationBillingSpaceClosureTest {
 
     @org.springframework.beans.factory.annotation.Autowired
-    private ApplicationContext ctx;
+    private org.springframework.context.ApplicationContext ctx;
 
     @org.springframework.beans.factory.annotation.Autowired
     private Job job;
@@ -71,7 +67,7 @@ public class JobConfigurationBillingSpaceClosureTest {
 
     @Before
     public void setUp() {
-        assertNotNull(ctx);
+        assertNotNull("Le contexte Spring n’a pas été injecté", ctx);
     }
 
     @Test
@@ -130,69 +126,18 @@ public class JobConfigurationBillingSpaceClosureTest {
 
     @TestConfiguration
     static class TestBeans {
-        @Bean
-        @Primary
-        BillingSpaceClosureReader billingSpaceClosureReader() {
-            return Mockito.mock(BillingSpaceClosureReader.class);
-        }
-
-        @Bean
-        @Primary
-        ReplayBillingspaceClosureReader replayBillingSpaceClosureReader() {
-            return Mockito.mock(ReplayBillingspaceClosureReader.class);
-        }
-
-        @Bean
-        @Primary
-        BillingSpaceClosureProcessor billingSpaceClosureProcessor() {
-            return Mockito.mock(BillingSpaceClosureProcessor.class);
-        }
-
-        @Bean
-        @Primary
-        BillingSpaceClosureWriter billingSpaceClosureWriter() {
-            return Mockito.mock(BillingSpaceClosureWriter.class);
-        }
-
-        @Bean
-        UpdateBillingSpaceToStatusClosedTasklet updateBillingSpaceToStatusClosedTasklet() {
-            return Mockito.mock(UpdateBillingSpaceToStatusClosedTasklet.class);
-        }
-
-        @Bean
-        CommonStepExecutionListener commonStepExecutionListener() {
-            return Mockito.mock(CommonStepExecutionListener.class);
-        }
-
-        @Bean
-        CommandExecutorV2 commandExecutor() {
-            return Mockito.mock(CommandExecutorV2.class);
-        }
-
-        @Bean
-        DocaposteRepository docaposteRepository() {
-            return Mockito.mock(DocaposteRepository.class);
-        }
-
-        @Bean
-        DocaposteEventHistoryRepository docaposteEventHistoryRepository() {
-            return Mockito.mock(DocaposteEventHistoryRepository.class);
-        }
-
-        @Bean
-        BillingSpaceRepository billingSpaceRepository() {
-            return Mockito.mock(BillingSpaceRepository.class);
-        }
-
-        @Bean(name = "transactionManager")
-        PlatformTransactionManager transactionManager() {
-            return Mockito.mock(PlatformTransactionManager.class);
-        }
-
-        @Bean
-        JobRepository jobRepository() {
-            return Mockito.mock(JobRepository.class);
-        }
+        @Bean @Primary BillingSpaceClosureReader billingSpaceClosureReader() { return Mockito.mock(BillingSpaceClosureReader.class); }
+        @Bean @Primary ReplayBillingspaceClosureReader replayBillingSpaceClosureReader() { return Mockito.mock(ReplayBillingspaceClosureReader.class); }
+        @Bean @Primary BillingSpaceClosureProcessor billingSpaceClosureProcessor() { return Mockito.mock(BillingSpaceClosureProcessor.class); }
+        @Bean @Primary BillingSpaceClosureWriter billingSpaceClosureWriter() { return Mockito.mock(BillingSpaceClosureWriter.class); }
+        @Bean UpdateBillingSpaceToStatusClosedTasklet updateBillingSpaceToStatusClosedTasklet() { return Mockito.mock(UpdateBillingSpaceToStatusClosedTasklet.class); }
+        @Bean CommonStepExecutionListener commonStepExecutionListener() { return Mockito.mock(CommonStepExecutionListener.class); }
+        @Bean CommandExecutorV2 commandExecutor() { return Mockito.mock(CommandExecutorV2.class); }
+        @Bean DocaposteRepository docaposteRepository() { return Mockito.mock(DocaposteRepository.class); }
+        @Bean DocaposteEventHistoryRepository docaposteEventHistoryRepository() { return Mockito.mock(DocaposteEventHistoryRepository.class); }
+        @Bean BillingSpaceRepository billingSpaceRepository() { return Mockito.mock(BillingSpaceRepository.class); }
+        @Bean(name = "transactionManager") PlatformTransactionManager transactionManager() { return Mockito.mock(PlatformTransactionManager.class); }
+        @Bean JobRepository jobRepository() { return Mockito.mock(JobRepository.class); }
     }
 
     @Test
