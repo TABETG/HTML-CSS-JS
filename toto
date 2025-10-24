@@ -1,77 +1,65 @@
-package com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.config;
+// src/test/java/com/bnpparibas/dsibddf/ap00420/streamfact/batch/replay/billingspacecreation/processor/BillingSpaceCreationErrorItemProcessorTest.java
+package com.bnpparibas.dsibddf.ap00420.streamfact.batch.replay.billingspacecreation.processor;
 
+import com.bnpparibas.bddf.cqrs.query.QueryExecutor;
+import com.bnpparibas.dsibddf.ap00420.streamfact.application.billingspace.create.pojo.BillingSpaceCreationToSend;
+import com.bnpparibas.dsibddf.ap00420.streamfact.application.billingspace.create.sender.GetBillingSpaceCreationToSendQuery;
+import com.bnpparibas.dsibddf.ap00420.streamfact.application.billingspace.create.sender.GetBillingSpaceCreationToSendRequest;
+import com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.history.model.DocaposteEventHistory;
+import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.history.mapper.DocaposteEventHistoryEntityMapperToDomain;
+import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.history.model.DocaposteEventHistoryEntity;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.autoconfigure.domain.EntityScan;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Primary;
-import org.springframework.data.jpa.convert.threeten.Jsr310JpaConverters;
-import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
-import org.springframework.orm.jpa.JpaTransactionManager;
-import org.springframework.transaction.annotation.EnableTransactionManagement;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
+import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.lang.reflect.Method;
-import java.util.Arrays;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.*;
 
-import static org.junit.jupiter.api.Assertions.*;
-
-class JPAConfigTest {
-
-    @Test
-    void transactionManager_returnsJpaTransactionManager() {
-        JPAConfig config = new JPAConfig();
-        var tm = config.transactionManager(); // couvre le log + return
-        assertNotNull(tm, "Le PlatformTransactionManager ne doit pas être null");
-        assertTrue(tm instanceof JpaTransactionManager, "Le bean doit être un JpaTransactionManager");
-    }
+/**
+ * Test 100% coverage for BillingSpaceCreationErrorItemProcessor.
+ */
+@ExtendWith(MockitoExtension.class)
+class BillingSpaceCreationErrorItemProcessorTest {
 
     @Test
-    void beanMethod_hasBeanName_transactionManager_and_isPrimary() throws NoSuchMethodException {
-        Method m = JPAConfig.class.getMethod("transactionManager");
+    void process_shouldMapEntityAndExecuteQuery_andReturnResult() throws Exception {
+        // Arrange
+        QueryExecutor queryExecutor = mock(QueryExecutor.class);
+        BillingSpaceCreationErrorItemProcessor processor = new BillingSpaceCreationErrorItemProcessor();
 
-        Bean beanAnn = m.getAnnotation(Bean.class);
-        assertNotNull(beanAnn, "@Bean doit être présent");
-        String[] names = beanAnn.value();
-        assertNotNull(names, "Le nom du bean ne doit pas être null");
-        assertTrue(names.length > 0, "Le nom du bean doit être défini");
-        assertEquals("transactionManager", names[0], "Le bean doit s'appeler 'transactionManager'");
+        // Inject the mock QueryExecutor into the processor (le champ est @Autowired et privé)
+        java.lang.reflect.Field f = BillingSpaceCreationErrorItemProcessor.class.getDeclaredField("queryExecutor");
+        f.setAccessible(true);
+        f.set(processor, queryExecutor);
 
-        assertTrue(m.isAnnotationPresent(Primary.class), "Le bean 'transactionManager' doit être @Primary");
-    }
+        DocaposteEventHistoryEntity entity = mock(DocaposteEventHistoryEntity.class);
+        DocaposteEventHistory mappedDomain = mock(DocaposteEventHistory.class);
+        when(mappedDomain.getLoanFolderId()).thenReturn("LF-123");
 
-    @Test
-    void class_has_expected_annotations_and_attributes() {
-        assertTrue(JPAConfig.class.isAnnotationPresent(Configuration.class), "@Configuration manquant");
-        assertTrue(JPAConfig.class.isAnnotationPresent(EnableTransactionManagement.class), "@EnableTransactionManagement manquant");
+        BillingSpaceCreationToSend expected = mock(BillingSpaceCreationToSend.class);
+        when(queryExecutor.execute(eq(GetBillingSpaceCreationToSendQuery.class), any(GetBillingSpaceCreationToSendRequest.class)))
+                .thenReturn(expected);
 
-        // @EntityScan
-        EntityScan entityScan = JPAConfig.class.getAnnotation(EntityScan.class);
-        assertNotNull(entityScan, "@EntityScan manquant");
+        // Mock statique du mapper: toDomain(entity) -> mappedDomain
+        try (MockedStatic<DocaposteEventHistoryEntityMapperToDomain> mockedStatic =
+                     Mockito.mockStatic(DocaposteEventHistoryEntityMapperToDomain.class)) {
+            mockedStatic.when(() -> DocaposteEventHistoryEntityMapperToDomain.toDomain(entity))
+                        .thenReturn(mappedDomain);
 
-        String[] basePackages = entityScan.basePackages();
-        assertNotNull(basePackages, "basePackages ne doit pas être null");
-        assertTrue(basePackages.length > 0, "basePackages doit contenir au moins un package");
-        assertTrue(Arrays.asList(basePackages).contains(
-                "com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities"
-        ), "Le package des entités attendu doit être présent");
+            // Act
+            BillingSpaceCreationToSend result = processor.process(entity);
 
-        Class<?>[] basePackageClasses = entityScan.basePackageClasses();
-        assertNotNull(basePackageClasses, "basePackageClasses ne doit pas être null");
-        assertTrue(
-                Arrays.stream(basePackageClasses).anyMatch(Jsr310JpaConverters.class::equals),
-                "basePackageClasses doit contenir Jsr310JpaConverters"
-        );
+            // Assert
+            assertSame(expected, result, "Le processor doit retourner le résultat de QueryExecutor.execute(...)");
+            verify(queryExecutor, times(1))
+                    .execute(eq(GetBillingSpaceCreationToSendQuery.class), any(GetBillingSpaceCreationToSendRequest.class));
 
-        // @EnableJpaRepositories
-        EnableJpaRepositories repos = JPAConfig.class.getAnnotation(EnableJpaRepositories.class);
-        assertNotNull(repos, "@EnableJpaRepositories manquant");
-        String[] repoPkgs = repos.basePackages();
-        assertNotNull(repoPkgs, "basePackages ne doit pas être null");
-        assertTrue(repoPkgs.length > 0, "basePackages doit contenir au moins un package");
-        assertTrue(Arrays.asList(repoPkgs).contains(
-                "com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql"
-        ), "Le package des repositories attendu doit être présent");
-        assertEquals("transactionManager", repos.transactionManagerRef(),
-                "transactionManagerRef doit être 'transactionManager'");
+            // (Optionnel) Vérifie que le mapper statique a bien été appelé
+            mockedStatic.verify(() -> DocaposteEventHistoryEntityMapperToDomain.toDomain(entity), times(1));
+        }
     }
 }
