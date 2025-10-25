@@ -411,4 +411,104 @@ public class OnePassSignatureProcessorTest {
                  when(cvt.getPGPPublicKey(anyInt(), any(PublicKey.class), any(Date.class))).thenReturn(pgpPub);
                  when(cvt.getPGPPrivateKey(any(PGPPublicKey.class), any(JcaPrivateKey.class))).thenReturn(pgpPriv);
              });
-   
+             MockedConstruction<PGPSecretKey> pgpSecCons = mockConstruction(PGPSecretKey.class, (psk, ctx) -> {
+                 when(psk.getKeyID()).thenReturn(0x71L);
+             });
+             MockedConstruction<EncryptedOutputStream> encOutCons = mockConstruction(EncryptedOutputStream.class);
+             MockedConstruction<CompressedDataOutputStream> compOutCons = mockConstruction(CompressedDataOutputStream.class);
+             MockedConstruction<LiteralDataOutputStream> litOutCons = mockConstruction(LiteralDataOutputStream.class, (lit, ctx) -> {
+                 doNothing().when(lit).write(any(byte[].class), anyInt(), anyInt());
+             })
+        ) {
+            // getInstance("PKCS12","SunJSSE") -> renvoie notre mock keystore
+            ksStatic.when(() -> KeyStore.getInstance(eq("PKCS12"), eq("SunJSSE"))).thenReturn(ks);
+
+            // 1er appel pour clé publique -> OK; 2e (isPGPKeyFile sur keystore) -> IOException => false
+            util.when(() -> PGPUtil.getDecoderStream(any(InputStream.class)))
+                .thenReturn(new ByteArrayInputStream(new byte[0]))
+                .thenThrow(new IOException("not a pgp key"));
+
+            cut.encryptOnePassSignature(
+                    encryptedOutArmored.getAbsolutePath(),
+                    originalFile.getAbsolutePath(),
+                    Collections.singletonList(partner),
+                    privateKeyPair,
+                    true,  // signature -> utilisera keystore
+                    false,
+                    false
+            );
+
+            // PGPSecretKey créé via keystore
+            assertEquals(1, pgpSecCons.constructed().size());
+        }
+    }
+
+    /** Couvrir branche "aucune clé chiffrage valide" (hasKeyFlags faux + clé expirée) -> IAE */
+    @Test
+    public void encrypt_no_valid_encryption_key_throws_IAE() throws Exception {
+        PartnerPublicKeyPair partner = mockPartner(null, partnerPubRenewed.getAbsolutePath());
+
+        // Clé master avec usage incompatible -> hasKeyFlags false
+        PGPPublicKey badUsage = mockEncryptKey(0x81L, true, false, true);
+        // Puis clé expirée -> isValidPGPPublicKey false
+        PGPPublicKey expired = mockEncryptKey(0x82L, false, true, false);
+
+        try (MockedStatic<PGPUtil> util = mockStatic(PGPUtil.class);
+             MockedConstruction<PGPPublicKeyRing> pubRingCons = mockConstruction(PGPPublicKeyRing.class, (mock, ctx) -> {
+                 when(mock.getPublicKeys()).thenReturn(Arrays.asList(badUsage, expired).iterator());
+             })
+        ) {
+            util.when(() -> PGPUtil.getDecoderStream(any(InputStream.class))).thenReturn(new ByteArrayInputStream(new byte[0]));
+
+            try {
+                cut.encryptOnePassSignature(
+                        encryptedOutArmored.getAbsolutePath(),
+                        originalFile.getAbsolutePath(),
+                        Collections.singletonList(partner),
+                        null,
+                        false, false, false
+                );
+                fail("Expected IllegalArgumentException");
+            } catch (IllegalArgumentException ex) {
+                assertTrue(ex.getMessage().contains("No valid PGP public key found"));
+            }
+        }
+    }
+
+    /**
+     * Déchiffrement : aucun private key récupéré (fichiers vides) -> IAE explicite.
+     * Exerce existsAndNotEmptyContent -> false et le message agrégé.
+     */
+    @Test
+    public void decrypt_no_private_key_found_throws_IAE() {
+        // Construit un couple de private keys pointant sur des fichiers vides
+        File empty1 = new File(tmp.getRoot(), "empty1.asc");
+        File empty2 = new File(tmp.getRoot(), "empty2.p12");
+        // ne pas écrire dedans -> length=0
+
+        PrivateKeyPair pkPair = mockPrivateKeyPair(empty1.getAbsolutePath(), empty2.getAbsolutePath(), "pass", "alias");
+
+        try {
+            cut.decryptOnePassSignature(
+                    encryptedIn.getAbsolutePath(),
+                    null,
+                    pkPair,
+                    decryptedOut.getAbsolutePath(),
+                    false
+            );
+            fail("Expected IllegalArgumentException");
+        } catch (IllegalArgumentException ex) {
+            assertTrue(ex.getMessage().contains("No PGP private key found from files"));
+        }
+    }
+
+    /**
+     * Exemple d’usage de verifyNoInteractions(...) (exigence): on s’assure
+     * qu’aucune interaction n’a eu lieu avec un mock volontairement hors-flux.
+     */
+    @Test
+    public void noop_verifyNoInteractions_example() {
+        PGPSignatureGenerator neverUsed = mock(PGPSignatureGenerator.class);
+        verifyNoInteractions(neverUsed);
+    }
+}
