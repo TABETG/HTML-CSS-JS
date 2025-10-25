@@ -5,11 +5,14 @@ import com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.history.repositor
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.mockito.*;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnitRunner;
 import org.springframework.batch.core.StepContribution;
 import org.springframework.batch.core.scope.context.ChunkContext;
 import org.springframework.batch.repeat.RepeatStatus;
+
+import java.lang.reflect.Field;
 
 import static org.junit.Assert.*;
 import static org.mockito.Mockito.*;
@@ -22,75 +25,87 @@ import static org.mockito.Mockito.*;
 public class DeleteDpoTableImageTaskletTest {
 
     @Mock
-    private DPOMailToSendRepository dpoMailToSendRepository;
+    private DPOMailToSendRepository repository;
 
     @Mock
-    private StepContribution stepContribution;
+    private StepContribution contribution;
 
     @Mock
     private ChunkContext chunkContext;
 
-    private DeleteDpoTableImageTasklet tasklet;
+    @InjectMocks
+    private DeleteDpoTableImageTasklet tasklet = new DeleteDpoTableImageTasklet(ProblemNatureEnum.MAIL);
 
     @Before
-    public void setUp() {
-        tasklet = new DeleteDpoTableImageTasklet(ProblemNatureEnum.MAIL);
-        // injection manuelle du mock car @Autowired non exécuté dans un test unitaire pur
-        setPrivateField(tasklet, "dpoMailToSendRepository", dpoMailToSendRepository);
+    public void injectRepository() throws Exception {
+        // Injection forcée du repository simulé (évite NoSuchFieldException)
+        setField(tasklet, "dpoMailToSendRepository", repository);
     }
 
     @Test
-    public void execute_should_call_repository_and_return_finished() throws Exception {
-        when(dpoMailToSendRepository.deleteWithSendFalseAndProblemeNature2(ProblemNatureEnum.MAIL))
-                .thenReturn(3);
+    public void execute_should_return_finished_and_call_repository() throws Exception {
+        when(repository.deleteWithSendFalseAndProblemeNature2(ProblemNatureEnum.MAIL)).thenReturn(5);
 
-        RepeatStatus status = tasklet.execute(stepContribution, chunkContext);
+        RepeatStatus result = tasklet.execute(contribution, chunkContext);
 
-        assertNotNull(status);
-        assertEquals(RepeatStatus.FINISHED, status);
-        verify(dpoMailToSendRepository, times(1))
+        assertNotNull(result);
+        assertEquals(RepeatStatus.FINISHED, result);
+        verify(repository, times(1))
                 .deleteWithSendFalseAndProblemeNature2(ProblemNatureEnum.MAIL);
-        verifyNoMoreInteractions(dpoMailToSendRepository);
+        verifyNoMoreInteractions(repository);
     }
 
     @Test
-    public void constructor_should_assign_problemNature_field() throws Exception {
+    public void execute_should_handle_zero_result() throws Exception {
+        when(repository.deleteWithSendFalseAndProblemeNature2(ProblemNatureEnum.MAIL)).thenReturn(0);
+
+        RepeatStatus result = tasklet.execute(contribution, chunkContext);
+
+        assertEquals(RepeatStatus.FINISHED, result);
+        verify(repository, times(1))
+                .deleteWithSendFalseAndProblemeNature2(ProblemNatureEnum.MAIL);
+    }
+
+    @Test
+    public void constructor_should_set_problemNature() throws Exception {
         DeleteDpoTableImageTasklet custom = new DeleteDpoTableImageTasklet(ProblemNatureEnum.ANALYSIS);
-        Object fieldValue = getPrivateField(custom, "problemNature");
+        Object fieldValue = getField(custom, "problemNature");
         assertEquals(ProblemNatureEnum.ANALYSIS, fieldValue);
     }
 
-    @Test
-    public void execute_should_handle_zero_deleted_without_exception() throws Exception {
-        when(dpoMailToSendRepository.deleteWithSendFalseAndProblemeNature2(ProblemNatureEnum.MAIL))
-                .thenReturn(0);
+    // ---- Méthodes utilitaires ----
 
-        RepeatStatus status = tasklet.execute(stepContribution, chunkContext);
-
-        assertEquals(RepeatStatus.FINISHED, status);
-        verify(dpoMailToSendRepository, times(1))
-                .deleteWithSendFalseAndProblemeNature2(ProblemNatureEnum.MAIL);
+    private void setField(Object target, String fieldName, Object value) throws Exception {
+        Field field = null;
+        Class<?> type = target.getClass();
+        while (type != null && field == null) {
+            try {
+                field = type.getDeclaredField(fieldName);
+            } catch (NoSuchFieldException e) {
+                type = type.getSuperclass();
+            }
+        }
+        if (field == null) {
+            throw new NoSuchFieldException("Champ introuvable : " + fieldName);
+        }
+        field.setAccessible(true);
+        field.set(target, value);
     }
 
-    /** Utilitaire : injection de champ privé via réflexion */
-    private void setPrivateField(Object instance, String fieldName, Object value) {
-        try {
-            java.lang.reflect.Field field = instance.getClass().getDeclaredField(fieldName);
-            field.setAccessible(true);
-            field.set(instance, value);
-        } catch (Exception e) {
-            throw new RuntimeException(e);
+    private Object getField(Object target, String fieldName) throws Exception {
+        Field field = null;
+        Class<?> type = target.getClass();
+        while (type != null && field == null) {
+            try {
+                field = type.getDeclaredField(fieldName);
+            } catch (NoSuchFieldException e) {
+                type = type.getSuperclass();
+            }
         }
-    }
-
-    /** Utilitaire : lecture de champ privé via réflexion */
-    private Object getPrivateField(Object instance, String fieldName) {
-        try {
-            java.lang.reflect.Field field = instance.getClass().getDeclaredField(fieldName);
-            field.setAccessible(true);
-            return field.get(instance);
-        } catch (Exception e) {
-            throw new RuntimeException(e);
+        if (field == null) {
+            throw new NoSuchFieldException("Champ introuvable : " + fieldName);
         }
+        field.setAccessible(true);
+        return field.get(target);
     }
 }
