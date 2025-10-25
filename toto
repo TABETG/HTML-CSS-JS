@@ -17,6 +17,7 @@ import org.mockito.Mockito;
 import org.mockito.junit.MockitoJUnitRunner;
 import org.springframework.batch.item.ItemProcessor;
 
+import java.lang.reflect.Field;
 import java.util.Optional;
 
 import static org.junit.Assert.*;
@@ -35,10 +36,12 @@ public class ReplaySendTransferAvRequestItemprocessorTest {
     private DocaposteEventHistory history;
 
     @Before
-    public void setUp() {
+    public void setUp() throws Exception {
         entity = new DocaposteEventHistoryEntity();
         history = new DocaposteEventHistory();
-        history.setTransferAvRequestId("REQ-42");
+        Field f = DocaposteEventHistory.class.getDeclaredField("transferAvRequestId");
+        f.setAccessible(true);
+        f.set(history, "REQ-42");
     }
 
     @Test
@@ -94,9 +97,7 @@ public class ReplaySendTransferAvRequestItemprocessorTest {
         assertTrue(processor instanceof ItemProcessor);
         assertNotNull(ReplaySendTransferAvRequestItemprocessor.class
                 .getAnnotation(org.springframework.stereotype.Component.class));
-
-        java.lang.reflect.Field f =
-                ReplaySendTransferAvRequestItemprocessor.class.getDeclaredField("transferAvJpaRepository");
+        Field f = ReplaySendTransferAvRequestItemprocessor.class.getDeclaredField("transferAvJpaRepository");
         f.setAccessible(true);
         assertSame(transferAvJpaRepository, f.get(processor));
     }
