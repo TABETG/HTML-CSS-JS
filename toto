@@ -12,14 +12,13 @@ import org.springframework.data.domain.Sort;
 
 import java.lang.reflect.Field;
 import java.util.List;
-import java.util.Map;
 
 import static org.junit.Assert.*;
 import static org.mockito.Mockito.*;
 
 /**
- * JUnit4 - Couverture 100% BillingSpaceSynchroItemReader
- * Compatible Sonar / Jenkins / Jacoco / Java 17+
+ * JUnit4 – Couverture 100 % BillingSpaceSynchroItemReader
+ * Compatible Sonar / Jenkins / Jacoco / Java 17+ / Spring Batch 5+
  */
 @RunWith(MockitoJUnitRunner.class)
 public class BillingSpaceSynchroItemReaderTest {
@@ -31,7 +30,7 @@ public class BillingSpaceSynchroItemReaderTest {
     private BillingSpaceSynchroItemReader reader;
 
     @Before
-    public void init() {
+    public void setUp() {
         assertNotNull(reader);
     }
 
@@ -39,25 +38,30 @@ public class BillingSpaceSynchroItemReaderTest {
     public void init_should_initialize_all_internal_fields() throws Exception {
         reader.init();
 
-        // repository
-        Object repoValue = getAnyField(reader, "repository");
-        assertSame(repository, repoValue);
+        // Vérifie repository
+        Object repo = getAnyField(reader, "repository");
+        assertSame(repository, repo);
 
-        // methodName
-        Object methodValue = getAnyField(reader, "methodName");
-        assertEquals("findByBillingSpaceStatus", methodValue);
+        // Vérifie methodName
+        Object method = getAnyField(reader, "methodName");
+        assertEquals("findByBillingSpaceStatus", method);
 
-        // arguments
+        // Vérifie arguments
         @SuppressWarnings("unchecked")
         List<Object> args = (List<Object>) getAnyField(reader, "arguments");
+        assertNotNull(args);
         assertEquals(1, args.size());
         assertEquals(BillingSpaceStatusEnum.CREATED, args.get(0));
 
-        // sort
-        @SuppressWarnings("unchecked")
-        Map<String, Sort.Direction> sortMap = (Map<String, Sort.Direction>) getAnyField(reader, "sort");
-        assertTrue(sortMap.containsKey("loanFolderId"));
-        assertEquals(Sort.Direction.ASC, sortMap.get("loanFolderId"));
+        // Vérifie sort (type Sort)
+        Object sortObj = getAnyField(reader, "sort");
+        assertNotNull(sortObj);
+        assertTrue(sortObj instanceof Sort);
+        Sort sort = (Sort) sortObj;
+        assertTrue(sort.isSorted());
+        assertTrue(sort.stream().anyMatch(order ->
+                order.getProperty().equals("loanFolderId") &&
+                order.getDirection() == Sort.Direction.ASC));
 
         verifyNoInteractions(repository);
     }
@@ -67,12 +71,13 @@ public class BillingSpaceSynchroItemReaderTest {
         BillingSpaceJpaRepository mockRepo = mock(BillingSpaceJpaRepository.class);
         BillingSpaceSynchroItemReader customReader = new BillingSpaceSynchroItemReader(mockRepo);
 
-        Object repoValue = getAnyField(customReader, "repository");
-        assertSame(mockRepo, repoValue);
+        Object repoField = getAnyField(customReader, "repository");
+        assertSame(mockRepo, repoField);
 
         customReader.init();
         Object methodName = getAnyField(customReader, "methodName");
         assertEquals("findByBillingSpaceStatus", methodName);
+
         verifyNoInteractions(mockRepo);
     }
 
@@ -85,10 +90,7 @@ public class BillingSpaceSynchroItemReaderTest {
         verifyNoInteractions(repository);
     }
 
-    /**
-     * Recherche un champ dans la classe ou ses superclasses, même s’il est protected/private,
-     * et le lit de manière sûre pour Java 17+ (pas d’accès illégal).
-     */
+    /** Recherche récursive d’un champ dans la hiérarchie de classes. */
     private Object getAnyField(Object instance, String name) throws Exception {
         Class<?> clazz = instance.getClass();
         while (clazz != null) {
