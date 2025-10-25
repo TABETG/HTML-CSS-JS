@@ -52,10 +52,12 @@ public class CloudFileManagerTest {
 
     @Test
     public void test_createClientConfig_and_createCredentials() throws Exception {
-        Object config = invoke(manager, "createClientConfig");
+        Object config = invoke(manager, "createClientConfig", new Class<?>[]{}, new Object[]{});
         assertTrue(config instanceof ClientConfiguration);
 
-        Object creds = invoke(manager, "createCredentials", String.class, "key", String.class, "id");
+        Object creds = invoke(manager, "createCredentials",
+                new Class<?>[]{String.class, String.class},
+                new Object[]{"apiKey", "resourceId"});
         assertTrue(creds instanceof AWSCredentials);
     }
 
@@ -98,23 +100,19 @@ public class CloudFileManagerTest {
         assertTrue(list.isEmpty());
     }
 
-    // --- helpers reflection ---
+    // -------------------------------------------------
+    // OUTILS REFLEXION CORRIGÉS
+    // -------------------------------------------------
+
     private void setPrivate(Object instance, String field, Object value) throws Exception {
         java.lang.reflect.Field f = instance.getClass().getDeclaredField(field);
         f.setAccessible(true);
         f.set(instance, value);
     }
 
-    private Object invoke(Object instance, String methodName, Class<?>... paramTypesAndValues) throws Exception {
-        int mid = paramTypesAndValues.length / 2;
-        Class<?>[] types = new Class<?>[mid];
-        Object[] values = new Object[mid];
-        for (int i = 0, j = 0; i < paramTypesAndValues.length; i += 2, j++) {
-            types[j] = (Class<?>) paramTypesAndValues[i];
-            values[j] = paramTypesAndValues[i + 1];
-        }
-        java.lang.reflect.Method m = instance.getClass().getDeclaredMethod(methodName, types);
+    private Object invoke(Object instance, String methodName, Class<?>[] paramTypes, Object[] args) throws Exception {
+        java.lang.reflect.Method m = instance.getClass().getDeclaredMethod(methodName, paramTypes);
         m.setAccessible(true);
-        return m.invoke(instance, values);
+        return m.invoke(instance, args);
     }
 }
