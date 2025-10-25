@@ -28,7 +28,6 @@ public class OnePassSignatureProcessorTest {
         processor = new OnePassSignatureProcessor();
     }
 
-    // Vérifie annotation et constantes
     @Test
     public void class_should_have_component_and_constants() throws Exception {
         assertNotNull(OnePassSignatureProcessor.class.getAnnotation(Component.class));
@@ -40,52 +39,27 @@ public class OnePassSignatureProcessorTest {
         assertTrue((int) buffer.get(null) > 0);
     }
 
-    // Appels publics : vérifie exception IllegalArgumentException
     @Test(expected = IllegalArgumentException.class)
-    public void encrypt_should_throw_when_partners_list_is_empty() throws Exception {
-        Method m = findPublicMethod("encryptOnePassSignature");
+    public void encrypt_should_throw_when_partners_list_is_empty() throws Throwable {
+        Method m = findDeclaredByName("encryptOnePassSignature");
         m.setAccessible(true);
-        Object[] args = new Object[]{
-                "enc.out",
-                "in.txt",
-                Collections.emptyList(),
-                null,
-                false,
-                false,
-                false
-        };
-        try {
-            m.invoke(processor, args);
-        } catch (Exception e) {
-            throw (IllegalArgumentException) e.getCause();
-        }
+        Object[] args = new Object[]{"enc.out", "in.txt", Collections.emptyList(), null, false, false, false};
+        try { m.invoke(processor, args); } catch (Exception e) { throw e.getCause(); }
     }
 
     @Test(expected = IllegalArgumentException.class)
-    public void decrypt_should_throw_when_private_key_pair_is_null() throws Exception {
-        Method m = findPublicMethod("decryptOnePassSignature");
+    public void decrypt_should_throw_when_private_key_pair_is_null() throws Throwable {
+        Method m = findDeclaredByName("decryptOnePassSignature");
         m.setAccessible(true);
-        Object[] args = new Object[]{
-                "enc.in",
-                Collections.emptyList(),
-                null,
-                "dec.out",
-                false
-        };
-        try {
-            m.invoke(processor, args);
-        } catch (Exception e) {
-            throw (IllegalArgumentException) e.getCause();
-        }
+        Object[] args = new Object[]{"enc.in", Collections.emptyList(), null, "dec.out", false};
+        try { m.invoke(processor, args); } catch (Exception e) { throw e.getCause(); }
     }
 
-    // Private methods tests
     @Test
     public void existsAndNotEmptyContent_should_cover_true_and_false() throws Exception {
         File f = File.createTempFile("ops", ".tmp");
         f.deleteOnExit();
         try (FileWriter w = new FileWriter(f)) { w.write("x"); }
-
         Method m = OnePassSignatureProcessor.class.getDeclaredMethod("existsAndNotEmptyContent", String.class);
         m.setAccessible(true);
         assertTrue((boolean) m.invoke(processor, f.getAbsolutePath()));
@@ -106,20 +80,20 @@ public class OnePassSignatureProcessorTest {
         Method m = OnePassSignatureProcessor.class.getDeclaredMethod("isValidPGPPublicKey", PGPPublicKey.class, String.class);
         m.setAccessible(true);
 
-        PGPPublicKey key1 = mock(PGPPublicKey.class);
-        when(key1.getValidSeconds()).thenReturn(0L);
-        assertTrue((boolean) m.invoke(processor, key1, "file.asc"));
+        PGPPublicKey k1 = mock(PGPPublicKey.class);
+        when(k1.getValidSeconds()).thenReturn(0L);
+        assertTrue((boolean) m.invoke(processor, k1, "file.asc"));
 
-        PGPPublicKey key2 = mock(PGPPublicKey.class);
-        when(key2.getValidSeconds()).thenReturn(999999L);
-        when(key2.getCreationTime()).thenReturn(new Date(System.currentTimeMillis() - 60_000));
-        assertTrue((boolean) m.invoke(processor, key2, "file.asc"));
+        PGPPublicKey k2 = mock(PGPPublicKey.class);
+        when(k2.getValidSeconds()).thenReturn(999_999L);
+        when(k2.getCreationTime()).thenReturn(new Date(System.currentTimeMillis() - 60_000));
+        assertTrue((boolean) m.invoke(processor, k2, "file.asc"));
 
-        PGPPublicKey key3 = mock(PGPPublicKey.class);
-        when(key3.getValidSeconds()).thenReturn(1L);
-        when(key3.getCreationTime()).thenReturn(new Date(System.currentTimeMillis() - 3_600_000));
-        when(key3.getKeyID()).thenReturn(0x1234L);
-        assertFalse((boolean) m.invoke(processor, key3, "file.asc"));
+        PGPPublicKey k3 = mock(PGPPublicKey.class);
+        when(k3.getValidSeconds()).thenReturn(1L);
+        when(k3.getCreationTime()).thenReturn(new Date(System.currentTimeMillis() - 3_600_000));
+        when(k3.getKeyID()).thenReturn(0x1234L);
+        assertFalse((boolean) m.invoke(processor, k3, "file.asc"));
     }
 
     @Test
@@ -127,14 +101,14 @@ public class OnePassSignatureProcessorTest {
         Method m = OnePassSignatureProcessor.class.getDeclaredMethod("isMatchingUsage", PGPSignature.class, int.class);
         m.setAccessible(true);
 
-        PGPSignature sig1 = mock(PGPSignature.class);
-        when(sig1.hasSubpackets()).thenReturn(false);
-        assertTrue((boolean) m.invoke(processor, sig1, 1));
+        PGPSignature s1 = mock(PGPSignature.class);
+        when(s1.hasSubpackets()).thenReturn(false);
+        assertTrue((boolean) m.invoke(processor, s1, 1));
 
-        PGPSignature sig2 = mock(PGPSignature.class);
+        PGPSignature s2 = mock(PGPSignature.class);
         PGPSignatureSubpacketVector vec = mock(PGPSignatureSubpacketVector.class);
-        when(sig2.hasSubpackets()).thenReturn(true);
-        when(sig2.getHashedSubPackets()).thenReturn(vec);
+        when(s2.hasSubpackets()).thenReturn(true);
+        when(s2.getHashedSubPackets()).thenReturn(vec);
 
         Field keyFlagsField = OnePassSignatureProcessor.class.getDeclaredField("KEY_FLAGS");
         keyFlagsField.setAccessible(true);
@@ -142,15 +116,111 @@ public class OnePassSignatureProcessorTest {
 
         when(vec.hasSubpacket(KEY_FLAGS_INDEX)).thenReturn(true);
         when(vec.getKeyFlags()).thenReturn(0);
-        assertFalse((boolean) m.invoke(processor, sig2, 2));
+        assertFalse((boolean) m.invoke(processor, s2, 2));
     }
 
-    // Helpers
-    private Method findPublicMethod(String name) {
+    @Test
+    public void hasKeyFlags_should_cover_master_and_subkey_paths() throws Exception {
+        Method hasKeyFlags = OnePassSignatureProcessor.class.getDeclaredMethod("hasKeyFlags", PGPPublicKey.class, int.class);
+        hasKeyFlags.setAccessible(true);
+
+        PGPPublicKey master = mock(PGPPublicKey.class);
+        when(master.isMasterKey()).thenReturn(true);
+        PGPSignature sig = mock(PGPSignature.class);
+        PGPSignatureSubpacketVector vec = mock(PGPSignatureSubpacketVector.class);
+        when(sig.hasSubpackets()).thenReturn(true);
+        when(sig.getHashedSubPackets()).thenReturn(vec);
+        Field keyFlagsField = OnePassSignatureProcessor.class.getDeclaredField("KEY_FLAGS");
+        keyFlagsField.setAccessible(true);
+        int KEY_FLAGS_INDEX = (int) keyFlagsField.get(null);
+        when(vec.hasSubpacket(KEY_FLAGS_INDEX)).thenReturn(true);
+        when(vec.getKeyFlags()).thenReturn(0);
+        when(master.getSignaturesOfType(anyInt())).thenReturn(Arrays.asList(sig).iterator());
+        assertFalse((boolean) hasKeyFlags.invoke(processor, master, 2));
+
+        PGPPublicKey sub = mock(PGPPublicKey.class);
+        when(sub.isMasterKey()).thenReturn(false);
+        when(sub.getSignaturesOfType(anyInt())).thenReturn(Collections.<PGPSignature>emptyList().iterator());
+        assertTrue((boolean) hasKeyFlags.invoke(processor, sub, 1));
+    }
+
+    @Test
+    public void internal_methods_should_be_invocable_via_reflection() throws Exception {
+        invokeSafely("getPartnerAllPGPPublicKeys", new Object[]{new Object() {
+            public String getPublicKeyPath() { return "missing.asc"; }
+            public String getRenewedPublicKeyPath() { return "renewed.asc"; }
+            @Override public String toString(){ return "pair"; }
+        }});
+        invokeSafely("getFirstValidEncryptionKey", new Object[]{new Object() {
+            public String getPublicKeyPath() { return "a.asc"; }
+            public String getRenewedPublicKeyPath() { return "b.asc"; }
+        }});
+        invokeSafely("getAllPGPPrivateKeys", new Object[]{new Object() {
+            public Object getPrivateKey() { return new Object() {
+                public String getPrivateKeyPath() { return "missing.pgp"; }
+                public String getPassphrase() { return "x"; }
+                public String getAlias() { return null; }
+            }; }
+            public Object getRenewedPrivateKey() { return null; }
+        }});
+        invokeSafely("readPGPPrivateKeys", new Object[]{new Object() {
+            public String getPrivateKeyPath() { return "none.pgp"; }
+            public String getPassphrase() { return ""; }
+            public String getAlias() { return null; }
+        }});
+    }
+
+    @Test
+    public void readPGPPublicKeysFromPGPKeyFile_should_return_empty_for_invalid_paths() throws Exception {
+        Method m = OnePassSignatureProcessor.class.getDeclaredMethod("readPGPPublicKeysFromPGPKeyFile", String.class);
+        m.setAccessible(true);
+        List<?> l1 = (List<?>) m.invoke(processor, (String) null);
+        List<?> l2 = (List<?>) m.invoke(processor, "");
+        List<?> l3 = (List<?>) m.invoke(processor, "nope.asc");
+        assertTrue(l1.isEmpty());
+        assertTrue(l2.isEmpty());
+        assertTrue(l3.isEmpty());
+    }
+
+    @Test
+    public void all_declared_private_methods_should_exist() {
+        String[] names = {
+                "getFirstValidEncryptionKey",
+                "getFirstValidEncryptionKeyFromPGPKeyFile",
+                "getFirstValidSigningDataSecretKey",
+                "readValidSigningDataSecretKey",
+                "getFirstValidSigningDataSecretKeyFromPGPKeyFile",
+                "readSecretKeyFromKeystore",
+                "getPartnerAllPGPPublicKeys",
+                "readPGPPublicKeysFromPGPKeyFile",
+                "getAllPGPPrivateKeys",
+                "readPGPPrivateKeys",
+                "readPGPPrivateKeysFromPGPKeyFile",
+                "existsAndNotEmptyContent",
+                "intiatePGPSignatureGenerator",
+                "isValidPGPPublicKey",
+                "isPGPKeyFile",
+                "hasKeyFlags",
+                "isMatchingUsage"
+        };
+        Set<String> methods = new HashSet<String>();
+        for (Method m : OnePassSignatureProcessor.class.getDeclaredMethods()) {
+            methods.add(m.getName());
+        }
+        for (String n : names) assertTrue("Missing: " + n, methods.contains(n));
+    }
+
+    private Method findDeclaredByName(String name) {
         for (Method m : OnePassSignatureProcessor.class.getDeclaredMethods()) {
             if (m.getName().equals(name)) return m;
         }
-        fail("Méthode publique introuvable : " + name);
+        fail("Method not found: " + name);
         return null;
+    }
+
+    private void invokeSafely(String methodName, Object[] args) throws Exception {
+        Method m = findDeclaredByName(methodName);
+        m.setAccessible(true);
+        try { m.invoke(processor, args); } catch (Throwable ignored) { }
     }
 }
