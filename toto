@@ -20,8 +20,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Corrigé pour 100% coverage + robustesse parsing.
- * Compatible Sonar / Jenkins / Jacoco / Java 17+.
+ * Version corrigée - 100 % coverage possible.
+ * Corrige NumberFormatException + gestion des espaces vides.
  */
 @Slf4j
 @Component
@@ -38,17 +38,17 @@ public class LoadDailyMeteorFileTasklet implements Tasklet {
         try {
             List<MeteorFile> files = fileManager.getFiles();
             if (files.isEmpty()) {
-                log.info("No Meteor file found for import.");
+                log.warn("No file found!");
                 return RepeatStatus.FINISHED;
             }
 
             for (MeteorFile file : files) {
-                boolean ok = extractMeteorFileData(file.getFile());
-                if (ok) {
+                boolean processed = extractMeteorFileData(file.getFile());
+                if (processed) {
                     log.info("File {} processed successfully.", file.getFile().getName());
                     fileManager.archiveFile(file);
                 } else {
-                    log.warn("File {} not processed due to errors.", file.getFile().getName());
+                    log.warn("File {} processing failed.", file.getFile().getName());
                 }
             }
         } catch (Exception e) {
@@ -58,104 +58,102 @@ public class LoadDailyMeteorFileTasklet implements Tasklet {
     }
 
     /**
-     * Lecture et parsing du fichier Meteor.
-     * @param file fichier texte
-     * @return true si succès
+     * Lecture et parsing du fichier METEOR.
      */
     private boolean extractMeteorFileData(File file) {
         List<MeteorFlux> fluxList = new ArrayList<>();
-        try (BufferedReader br = new BufferedReader(new FileReader(file))) {
+        try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
             String line;
-            while ((line = br.readLine()) != null) {
-                // on ne traite que les lignes commençant par 02
+            while ((line = reader.readLine()) != null) {
                 if (!line.startsWith("02")) {
                     continue;
                 }
+
                 try {
+                    String loanAccountNumber = safeSubstring(line, 2, 25).trim();
+                    String idProt = safeSubstring(line, 90, 93).trim();
+                    String personalContributionAmount = safeSubstring(line, 93, 109).trim();
+                    String purchaseAmount = safeSubstring(line, 109, 125).trim();
+                    String renovationAmount = safeSubstring(line, 125, 141).trim();
+                    String landAmount = safeSubstring(line, 171, 187).trim();
+                    String loanFolderId = safeSubstring(line, 557, 580).trim();
+
                     MeteorFlux flux = new MeteorFlux();
-
-                    String loanAccountNumber = line.substring(2, 25).trim();
-                    String idProt = line.substring(90, 93).trim();
-
-                    String personalContributionAmount = line.substring(93, 109).trim();
-                    String purchaseAmount = line.substring(109, 125).trim();
-                    String renovationAmount = line.substring(125, 141).trim();
-                    String landAmount = line.substring(171, 187).trim();
-
-                    String loanFolderId = "";
-                    if (line.length() >= 580) {
-                        loanFolderId = line.substring(557, 580).trim();
-                    }
-
                     flux.setLoanAccountNumber(loanAccountNumber);
                     flux.setContractType(convertIdProtToContractType(idProt));
-
-                    flux.setPersonalContributionAmount(
-                            valueIsEmptyOrNull(personalContributionAmount)
-                                    ? BigDecimal.ZERO
-                                    : new BigDecimal(personalContributionAmount));
-
-                    flux.setPurchaseAmount(
-                            valueIsEmptyOrNull(purchaseAmount)
-                                    ? BigDecimal.ZERO
-                                    : new BigDecimal(purchaseAmount));
-
-                    flux.setRenovationAmount(
-                            valueIsEmptyOrNull(renovationAmount)
-                                    ? BigDecimal.ZERO
-                                    : new BigDecimal(renovationAmount));
-
-                    flux.setLandAmount(
-                            valueIsEmptyOrNull(landAmount)
-                                    ? BigDecimal.ZERO
-                                    : new BigDecimal(landAmount));
-
+                    flux.setPersonalContributionAmount(parseDecimal(personalContributionAmount));
+                    flux.setPurchaseAmount(parseDecimal(purchaseAmount));
+                    flux.setRenovationAmount(parseDecimal(renovationAmount));
+                    flux.setLandAmount(parseDecimal(landAmount));
                     flux.setLoanFolderId(loanFolderId);
                     flux.setCreationDate(LocalDateTime.now());
 
-                    // Eviter doublon
                     if (!meteorFluxRepository.existsByLoanAccountNumber(loanAccountNumber)) {
                         fluxList.add(flux);
                     }
                 } catch (Exception e) {
-                    log.error("Error parsing line in file {}: {}", file.getName(), e.getMessage());
+                    log.error("Error parsing line in {}: {}", file.getName(), e.getMessage());
                 }
             }
 
             if (!fluxList.isEmpty()) {
                 meteorFluxRepository.saveAll(fluxList);
-                log.info("{} MeteorFlux record(s) saved from file {}.", fluxList.size(), file.getName());
+                log.info("{} record(s) saved for file {}.", fluxList.size(), file.getName());
             } else {
-                log.warn("No valid MeteorFlux record found in file {}.", file.getName());
+                log.warn("No valid records found in {}.", file.getName());
             }
 
             return true;
         } catch (IOException e) {
-            log.error("Error reading Meteor file {}: {}", file.getName(), e.getMessage());
+            log.error("I/O error reading file {}: {}", file.getName(), e.getMessage());
             return false;
         } catch (Exception e) {
-            log.error("Unexpected error while processing Meteor file {}: {}", file.getName(), e.getMessage());
+            log.error("Unexpected error while processing {}: {}", file.getName(), e.getMessage());
             return false;
         }
     }
 
     /**
-     * Convertit l’ID protocole en type de contrat.
+     * Conversion d’un identifiant protocole en type de contrat.
      */
     private static String convertIdProtToContractType(String idProt) {
         if ("001".equals(idProt)) {
             return ContractTypeEnum.PRI.getCode();
-        }
-        if ("003".equals(idProt)) {
+        } else if ("003".equals(idProt)) {
             return ContractTypeEnum.PRO.getCode();
         }
         return "";
     }
 
     /**
-     * Vérifie si la valeur est vide ou null.
+     * Vérifie si la valeur est vide.
      */
     public static boolean valueIsEmptyOrNull(String value) {
         return value == null || value.trim().isEmpty();
+    }
+
+    /**
+     * Parse un BigDecimal à partir d’une sous-chaîne.
+     */
+    private static BigDecimal parseDecimal(String value) {
+        if (valueIsEmptyOrNull(value)) {
+            return BigDecimal.ZERO;
+        }
+        try {
+            return new BigDecimal(value.trim());
+        } catch (NumberFormatException e) {
+            log.warn("Invalid number format '{}', defaulting to 0", value);
+            return BigDecimal.ZERO;
+        }
+    }
+
+    /**
+     * Sous-chaîne sûre (évite StringIndexOutOfBoundsException).
+     */
+    private static String safeSubstring(String value, int start, int end) {
+        if (value == null || value.length() < start) {
+            return "";
+        }
+        return value.substring(start, Math.min(value.length(), end));
     }
 }
