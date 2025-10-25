@@ -22,11 +22,7 @@ import static org.junit.Assert.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
-/**
- * ✅ Test JUnit4 - 100% Sonar / Jenkins / Jacoco compatible.
- * Couverture complète des branches et lignes.
- */
-@RunWith(MockitoJUnitRunner.Strictness.LENIENT)
+@RunWith(MockitoJUnitRunner.class)
 public class BillingSpaceSynchroItemProcessorTest {
 
     @InjectMocks
@@ -65,7 +61,6 @@ public class BillingSpaceSynchroItemProcessorTest {
                 .thenReturn(mock(com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.loanfolder.model.LoanFolderEntity.class));
     }
 
-    /** ✅ Cas nominal : synchro valide ou TO_CLOSE → résultat non nul */
     @Test
     public void process_should_return_result_when_synchro_or_closure_valid() {
         try (MockedStatic<BillingSpaceMapperToDomain> billingMapper = Mockito.mockStatic(BillingSpaceMapperToDomain.class);
@@ -93,7 +88,6 @@ public class BillingSpaceSynchroItemProcessorTest {
         }
     }
 
-    /** ✅ Cas : aucune analyse et statut != TO_CLOSE → résultat null */
     @Test
     public void process_should_return_null_when_no_analysis_and_not_TO_CLOSE() {
         try (MockedStatic<BillingSpaceMapperToDomain> billingMapper = Mockito.mockStatic(BillingSpaceMapperToDomain.class);
@@ -120,7 +114,6 @@ public class BillingSpaceSynchroItemProcessorTest {
         }
     }
 
-    /** ✅ checkLoanFolderSynchroResultNotEmpty : retourne le résultat si une liste non vide */
     @Test
     public void checkLoanFolderSynchroResultNotEmpty_should_return_result_if_any_list_non_empty() {
         LoanFolderSynchroResult input = mock(LoanFolderSynchroResult.class);
@@ -132,7 +125,6 @@ public class BillingSpaceSynchroItemProcessorTest {
         assertNotNull(result);
     }
 
-    /** ✅ checkLoanFolderSynchroResultNotEmpty : retourne null si toutes les listes vides */
     @Test
     public void checkLoanFolderSynchroResultNotEmpty_should_return_null_if_all_lists_empty() {
         LoanFolderSynchroResult input = mock(LoanFolderSynchroResult.class);
@@ -147,7 +139,6 @@ public class BillingSpaceSynchroItemProcessorTest {
         assertNull(result);
     }
 
-    /** 🔍 Invocation de la méthode privée via réflexion */
     private LoanFolderSynchroResult invokePrivateCheckMethod(LoanFolderSynchroResult arg) {
         try {
             java.lang.reflect.Method method = BillingSpaceSynchroItemProcessor.class
