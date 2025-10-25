@@ -9,8 +9,6 @@ import org.junit.rules.TemporaryFolder;
 import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.mockito.junit.MockitoJUnitRunner;
-import org.mockito.junit.MockitoSettings;
-import org.mockito.quality.Strictness;
 
 import java.io.ByteArrayInputStream;
 import java.io.File;
@@ -33,17 +31,17 @@ import org.bouncycastle.openpgp.operator.jcajce.JcaPGPKeyConverter;
 import static org.junit.Assert.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.lenient; // <— clé : stubs tolérants
 
 /**
  * JUnit 4 only – compatible Sonar/Jacoco/Jenkins.
- * - Pas de JUnit Jupiter / AssertJ.
- * - @RunWith(MockitoJUnitRunner.class), @Before, assertions JUnit 4.
- * - verifyNoInteractions(...) présent.
- * - Mock statiques (PGPUtil, KeyStore) + constructeurs (PGP* + *Stream) via mockito-inline.
- * - Strictness LENIENT pour éviter UnnecessaryStubbingException sur stubs utilitaires.
+ * - @RunWith(MockitoJUnitRunner.class), @Before
+ * - Pas de JUnit Jupiter ni AssertJ
+ * - Pas de @MockitoSettings ; on utilise Mockito.lenient() pour les stubs potentiellement non utilisés
+ * - verifyNoInteractions(...) présent
+ * - Mock statiques (PGPUtil, KeyStore) + constructeurs (PGP* + *Stream) via mockito-inline
  */
 @RunWith(MockitoJUnitRunner.class)
-@MockitoSettings(strictness = Strictness.LENIENT)
 public class OnePassSignatureProcessorTest {
 
     @Rule
@@ -96,13 +94,12 @@ public class OnePassSignatureProcessorTest {
         }
     }
 
-    // ------------------ Helpers ------------------
+    // ------------------ Helpers (stubs en lenient()) ------------------
 
     private PartnerPublicKeyPair mockPartner(String oldPath, String newPath) {
         PartnerPublicKeyPair p = mock(PartnerPublicKeyPair.class);
-        // Stubs minimaux ; le runner LENIENT tolère leur non-usage selon les branches.
-        when(p.getPublicKeyPath()).thenReturn(oldPath);
-        when(p.getRenewedPublicKeyPath()).thenReturn(newPath);
+        lenient().when(p.getPublicKeyPath()).thenReturn(oldPath);
+        lenient().when(p.getRenewedPublicKeyPath()).thenReturn(newPath);
         return p;
     }
 
@@ -110,44 +107,48 @@ public class OnePassSignatureProcessorTest {
         PrivateKeyPair pair = mock(PrivateKeyPair.class);
 
         PrivateKey pgp = mock(PrivateKey.class);
-        when(pgp.getPrivateKeyPath()).thenReturn(pgpPath);
-        when(pgp.getPassphrase()).thenReturn(pass);
-        when(pgp.getAlias()).thenReturn(null);
+        lenient().when(pgp.getPrivateKeyPath()).thenReturn(pgpPath);
+        lenient().when(pgp.getPassphrase()).thenReturn(pass);
+        lenient().when(pgp.getAlias()).thenReturn(null);
 
         PrivateKey ks = mock(PrivateKey.class);
-        when(ks.getPrivateKeyPath()).thenReturn(ksPath);
-        when(ks.getPassphrase()).thenReturn(pass);
-        when(ks.getAlias()).thenReturn(alias);
+        lenient().when(ks.getPrivateKeyPath()).thenReturn(ksPath);
+        lenient().when(ks.getPassphrase()).thenReturn(pass);
+        lenient().when(ks.getAlias()).thenReturn(alias);
 
-        when(pair.getPrivateKey()).thenReturn(pgp);
-        when(pair.getRenewedPrivateKey()).thenReturn(ks);
+        lenient().when(pair.getPrivateKey()).thenReturn(pgp);
+        lenient().when(pair.getRenewedPrivateKey()).thenReturn(ks);
         return pair;
     }
 
     private PGPPublicKey mockEncKey(long id, boolean master, boolean usageOk, boolean valid) {
         PGPPublicKey k = mock(PGPPublicKey.class);
-        when(k.getKeyID()).thenReturn(id);
-        when(k.isEncryptionKey()).thenReturn(true);
-        when(k.isMasterKey()).thenReturn(master);
+        lenient().when(k.getKeyID()).thenReturn(id);
+        lenient().when(k.isEncryptionKey()).thenReturn(true);
+        lenient().when(k.isMasterKey()).thenReturn(master);
+
         // Iterator jamais null pour hasKeyFlags(...)
         if (usageOk) {
-            when(k.getSignaturesOfType(anyInt())).thenReturn(Collections.<PGPSignature>emptyList().iterator());
+            lenient().when(k.getSignaturesOfType(anyInt()))
+                    .thenReturn(Collections.<PGPSignature>emptyList().iterator());
         } else {
             PGPSignature sig = mock(PGPSignature.class);
             PGPSignatureSubpacketVector vec = mock(PGPSignatureSubpacketVector.class);
-            when(sig.hasSubpackets()).thenReturn(true);
-            when(sig.getHashedSubPackets()).thenReturn(vec);
-            when(vec.hasSubpacket(eq(27))).thenReturn(true);
-            when(vec.getKeyFlags()).thenReturn(KeyFlags.CERTIFY_OTHER); // pas ENCRYPT
-            when(k.getSignaturesOfType(anyInt())).thenReturn(Collections.singletonList(sig).iterator());
+            lenient().when(sig.hasSubpackets()).thenReturn(true);
+            lenient().when(sig.getHashedSubPackets()).thenReturn(vec);
+            lenient().when(vec.hasSubpacket(eq(27))).thenReturn(true);
+            lenient().when(vec.getKeyFlags()).thenReturn(KeyFlags.CERTIFY_OTHER); // pas ENCRYPT
+            lenient().when(k.getSignaturesOfType(anyInt()))
+                    .thenReturn(Collections.singletonList(sig).iterator());
         }
-        // Dates/validité
-        when(k.getCreationTime()).thenReturn(new Date()); // évite NPE .toInstant()
+
+        // Dates/validité (évite NPE .toInstant())
+        lenient().when(k.getCreationTime()).thenReturn(new Date());
         if (valid) {
-            when(k.getValidSeconds()).thenReturn(0L); // 0 => pas d'expiration
+            lenient().when(k.getValidSeconds()).thenReturn(0L); // 0 => pas d'expiration
         } else {
-            when(k.getValidSeconds()).thenReturn(1L);
-            when(k.getCreationTime()).thenReturn(new Date(System.currentTimeMillis() - 3_600_000L));
+            lenient().when(k.getValidSeconds()).thenReturn(1L);
+            lenient().when(k.getCreationTime()).thenReturn(new Date(System.currentTimeMillis() - 3_600_000L));
         }
         return k;
     }
@@ -155,18 +156,19 @@ public class OnePassSignatureProcessorTest {
     private PGPSecretKey mockSigningSecretKey(long id) throws Exception {
         PGPSecretKey sk = mock(PGPSecretKey.class);
         PGPPublicKey pk = mock(PGPPublicKey.class);
-        when(sk.getKeyID()).thenReturn(id);
-        when(sk.isSigningKey()).thenReturn(true);
-        when(sk.getPublicKey()).thenReturn(pk);
+        lenient().when(sk.getKeyID()).thenReturn(id);
+        lenient().when(sk.isSigningKey()).thenReturn(true);
+        lenient().when(sk.getPublicKey()).thenReturn(pk);
 
         // Corrections anti-NPE
-        when(pk.getCreationTime()).thenReturn(new Date());
-        when(pk.getSignaturesOfType(anyInt())).thenReturn(Collections.<PGPSignature>emptyList().iterator());
-        when(pk.getUserIDs()).thenReturn(Collections.singletonList("user@test").iterator());
-        when(pk.getValidSeconds()).thenReturn(0L);
+        lenient().when(pk.getCreationTime()).thenReturn(new Date());
+        lenient().when(pk.getSignaturesOfType(anyInt()))
+                .thenReturn(Collections.<PGPSignature>emptyList().iterator());
+        lenient().when(pk.getUserIDs()).thenReturn(Collections.singletonList("user@test").iterator());
+        lenient().when(pk.getValidSeconds()).thenReturn(0L);
 
         PGPPrivateKey priv = mock(PGPPrivateKey.class);
-        when(sk.extractPrivateKey(any())).thenReturn(priv);
+        lenient().when(sk.extractPrivateKey(any())).thenReturn(priv);
         return sk;
     }
 
@@ -335,7 +337,7 @@ public class OnePassSignatureProcessorTest {
                 );
                 fail("IllegalArgumentException attendue");
             } catch (IllegalArgumentException ex) {
-                // on valide au moins le type ; le message peut varier selon le chemin.
+                // message variable selon le chemin — on valide le type
                 assertTrue(ex.getMessage() == null || ex.getMessage().length() >= 0);
             }
         }
@@ -354,14 +356,14 @@ public class OnePassSignatureProcessorTest {
         PublicKey jcaPub = mock(PublicKey.class);
         java.security.PrivateKey jcaPriv = mock(java.security.PrivateKey.class);
 
-        when(cert.getPublicKey()).thenReturn(jcaPub);
-        when(cert.getNotBefore()).thenReturn(new Date(System.currentTimeMillis() - 1000));
-        when(cert.getNotAfter()).thenReturn(new Date(System.currentTimeMillis() + 86_400_000));
+        lenient().when(cert.getPublicKey()).thenReturn(jcaPub);
+        lenient().when(cert.getNotBefore()).thenReturn(new Date(System.currentTimeMillis() - 1000));
+        lenient().when(cert.getNotAfter()).thenReturn(new Date(System.currentTimeMillis() + 86_400_000));
 
         Enumeration<String> aliases = Collections.enumeration(Collections.singleton("myAlias"));
-        when(ks.aliases()).thenReturn(aliases);
-        when(ks.getKey(eq("myAlias"), any(char[].class))).thenReturn(jcaPriv);
-        when(ks.getCertificate(eq("myAlias"))).thenReturn(cert);
+        lenient().when(ks.aliases()).thenReturn(aliases);
+        lenient().when(ks.getKey(eq("myAlias"), any(char[].class))).thenReturn(jcaPriv);
+        lenient().when(ks.getCertificate(eq("myAlias"))).thenReturn(cert);
 
         try (MockedStatic<PGPUtil> util = mockStatic(PGPUtil.class);
              MockedStatic<KeyStore> ksStatic = mockStatic(KeyStore.class);
@@ -373,7 +375,7 @@ public class OnePassSignatureProcessorTest {
                      JcaPGPKeyConverter.class,
                      (cvt, c) -> {
                          PGPPublicKey pgpPub = mock(PGPPublicKey.class);
-                         when(pgpPub.getCreationTime()).thenReturn(new Date());
+                         lenient().when(pgpPub.getCreationTime()).thenReturn(new Date());
                          PGPPrivateKey pgpPriv = mock(PGPPrivateKey.class);
                          when(cvt.getPGPPublicKey(eq(PublicKeyAlgorithmTags.RSA_GENERAL), any(PublicKey.class), any(Date.class)))
                                  .thenReturn(pgpPub);
@@ -389,7 +391,7 @@ public class OnePassSignatureProcessorTest {
                          PGPPublicKey pub = mock(PGPPublicKey.class);
                          when(pub.getAlgorithm()).thenReturn(PublicKeyAlgorithmTags.RSA_GENERAL);
                          when(pub.getUserIDs()).thenReturn(Collections.singletonList("user@test").iterator());
-                         when(pub.getCreationTime()).thenReturn(new Date()); // évite NPE
+                         lenient().when(pub.getCreationTime()).thenReturn(new Date()); // évite NPE
                          when(psk.getPublicKey()).thenReturn(pub);
                      }
              );
