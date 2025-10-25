@@ -1,119 +1,64 @@
-package com.bnpparibas.dsibddf.ap00420.streamfact.batch.common.tasklet;
+package com.bnpparibas.dsibddf.ap00420.streamfact.batch.dailymeteorintegration.manager;
 
-import com.bnpparibas.dsibddf.ap00420.streamfact.domain.commons.ProblemNatureEnum;
-import com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.history.repository.DPOMailToSendRepository;
-import org.junit.Before;
+import com.bnpparibas.dsibddf.ap00420.streamfact.batch.dailymeteorintegration.model.MeteorFile;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.mockito.Mock;
-import org.mockito.junit.MockitoJUnitRunner;
-import org.springframework.batch.core.StepContribution;
-import org.springframework.batch.core.scope.context.ChunkContext;
-import org.springframework.batch.repeat.RepeatStatus;
 
-import java.lang.reflect.Field;
+import java.io.IOException;
+import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
+import java.util.List;
 
 import static org.junit.Assert.*;
-import static org.mockito.Mockito.*;
 
 /**
- * ✅ Test JUnit 4 – Couverture 100 %
- * Compatible Sonar / Jenkins / Jacoco / Java 17+
+ * Test JUnit 4 – 100% coverage pour l'interface FileManager
+ * Compatible Jenkins / Sonar / Jacoco / Java 17+
  */
-@RunWith(MockitoJUnitRunner.class)
-public class DeleteDpoTableImageTaskletTest {
+public class FileManagerTest {
 
-    @Mock
-    private DPOMailToSendRepository dpoMailToSendRepository;
-
-    @Mock
-    private StepContribution stepContribution;
-
-    @Mock
-    private ChunkContext chunkContext;
-
-    private DeleteDpoTableImageTasklet tasklet;
-
-    @Before
-    public void setUp() throws Exception {
-        // On instancie la tasklet avec une valeur d'enum réelle
-        tasklet = new DeleteDpoTableImageTasklet(ProblemNatureEnum.TECHNICAL);
-        injectPrivateField(tasklet, "dpoMailToSendRepository", dpoMailToSendRepository);
+    @Test
+    public void interface_should_be_public_and_not_abstract_class() {
+        Class<?> clazz = FileManager.class;
+        assertTrue(Modifier.isPublic(clazz.getModifiers()));
+        assertTrue(clazz.isInterface());
     }
 
     @Test
-    public void execute_should_call_repository_and_return_finished() throws Exception {
-        when(dpoMailToSendRepository
-                .deleteWithSendFalseAndProblemeNature2(ProblemNatureEnum.TECHNICAL))
-                .thenReturn(5);
-
-        RepeatStatus status = tasklet.execute(stepContribution, chunkContext);
-
-        assertNotNull(status);
-        assertEquals(RepeatStatus.FINISHED, status);
-
-        verify(dpoMailToSendRepository, times(1))
-                .deleteWithSendFalseAndProblemeNature2(ProblemNatureEnum.TECHNICAL);
-        verifyNoMoreInteractions(dpoMailToSendRepository);
+    public void should_have_getFiles_method_with_correct_signature() throws Exception {
+        Method m = FileManager.class.getDeclaredMethod("getFiles");
+        assertEquals(List.class, m.getReturnType());
+        assertTrue(m.getGenericReturnType().getTypeName().contains("MeteorFile"));
+        assertTrue(Modifier.isPublic(m.getModifiers()));
+        assertTrue(hasExceptionDeclared(m, IOException.class));
     }
 
     @Test
-    public void execute_should_handle_zero_deletion() throws Exception {
-        when(dpoMailToSendRepository
-                .deleteWithSendFalseAndProblemeNature2(ProblemNatureEnum.TECHNICAL))
-                .thenReturn(0);
-
-        RepeatStatus status = tasklet.execute(stepContribution, chunkContext);
-
-        assertEquals(RepeatStatus.FINISHED, status);
-        verify(dpoMailToSendRepository, times(1))
-                .deleteWithSendFalseAndProblemeNature2(ProblemNatureEnum.TECHNICAL);
-        verifyNoMoreInteractions(dpoMailToSendRepository);
+    public void should_have_archiveFile_with_string_signature() throws Exception {
+        Method m = FileManager.class.getDeclaredMethod("archiveFile", String.class);
+        assertEquals(void.class, m.getReturnType());
+        assertTrue(Modifier.isPublic(m.getModifiers()));
     }
 
     @Test
-    public void constructor_should_initialize_enum_field() throws Exception {
-        ProblemNatureEnum nature = ProblemNatureEnum.FUNCTIONAL;
-        DeleteDpoTableImageTasklet newTasklet = new DeleteDpoTableImageTasklet(nature);
-        injectPrivateField(newTasklet, "dpoMailToSendRepository", dpoMailToSendRepository);
-
-        Object fieldValue = getPrivateField(newTasklet, "problemNature");
-        assertEquals(nature, fieldValue);
+    public void should_have_archiveFile_with_meteorfile_signature() throws Exception {
+        Method m = FileManager.class.getDeclaredMethod("archiveFile",
+                com.bnpparibas.dsibddf.ap00420.streamfact.batch.dailymeteorintegration.model.MeteorFile.class);
+        assertEquals(void.class, m.getReturnType());
+        assertTrue(Modifier.isPublic(m.getModifiers()));
     }
 
-    // ===================== OUTILS DE RÉFLEXION =====================
+    @Test
+    public void should_declare_exactly_three_methods() {
+        Method[] methods = FileManager.class.getDeclaredMethods();
+        assertEquals(3, methods.length);
+    }
 
-    private void injectPrivateField(Object target, String fieldName, Object value) throws Exception {
-        Field field = null;
-        Class<?> clazz = target.getClass();
-        while (clazz != null && field == null) {
-            try {
-                field = clazz.getDeclaredField(fieldName);
-            } catch (NoSuchFieldException e) {
-                clazz = clazz.getSuperclass();
+    private boolean hasExceptionDeclared(Method m, Class<?> exceptionType) {
+        for (Class<?> ex : m.getExceptionTypes()) {
+            if (ex.equals(exceptionType)) {
+                return true;
             }
         }
-        if (field == null) {
-            throw new NoSuchFieldException("Champ introuvable : " + fieldName);
-        }
-        field.setAccessible(true);
-        field.set(target, value);
-    }
-
-    private Object getPrivateField(Object target, String fieldName) throws Exception {
-        Field field = null;
-        Class<?> clazz = target.getClass();
-        while (clazz != null && field == null) {
-            try {
-                field = clazz.getDeclaredField(fieldName);
-            } catch (NoSuchFieldException e) {
-                clazz = clazz.getSuperclass();
-            }
-        }
-        if (field == null) {
-            throw new NoSuchFieldException("Champ introuvable : " + fieldName);
-        }
-        field.setAccessible(true);
-        return field.get(target);
+        return false;
     }
 }
