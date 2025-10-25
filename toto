@@ -1,64 +1,134 @@
 package com.bnpparibas.dsibddf.ap00420.streamfact.batch.dailymeteorintegration.manager;
 
 import com.bnpparibas.dsibddf.ap00420.streamfact.batch.dailymeteorintegration.model.MeteorFile;
-import org.junit.Test;
+import org.junit.*;
+import org.junit.runner.RunWith;
+import org.mockito.junit.MockitoJUnitRunner;
+import org.springframework.util.Assert;
 
+import java.io.File;
 import java.io.IOException;
-import java.lang.reflect.Method;
-import java.lang.reflect.Modifier;
+import java.lang.reflect.Field;
+import java.util.Collections;
 import java.util.List;
 
 import static org.junit.Assert.*;
 
 /**
- * Test JUnit 4 – 100% coverage pour l'interface FileManager
- * Compatible Jenkins / Sonar / Jacoco / Java 17+
+ * Test JUnit 4 – 100 % coverage LocalFileManager
+ * Compatible Sonar / Jenkins / Jacoco / Java 17+
  */
-public class FileManagerTest {
+@RunWith(MockitoJUnitRunner.class)
+public class LocalFileManagerTest {
 
-    @Test
-    public void interface_should_be_public_and_not_abstract_class() {
-        Class<?> clazz = FileManager.class;
-        assertTrue(Modifier.isPublic(clazz.getModifiers()));
-        assertTrue(clazz.isInterface());
+    private LocalFileManager localFileManager;
+    private File tempDir;
+
+    @Before
+    public void setUp() throws Exception {
+        localFileManager = new LocalFileManager();
+
+        // Dossier temporaire
+        tempDir = new File(System.getProperty("java.io.tmpdir"), "meteor_test_dir");
+        if (!tempDir.exists()) {
+            assertTrue(tempDir.mkdirs());
+        }
+
+        // Injection des @Value simulées
+        setPrivateField(localFileManager, "path", tempDir.getAbsolutePath());
+        setPrivateField(localFileManager, "prefix", "METEOR_");
     }
 
-    @Test
-    public void should_have_getFiles_method_with_correct_signature() throws Exception {
-        Method m = FileManager.class.getDeclaredMethod("getFiles");
-        assertEquals(List.class, m.getReturnType());
-        assertTrue(m.getGenericReturnType().getTypeName().contains("MeteorFile"));
-        assertTrue(Modifier.isPublic(m.getModifiers()));
-        assertTrue(hasExceptionDeclared(m, IOException.class));
-    }
-
-    @Test
-    public void should_have_archiveFile_with_string_signature() throws Exception {
-        Method m = FileManager.class.getDeclaredMethod("archiveFile", String.class);
-        assertEquals(void.class, m.getReturnType());
-        assertTrue(Modifier.isPublic(m.getModifiers()));
-    }
-
-    @Test
-    public void should_have_archiveFile_with_meteorfile_signature() throws Exception {
-        Method m = FileManager.class.getDeclaredMethod("archiveFile",
-                com.bnpparibas.dsibddf.ap00420.streamfact.batch.dailymeteorintegration.model.MeteorFile.class);
-        assertEquals(void.class, m.getReturnType());
-        assertTrue(Modifier.isPublic(m.getModifiers()));
-    }
-
-    @Test
-    public void should_declare_exactly_three_methods() {
-        Method[] methods = FileManager.class.getDeclaredMethods();
-        assertEquals(3, methods.length);
-    }
-
-    private boolean hasExceptionDeclared(Method m, Class<?> exceptionType) {
-        for (Class<?> ex : m.getExceptionTypes()) {
-            if (ex.equals(exceptionType)) {
-                return true;
+    @After
+    public void tearDown() {
+        File[] files = tempDir.listFiles();
+        if (files != null) {
+            for (File f : files) {
+                f.delete();
             }
         }
-        return false;
+        tempDir.delete();
+    }
+
+    // ================== TESTS getFiles() ==================
+
+    @Test
+    public void getFiles_should_return_empty_list_when_no_files() {
+        List<MeteorFile> files = localFileManager.getFiles();
+        assertNotNull(files);
+        assertTrue(files.isEmpty());
+    }
+
+    @Test
+    public void getFiles_should_return_files_matching_prefix() throws IOException {
+        File file1 = new File(tempDir, "METEOR_001.txt");
+        File file2 = new File(tempDir, "METEOR_002.txt");
+        File other = new File(tempDir, "OTHER_999.txt");
+        assertTrue(file1.createNewFile());
+        assertTrue(file2.createNewFile());
+        assertTrue(other.createNewFile());
+
+        List<MeteorFile> result = localFileManager.getFiles();
+
+        assertEquals(2, result.size());
+        assertTrue(result.get(0).getName().startsWith("METEOR_"));
+        assertTrue(result.get(1).getName().startsWith("METEOR_"));
+    }
+
+    @Test
+    public void getFiles_should_throw_exception_if_path_is_null() throws Exception {
+        setPrivateField(localFileManager, "path", null);
+        try {
+            localFileManager.getFiles();
+            fail("Expected IllegalArgumentException");
+        } catch (IllegalArgumentException e) {
+            assertTrue(e.getMessage().contains("path-cft"));
+        }
+    }
+
+    @Test
+    public void getFiles_should_throw_exception_if_prefix_is_null() throws Exception {
+        setPrivateField(localFileManager, "prefix", null);
+        try {
+            localFileManager.getFiles();
+            fail("Expected IllegalArgumentException");
+        } catch (IllegalArgumentException e) {
+            assertTrue(e.getMessage().contains("object-prefix-meteor"));
+        }
+    }
+
+    @Test
+    public void getFiles_should_return_unmodifiable_list() throws IOException {
+        File f = new File(tempDir, "METEOR_X.txt");
+        assertTrue(f.createNewFile());
+
+        List<MeteorFile> files = localFileManager.getFiles();
+        try {
+            files.add(new MeteorFile(f, f.getName()));
+            fail("Expected UnsupportedOperationException");
+        } catch (UnsupportedOperationException expected) {
+            assertTrue(true);
+        }
+    }
+
+    // ================== TESTS archiveFile() ==================
+
+    @Test
+    public void archiveFile_with_string_should_not_throw() {
+        localFileManager.archiveFile("test-key");
+    }
+
+    @Test
+    public void archiveFile_with_meteorfile_should_not_throw() {
+        MeteorFile mf = new MeteorFile(new File("dummy.txt"), "dummy.txt");
+        localFileManager.archiveFile(mf);
+    }
+
+    // ================== UTILITAIRE REFLEXION ==================
+
+    private void setPrivateField(Object instance, String field, Object value) throws Exception {
+        Field f = instance.getClass().getDeclaredField(field);
+        f.setAccessible(true);
+        f.set(instance, value);
     }
 }
