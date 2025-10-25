@@ -1,134 +1,122 @@
-package com.bnpparibas.dsibddf.ap00420.streamfact.batch.dailymeteorintegration.manager;
+package com.bnpparibas.dsibddf.ap00420.streamfact.batch.dpo.job;
 
-import com.bnpparibas.dsibddf.ap00420.streamfact.batch.dailymeteorintegration.model.MeteorFile;
-import org.junit.*;
+import com.bnpparibas.dsibddf.ap00420.streamfact.batch.dpo.tasklet.PurgeDpoTableTasklet;
+import com.bnpparibas.dsibddf.ap00420.streamfact.batch.dpo.tasklet.SendMailDPOTasklet;
+import org.junit.Before;
+import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnitRunner;
-import org.springframework.util.Assert;
+import org.springframework.batch.core.Job;
+import org.springframework.batch.core.Step;
+import org.springframework.batch.core.job.flow.FlowJob;
+import org.springframework.batch.core.repository.JobRepository;
+import org.springframework.batch.core.step.tasklet.TaskletStep;
+import org.springframework.transaction.PlatformTransactionManager;
 
-import java.io.File;
-import java.io.IOException;
 import java.lang.reflect.Field;
-import java.util.Collections;
-import java.util.List;
 
 import static org.junit.Assert.*;
+import static org.mockito.Mockito.*;
 
 /**
- * Test JUnit 4 – 100 % coverage LocalFileManager
+ * Test JUnit 4 – 100 % coverage de SendMailDPOConfiguration
  * Compatible Sonar / Jenkins / Jacoco / Java 17+
  */
 @RunWith(MockitoJUnitRunner.class)
-public class LocalFileManagerTest {
+public class SendMailDPOConfigurationTest {
 
-    private LocalFileManager localFileManager;
-    private File tempDir;
+    @Mock
+    private SendMailDPOTasklet sendMailDPOTasklet;
+
+    @Mock
+    private PurgeDpoTableTasklet purgeDpoTableTasklet;
+
+    @Mock
+    private JobRepository jobRepository;
+
+    @Mock
+    private PlatformTransactionManager platformTransactionManager;
+
+    @InjectMocks
+    private SendMailDPOConfiguration configuration;
 
     @Before
-    public void setUp() throws Exception {
-        localFileManager = new LocalFileManager();
-
-        // Dossier temporaire
-        tempDir = new File(System.getProperty("java.io.tmpdir"), "meteor_test_dir");
-        if (!tempDir.exists()) {
-            assertTrue(tempDir.mkdirs());
-        }
-
-        // Injection des @Value simulées
-        setPrivateField(localFileManager, "path", tempDir.getAbsolutePath());
-        setPrivateField(localFileManager, "prefix", "METEOR_");
-    }
-
-    @After
-    public void tearDown() {
-        File[] files = tempDir.listFiles();
-        if (files != null) {
-            for (File f : files) {
-                f.delete();
-            }
-        }
-        tempDir.delete();
-    }
-
-    // ================== TESTS getFiles() ==================
-
-    @Test
-    public void getFiles_should_return_empty_list_when_no_files() {
-        List<MeteorFile> files = localFileManager.getFiles();
-        assertNotNull(files);
-        assertTrue(files.isEmpty());
+    public void setUp() {
+        assertNotNull(configuration);
     }
 
     @Test
-    public void getFiles_should_return_files_matching_prefix() throws IOException {
-        File file1 = new File(tempDir, "METEOR_001.txt");
-        File file2 = new File(tempDir, "METEOR_002.txt");
-        File other = new File(tempDir, "OTHER_999.txt");
-        assertTrue(file1.createNewFile());
-        assertTrue(file2.createNewFile());
-        assertTrue(other.createNewFile());
+    public void sendMailDPO_should_build_job_with_two_steps() throws Exception {
+        // Arrange
+        Step step1 = configuration.sendMailDPOStep(jobRepository, platformTransactionManager);
+        Step step2 = configuration.purgeDpoTableStep(jobRepository, platformTransactionManager);
 
-        List<MeteorFile> result = localFileManager.getFiles();
+        // Act
+        Job job = configuration.sendMailDPO(jobRepository, step1, step2);
 
-        assertEquals(2, result.size());
-        assertTrue(result.get(0).getName().startsWith("METEOR_"));
-        assertTrue(result.get(1).getName().startsWith("METEOR_"));
-    }
+        // Assert
+        assertNotNull(job);
+        assertTrue(job instanceof FlowJob);
+        assertEquals("sendMailDPOJob", job.getName());
 
-    @Test
-    public void getFiles_should_throw_exception_if_path_is_null() throws Exception {
-        setPrivateField(localFileManager, "path", null);
-        try {
-            localFileManager.getFiles();
-            fail("Expected IllegalArgumentException");
-        } catch (IllegalArgumentException e) {
-            assertTrue(e.getMessage().contains("path-cft"));
-        }
-    }
-
-    @Test
-    public void getFiles_should_throw_exception_if_prefix_is_null() throws Exception {
-        setPrivateField(localFileManager, "prefix", null);
-        try {
-            localFileManager.getFiles();
-            fail("Expected IllegalArgumentException");
-        } catch (IllegalArgumentException e) {
-            assertTrue(e.getMessage().contains("object-prefix-meteor"));
-        }
-    }
-
-    @Test
-    public void getFiles_should_return_unmodifiable_list() throws IOException {
-        File f = new File(tempDir, "METEOR_X.txt");
-        assertTrue(f.createNewFile());
-
-        List<MeteorFile> files = localFileManager.getFiles();
-        try {
-            files.add(new MeteorFile(f, f.getName()));
-            fail("Expected UnsupportedOperationException");
-        } catch (UnsupportedOperationException expected) {
-            assertTrue(true);
-        }
-    }
-
-    // ================== TESTS archiveFile() ==================
-
-    @Test
-    public void archiveFile_with_string_should_not_throw() {
-        localFileManager.archiveFile("test-key");
-    }
-
-    @Test
-    public void archiveFile_with_meteorfile_should_not_throw() {
-        MeteorFile mf = new MeteorFile(new File("dummy.txt"), "dummy.txt");
-        localFileManager.archiveFile(mf);
-    }
-
-    // ================== UTILITAIRE REFLEXION ==================
-
-    private void setPrivateField(Object instance, String field, Object value) throws Exception {
-        Field f = instance.getClass().getDeclaredField(field);
+        // Vérification du RunIdIncrementer via réflexion
+        Field f = job.getClass().getSuperclass().getDeclaredField("jobParametersIncrementer");
         f.setAccessible(true);
-        f.set(instance, value);
+        Object inc = f.get(job);
+        assertNotNull(inc);
+        assertEquals("org.springframework.batch.core.launch.support.RunIdIncrementer", inc.getClass().getName());
+    }
+
+    @Test
+    public void sendMailDPOStep_should_create_step_with_sendMailTasklet() throws Exception {
+        Step step = configuration.sendMailDPOStep(jobRepository, platformTransactionManager);
+
+        assertNotNull(step);
+        assertEquals("sendMailDPOStep", step.getName());
+        assertTrue(step instanceof TaskletStep);
+
+        // Vérifie le tasklet injecté
+        Field f = TaskletStep.class.getDeclaredField("tasklet");
+        f.setAccessible(true);
+        Object tasklet = f.get(step);
+        assertSame(sendMailDPOTasklet, tasklet);
+
+        // Vérifie le transactionManager injecté
+        Field tm = TaskletStep.class.getDeclaredField("transactionManager");
+        tm.setAccessible(true);
+        Object tmValue = tm.get(step);
+        assertSame(platformTransactionManager, tmValue);
+    }
+
+    @Test
+    public void purgeDpoTableStep_should_create_step_with_purgeTasklet() throws Exception {
+        Step step = configuration.purgeDpoTableStep(jobRepository, platformTransactionManager);
+
+        assertNotNull(step);
+        assertEquals("purgeDpoTableStep", step.getName());
+        assertTrue(step instanceof TaskletStep);
+
+        Field f = TaskletStep.class.getDeclaredField("tasklet");
+        f.setAccessible(true);
+        Object tasklet = f.get(step);
+        assertSame(purgeDpoTableTasklet, tasklet);
+
+        Field tm = TaskletStep.class.getDeclaredField("transactionManager");
+        tm.setAccessible(true);
+        Object tmValue = tm.get(step);
+        assertSame(platformTransactionManager, tmValue);
+    }
+
+    @Test
+    public void autowired_fields_should_be_initialized_by_mockito() throws Exception {
+        Field f1 = SendMailDPOConfiguration.class.getDeclaredField("sendMailDPOTasklet");
+        Field f2 = SendMailDPOConfiguration.class.getDeclaredField("purgeDpoTableTasklet");
+        f1.setAccessible(true);
+        f2.setAccessible(true);
+
+        assertSame(sendMailDPOTasklet, f1.get(configuration));
+        assertSame(purgeDpoTableTasklet, f2.get(configuration));
     }
 }
