@@ -45,7 +45,7 @@ public class BillingSpaceSynchroItemProcessorTest {
     private BillingSpace billingSpace;
 
     @Mock
-    private BillingSpace synchroBillingSpace; // objet renvoyé par le SynchroBillingSpaceCommand
+    private BillingSpace synchroBillingSpace; // Objet renvoyé par le SynchroBillingSpaceCommand
 
     @Mock
     private LoanFolder loanFolder;
@@ -75,14 +75,14 @@ public class BillingSpaceSynchroItemProcessorTest {
             billingMapper.when(() -> BillingSpaceMapperToDomain.toDomain(any())).thenReturn(billingSpace);
             loanMapper.when(() -> LoanFolderMapperToDomain.toDomain(any())).thenReturn(loanFolder);
 
-            // Commandes
+            // Commande principale
             when(commandExecutor.execute(eq(SynchroLoanFoldersCommand.class), any(SynchroLoanFoldersRequest.class)))
                     .thenReturn(loanFolderSynchroResult);
-            when(commandExecutor.execute(eq(SynchroBillingSpaceCommand.class), any(SynchroBillingSpaceRequest.class)))
-                    .thenReturn(synchroBillingSpace);
+
+            // Pas besoin de stub pour SynchroBillingSpaceCommand ici
 
             // Préparation des retours
-            when(synchroBillingSpace.getBillingSpaceStatus()).thenReturn(BillingSpaceStatusEnum.TO_CLOSE);
+            when(billingSpace.getBillingSpaceStatus()).thenReturn(BillingSpaceStatusEnum.TO_CLOSE);
             when(loanFolderSynchroResult.getLoanFolderSynchroAnalysis()).thenReturn(loanFolderSynchroAnalysis);
             when(loanFolderSynchroAnalysis.getContractLoandFolderAnalysisList())
                     .thenReturn(Collections.singletonList(contractAnalysis));
@@ -92,7 +92,7 @@ public class BillingSpaceSynchroItemProcessorTest {
 
             // Vérifications
             assertNotNull(result);
-            assertEquals(synchroBillingSpace, result.getBillingSpace());
+            assertEquals(billingSpace, result.getBillingSpace());
             assertEquals(loanFolderSynchroResult, result.getLoanFolderSynchroResult());
         }
     }
@@ -103,17 +103,15 @@ public class BillingSpaceSynchroItemProcessorTest {
         try (MockedStatic<BillingSpaceMapperToDomain> billingMapper = Mockito.mockStatic(BillingSpaceMapperToDomain.class);
              MockedStatic<LoanFolderMapperToDomain> loanMapper = Mockito.mockStatic(LoanFolderMapperToDomain.class)) {
 
-            // Mappers
             billingMapper.when(() -> BillingSpaceMapperToDomain.toDomain(any())).thenReturn(billingSpace);
             loanMapper.when(() -> LoanFolderMapperToDomain.toDomain(any())).thenReturn(loanFolder);
 
-            // Commandes
+            // Les deux commandes utilisées dans ce cas
             when(commandExecutor.execute(eq(SynchroLoanFoldersCommand.class), any(SynchroLoanFoldersRequest.class)))
                     .thenReturn(loanFolderSynchroResult);
             when(commandExecutor.execute(eq(SynchroBillingSpaceCommand.class), any(SynchroBillingSpaceRequest.class)))
                     .thenReturn(synchroBillingSpace);
 
-            // Cas vide
             when(synchroBillingSpace.getBillingSpaceStatus()).thenReturn(BillingSpaceStatusEnum.CLOSED);
             when(loanFolderSynchroResult.getLoanFolderSynchroAnalysis()).thenReturn(loanFolderSynchroAnalysis);
             when(loanFolderSynchroAnalysis.getContractLoandFolderAnalysisList()).thenReturn(Collections.emptyList());
@@ -121,10 +119,7 @@ public class BillingSpaceSynchroItemProcessorTest {
             when(loanFolderSynchroAnalysis.getBorrowerLoandFolderAnalysisList()).thenReturn(Collections.emptyList());
             when(loanFolderSynchroAnalysis.getLoanFolderAnalysisDatas()).thenReturn(Collections.emptyList());
 
-            // Exécution
             SynchroResult result = processor.process(billingSpaceEntity);
-
-            // Vérifications
             assertNull(result);
         }
     }
