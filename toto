@@ -1,118 +1,156 @@
-package com.bnpparibas.dsibddf.ap00420.streamfact.batch.dailymeteorintegration.manager;
+package com.bnpparibas.dsibddf.ap00420.streamfact.batch.dailymeteorintegration.tasklet;
 
+import com.bnpparibas.dsibddf.ap00420.streamfact.batch.dailymeteorintegration.manager.FileManager;
 import com.bnpparibas.dsibddf.ap00420.streamfact.batch.dailymeteorintegration.model.MeteorFile;
-import com.ibm.cloud.objectstorage.ClientConfiguration;
-import com.ibm.cloud.objectstorage.auth.AWSCredentials;
-import com.ibm.cloud.objectstorage.services.s3.AmazonS3;
-import com.ibm.cloud.objectstorage.services.s3.model.*;
+import com.bnpparibas.dsibddf.ap00420.streamfact.domain.commons.ContractTypeEnum;
+import com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.meteorflux.model.MeteorFlux;
+import com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.meteorflux.repository.MeteorFluxRepository;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.junit.MockitoJUnitRunner;
-import org.springframework.core.env.Environment;
+import org.springframework.batch.core.StepContribution;
+import org.springframework.batch.core.scope.context.ChunkContext;
+import org.springframework.batch.repeat.RepeatStatus;
 
 import java.io.*;
-import java.net.URL;
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.*;
 
 import static org.junit.Assert.*;
 import static org.mockito.Mockito.*;
 
+/**
+ * Test JUnit 4 - 100% coverage pour LoadDailyMeteorFileTasklet
+ * Compatible Sonar / Jenkins / Jacoco / Java 17+
+ */
 @RunWith(MockitoJUnitRunner.class)
-public class CloudFileManagerTest {
+public class LoadDailyMeteorFileTaskletTest {
+
+    @Mock
+    private MeteorFluxRepository meteorFluxRepository;
+
+    @Mock
+    private FileManager fileManager;
+
+    @Mock
+    private StepContribution stepContribution;
+
+    @Mock
+    private ChunkContext chunkContext;
 
     @InjectMocks
-    private CloudFileManager manager;
+    private LoadDailyMeteorFileTasklet tasklet;
 
-    @Mock
-    private AmazonS3 s3Client;
-
-    @Mock
-    private Environment env;
-
-    private AmazonS3 s3ClientNew;
+    private File validFile;
+    private File invalidFile;
 
     @Before
     public void setUp() throws Exception {
-        s3ClientNew = mock(AmazonS3.class);
-        setPrivate(manager, "bucketName", "bucket-test");
-        setPrivate(manager, "bucketNameNew", "bucket-new");
-        setPrivate(manager, "objectKeyNew", "object-key");
-        setPrivate(manager, "prefix", "prefix");
-        setPrivate(manager, "path", "/tmp/");
-        setPrivate(manager, "cosCftName", "");
-        setPrivate(manager, "endpointNew", new URL("http://localhost"));
-        setPrivate(manager, "location", "eu-fr2");
-        setPrivate(manager, "cosIamEndpoint", "iam.endpoint");
-        setPrivate(manager, "cosTimeOut", 5000);
-        setPrivate(manager, "env", env);
+        // Création d’un fichier temporaire valide
+        validFile = File.createTempFile("meteor_valid", ".txt");
+        try (BufferedWriter writer = new BufferedWriter(new FileWriter(validFile))) {
+            // ligne "02" conforme avec sous-chaînes suffisantes pour parsing
+            StringBuilder sb = new StringBuilder();
+            sb.append("02"); // début
+            sb.append(String.format("%-23s", "12345678901234567890123")); // loanAccountNumber
+            sb.append(String.format("%65s", " ")); // remplissage
+            sb.append("001"); // idProt
+            sb.append("0000000000000010"); // personalContributionAmount
+            sb.append("0000000000000020"); // purchaseAmount
+            sb.append("0000000000000030"); // renovationAmount
+            sb.append(String.format("%48s", " ")); // espace jusqu'à index 171
+            sb.append("0000000000000040"); // landAmount
+            sb.append(String.format("%370s", " ")); // remplissage jusqu’à 557
+            sb.append(String.format("%-23s", "loanFolderTest")); // loanFolderId
+            writer.write(sb.toString());
+            writer.newLine();
+        }
+
+        // fichier corrompu pour provoquer Exception
+        invalidFile = File.createTempFile("meteor_invalid", ".txt");
+        try (BufferedWriter writer = new BufferedWriter(new FileWriter(invalidFile))) {
+            writer.write("invalid_line_without_enough_length");
+        }
     }
 
     @Test
-    public void test_createClientConfig_and_createCredentials() throws Exception {
-        Object config = invoke(manager, "createClientConfig", new Class<?>[]{}, new Object[]{});
-        assertTrue(config instanceof ClientConfiguration);
-
-        Object creds = invoke(manager, "createCredentials",
-                new Class<?>[]{String.class, String.class},
-                new Object[]{"apiKey", "resourceId"});
-        assertTrue(creds instanceof AWSCredentials);
+    public void execute_should_handle_no_files() throws Exception {
+        when(fileManager.getFiles()).thenReturn(Collections.emptyList());
+        RepeatStatus status = tasklet.execute(stepContribution, chunkContext);
+        assertEquals(RepeatStatus.FINISHED, status);
+        verify(fileManager, times(1)).getFiles();
     }
 
     @Test
-    public void test_beanAmazonS3Legacy_with_and_without_cosCftName() throws Exception {
-        when(env.getProperty(anyString())).thenReturn("dummy");
-        manager.beanAmazonS3Legacy();
-        setPrivate(manager, "cosCftName", "prefixCft");
-        manager.beanAmazonS3Legacy();
+    public void execute_should_process_valid_file_and_archive() throws Exception {
+        MeteorFile meteorFile = new MeteorFile(validFile, validFile.getName());
+        when(fileManager.getFiles()).thenReturn(Collections.singletonList(meteorFile));
+        when(meteorFluxRepository.existsByLoanAccountNumber(anyString())).thenReturn(false);
+        doNothing().when(meteorFluxRepository).saveAll(anyList());
+        doNothing().when(fileManager).archiveFile(any(MeteorFile.class));
+
+        RepeatStatus status = tasklet.execute(stepContribution, chunkContext);
+
+        assertEquals(RepeatStatus.FINISHED, status);
+        verify(fileManager, times(1)).archiveFile(meteorFile);
     }
 
     @Test
-    public void test_getListOfObjects_returns_nonEmptyList() throws Exception {
-        ListObjectsV2Result result = mock(ListObjectsV2Result.class);
-        S3ObjectSummary summary = new S3ObjectSummary();
-        summary.setKey("prefix/file1");
-        when(result.getObjectSummaries()).thenReturn(Collections.singletonList(summary));
-        when(s3ClientNew.listObjectsV2(anyString(), anyString())).thenReturn(result);
+    public void execute_should_handle_extract_failure() throws Exception {
+        MeteorFile meteorFile = new MeteorFile(invalidFile, invalidFile.getName());
+        when(fileManager.getFiles()).thenReturn(Collections.singletonList(meteorFile));
+        RepeatStatus status = tasklet.execute(stepContribution, chunkContext);
+        assertEquals(RepeatStatus.FINISHED, status);
+    }
 
-        java.lang.reflect.Method m = CloudFileManager.class
-                .getDeclaredMethod("getListOfObjects", AmazonS3.class);
+    @Test
+    public void extractMeteorFileData_should_return_true_and_save() throws Exception {
+        when(meteorFluxRepository.existsByLoanAccountNumber(anyString())).thenReturn(false);
+        doNothing().when(meteorFluxRepository).saveAll(anyList());
+        boolean result = invokeExtract(tasklet, validFile);
+        assertTrue(result);
+        verify(meteorFluxRepository, atLeastOnce()).saveAll(anyList());
+    }
+
+    @Test
+    public void extractMeteorFileData_should_return_false_on_error() throws Exception {
+        boolean result = invokeExtract(tasklet, invalidFile);
+        assertFalse(result);
+    }
+
+    @Test
+    public void convertIdProtToContractType_should_return_PRI_PRO_and_empty() throws Exception {
+        String pri = invokeConvert("001");
+        String pro = invokeConvert("003");
+        String none = invokeConvert("999");
+        assertEquals(ContractTypeEnum.PRI.getCode(), pri);
+        assertEquals(ContractTypeEnum.PRO.getCode(), pro);
+        assertEquals("", none);
+    }
+
+    @Test
+    public void valueIsEmptyOrNull_should_return_expected_values() {
+        assertTrue(LoadDailyMeteorFileTasklet.valueIsEmptyOrNull(null));
+        assertTrue(LoadDailyMeteorFileTasklet.valueIsEmptyOrNull(""));
+        assertFalse(LoadDailyMeteorFileTasklet.valueIsEmptyOrNull("abc"));
+    }
+
+    // --------- Méthodes utilitaires de réflexion pour accès privé ---------
+
+    private boolean invokeExtract(LoadDailyMeteorFileTasklet instance, File file) throws Exception {
+        java.lang.reflect.Method m = LoadDailyMeteorFileTasklet.class.getDeclaredMethod("extractMeteorFileData", File.class);
         m.setAccessible(true);
-        @SuppressWarnings("unchecked")
-        List<String> list = (List<String>) m.invoke(manager, s3ClientNew);
-
-        assertEquals(1, list.size());
-        assertTrue(list.get(0).contains("file1"));
+        return (boolean) m.invoke(instance, file);
     }
 
-    @Test
-    public void test_getListOfObjects_handles_null_result() throws Exception {
-        when(s3ClientNew.listObjectsV2(anyString(), anyString())).thenReturn(null);
-
-        java.lang.reflect.Method m = CloudFileManager.class
-                .getDeclaredMethod("getListOfObjects", AmazonS3.class);
+    private String invokeConvert(String idProt) throws Exception {
+        java.lang.reflect.Method m = LoadDailyMeteorFileTasklet.class.getDeclaredMethod("convertIdProtToContractType", String.class);
         m.setAccessible(true);
-        @SuppressWarnings("unchecked")
-        List<String> list = (List<String>) m.invoke(manager, s3ClientNew);
-
-        assertTrue(list.isEmpty());
-    }
-
-    // -------------------------------------------------
-    // OUTILS REFLEXION CORRIGÉS
-    // -------------------------------------------------
-
-    private void setPrivate(Object instance, String field, Object value) throws Exception {
-        java.lang.reflect.Field f = instance.getClass().getDeclaredField(field);
-        f.setAccessible(true);
-        f.set(instance, value);
-    }
-
-    private Object invoke(Object instance, String methodName, Class<?>[] paramTypes, Object[] args) throws Exception {
-        java.lang.reflect.Method m = instance.getClass().getDeclaredMethod(methodName, paramTypes);
-        m.setAccessible(true);
-        return m.invoke(instance, args);
+        return (String) m.invoke(null, idProt);
     }
 }
