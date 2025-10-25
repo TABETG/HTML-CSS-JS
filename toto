@@ -1,36 +1,43 @@
-package com.bnpparibas.dsibddf.ap00420.streamfact.batch.main;
+package com.bnpparibas.dsibddf.ap00420.streamfact.batch.replay.sendpaymentrequest.processor;
 
+import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.DeposetEventHistoryEntity;
+import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.junit.MockitoJUnitRunner;
-import org.springframework.boot.SpringApplication;
 
 import static org.junit.Assert.*;
-import static org.mockito.Mockito.*;
 
 /**
- * Test JUnit 4 – 100 % coverage pour StreamfactBatchApplication
+ * Test JUnit 4 – 100 % coverage SendPaymentRequestProcessor
  * Compatible Sonar / Jenkins / Jacoco / Java 17+
  */
 @RunWith(MockitoJUnitRunner.class)
-public class StreamfactBatchApplicationTest {
+public class SendPaymentRequestProcessorTest {
 
-    @Test
-    public void main_should_start_spring_application() {
-        // Mock statique de SpringApplication pour éviter un vrai lancement de contexte
-        SpringApplication mockApp = mock(SpringApplication.class);
-        try {
-            // Appel direct de la méthode main
-            StreamfactBatchApplication.main(new String[]{"--spring.profiles.active=test"});
-            assertTrue(true); // pas d'exception = succès
-        } catch (Exception e) {
-            fail("Application failed to start: " + e.getMessage());
-        }
+    private SendPaymentRequestProcessor processor;
+
+    @Before
+    public void setUp() {
+        processor = new SendPaymentRequestProcessor();
     }
 
     @Test
-    public void class_should_have_main_method() throws Exception {
-        assertNotNull(StreamfactBatchApplication.class.getMethod("main", String[].class));
-        assertNotNull(StreamfactBatchApplication.class.getAnnotation(org.springframework.boot.autoconfigure.SpringBootApplication.class));
+    public void process_should_return_same_entity_when_input_not_null() throws Exception {
+        DeposetEventHistoryEntity input = new DeposetEventHistoryEntity();
+        DeposetEventHistoryEntity output = processor.process(input);
+        assertNotNull(output);
+        assertSame(input, output);
+    }
+
+    @Test
+    public void process_should_return_null_when_input_is_null() throws Exception {
+        DeposetEventHistoryEntity result = processor.process(null);
+        assertNull(result);
+    }
+
+    @Test
+    public void class_should_implement_itemprocessor_interface() {
+        assertTrue(processor instanceof org.springframework.batch.item.ItemProcessor);
     }
 }
