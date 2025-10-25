@@ -20,10 +20,6 @@ import java.lang.reflect.Field;
 import static org.junit.Assert.*;
 import static org.mockito.Mockito.*;
 
-/**
- * Test JUnit 4 – 100 % coverage de SendMailDPOConfiguration
- * Compatible Sonar / Jenkins / Jacoco / Java 17+
- */
 @RunWith(MockitoJUnitRunner.class)
 public class SendMailDPOConfigurationTest {
 
@@ -48,69 +44,63 @@ public class SendMailDPOConfigurationTest {
     }
 
     @Test
-    public void sendMailDPO_should_build_job_with_two_steps() throws Exception {
-        // Arrange
+    public void sendMailDPO_should_build_job_with_two_steps_and_incrementer() throws Exception {
         Step step1 = configuration.sendMailDPOStep(jobRepository, platformTransactionManager);
         Step step2 = configuration.purgeDpoTableStep(jobRepository, platformTransactionManager);
 
-        // Act
         Job job = configuration.sendMailDPO(jobRepository, step1, step2);
 
-        // Assert
         assertNotNull(job);
         assertTrue(job instanceof FlowJob);
         assertEquals("sendMailDPOJob", job.getName());
 
-        // Vérification du RunIdIncrementer via réflexion
-        Field f = job.getClass().getSuperclass().getDeclaredField("jobParametersIncrementer");
-        f.setAccessible(true);
-        Object inc = f.get(job);
+        Field incField = job.getClass().getSuperclass().getDeclaredField("jobParametersIncrementer");
+        incField.setAccessible(true);
+        Object inc = incField.get(job);
         assertNotNull(inc);
         assertEquals("org.springframework.batch.core.launch.support.RunIdIncrementer", inc.getClass().getName());
     }
 
     @Test
-    public void sendMailDPOStep_should_create_step_with_sendMailTasklet() throws Exception {
+    public void sendMailDPOStep_should_create_tasklet_step_with_tm() throws Exception {
         Step step = configuration.sendMailDPOStep(jobRepository, platformTransactionManager);
 
         assertNotNull(step);
         assertEquals("sendMailDPOStep", step.getName());
         assertTrue(step instanceof TaskletStep);
 
-        // Vérifie le tasklet injecté
-        Field f = TaskletStep.class.getDeclaredField("tasklet");
-        f.setAccessible(true);
-        Object tasklet = f.get(step);
+        Field taskletField = TaskletStep.class.getDeclaredField("tasklet");
+        taskletField.setAccessible(true);
+        Object tasklet = taskletField.get(step);
         assertSame(sendMailDPOTasklet, tasklet);
 
-        // Vérifie le transactionManager injecté
-        Field tm = TaskletStep.class.getDeclaredField("transactionManager");
-        tm.setAccessible(true);
-        Object tmValue = tm.get(step);
-        assertSame(platformTransactionManager, tmValue);
+        Field tmField = TaskletStep.class.getDeclaredField("transactionManager");
+        tmField.setAccessible(true);
+        Object tm = tmField.get(step);
+        assertSame(platformTransactionManager, tm);
     }
 
     @Test
-    public void purgeDpoTableStep_should_create_step_with_purgeTasklet() throws Exception {
+    public void purgeDpoTableStep_should_create_tasklet_step_with_tm() throws Exception {
         Step step = configuration.purgeDpoTableStep(jobRepository, platformTransactionManager);
 
         assertNotNull(step);
         assertEquals("purgeDpoTableStep", step.getName());
         assertTrue(step instanceof TaskletStep);
 
-        Field f = TaskletStep.class.getDeclaredField("tasklet");
-        f.setAccessible(true);
-        Object tasklet = f.get(step);
+        Field taskletField = TaskletStep.class.getDeclaredField("tasklet");
+        taskletField.setAccessible(true);
+        Object tasklet = taskletField.get(step);
         assertSame(purgeDpoTableTasklet, tasklet);
 
-        Field tm = TaskletStep.class.getDeclaredField("transactionManager");
-        tm.setAccessible(true);
-        Object tmValue = tm.get(step);
-        assertSame(platformTransactionManager, tmValue);
+        Field tmField = TaskletStep.class.getDeclaredField("transactionManager");
+        tmField.setAccessible(true);
+        Object tm = tmField.get(step);
+        assertSame(platformTransactionManager, tm);
     }
 
     @Test
-    public void autowired_fields_should_be_initialized_by_mockito() throws Exception {
+    public void autowired_fields_should_be_injected() throws Exception {
         Field f1 = SendMailDPOConfiguration.class.getDeclaredField("sendMailDPOTasklet");
         Field f2 = SendMailDPOConfiguration.class.getDeclaredField("purgeDpoTableTasklet");
         f1.setAccessible(true);
