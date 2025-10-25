@@ -1,127 +1,96 @@
-package com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.synchro.update.reader;
+package com.bnpparibas.dsibddf.ap00420.streamfact.batch.common.tasklet;
 
-import com.bnpparibas.dsibddf.ap00420.streamfact.domain.commons.BillingSpaceStatusEnum;
-import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.billingspace.repository.BillingSpaceJpaRepository;
+import com.bnpparibas.dsibddf.ap00420.streamfact.domain.commons.ProblemNatureEnum;
+import com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.history.repository.DPOMailToSendRepository;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
+import org.mockito.*;
 import org.mockito.junit.MockitoJUnitRunner;
-import org.springframework.data.domain.Sort;
-
-import java.lang.reflect.Field;
-import java.util.List;
-import java.util.Map;
+import org.springframework.batch.core.StepContribution;
+import org.springframework.batch.core.scope.context.ChunkContext;
+import org.springframework.batch.repeat.RepeatStatus;
 
 import static org.junit.Assert.*;
 import static org.mockito.Mockito.*;
 
 /**
- * Test JUnit 4 – Couverture 100% BillingSpaceSynchroItemReader.
- * Compatible Sonar / Jenkins / Jacoco / Java 17+ / Spring Batch 5+.
+ * Test JUnit4 - Couverture 100% DeleteDpoTableImageTasklet
+ * Compatible Sonar / Jenkins / Jacoco / Java 17+
  */
 @RunWith(MockitoJUnitRunner.class)
-public class BillingSpaceSynchroItemReaderTest {
+public class DeleteDpoTableImageTaskletTest {
 
     @Mock
-    private BillingSpaceJpaRepository repository;
+    private DPOMailToSendRepository dpoMailToSendRepository;
 
-    @InjectMocks
-    private BillingSpaceSynchroItemReader reader;
+    @Mock
+    private StepContribution stepContribution;
+
+    @Mock
+    private ChunkContext chunkContext;
+
+    private DeleteDpoTableImageTasklet tasklet;
 
     @Before
     public void setUp() {
-        assertNotNull(reader);
+        tasklet = new DeleteDpoTableImageTasklet(ProblemNatureEnum.MAIL);
+        // injection manuelle du mock car @Autowired non exécuté dans un test unitaire pur
+        setPrivateField(tasklet, "dpoMailToSendRepository", dpoMailToSendRepository);
     }
 
     @Test
-    public void init_should_initialize_all_fields_correctly() throws Exception {
-        reader.init();
+    public void execute_should_call_repository_and_return_finished() throws Exception {
+        when(dpoMailToSendRepository.deleteWithSendFalseAndProblemeNature2(ProblemNatureEnum.MAIL))
+                .thenReturn(3);
 
-        // Vérifie repository
-        Object repo = getDeclaredFieldValue(reader, "repository");
-        assertSame(repository, repo);
+        RepeatStatus status = tasklet.execute(stepContribution, chunkContext);
 
-        // Vérifie methodName
-        Object method = getDeclaredFieldValue(reader, "methodName");
-        assertEquals("findByBillingSpaceStatus", method);
+        assertNotNull(status);
+        assertEquals(RepeatStatus.FINISHED, status);
+        verify(dpoMailToSendRepository, times(1))
+                .deleteWithSendFalseAndProblemeNature2(ProblemNatureEnum.MAIL);
+        verifyNoMoreInteractions(dpoMailToSendRepository);
+    }
 
-        // Vérifie arguments
-        @SuppressWarnings("unchecked")
-        List<Object> args = (List<Object>) getDeclaredFieldValue(reader, "arguments");
-        assertNotNull(args);
-        assertEquals(1, args.size());
-        assertEquals(BillingSpaceStatusEnum.CREATED, args.get(0));
+    @Test
+    public void constructor_should_assign_problemNature_field() throws Exception {
+        DeleteDpoTableImageTasklet custom = new DeleteDpoTableImageTasklet(ProblemNatureEnum.ANALYSIS);
+        Object fieldValue = getPrivateField(custom, "problemNature");
+        assertEquals(ProblemNatureEnum.ANALYSIS, fieldValue);
+    }
 
-        // Vérifie sort (HashMap)
-        Object sortObj = getDeclaredFieldValue(reader, "sort");
-        assertNotNull(sortObj);
+    @Test
+    public void execute_should_handle_zero_deleted_without_exception() throws Exception {
+        when(dpoMailToSendRepository.deleteWithSendFalseAndProblemeNature2(ProblemNatureEnum.MAIL))
+                .thenReturn(0);
 
-        if (sortObj instanceof Map) {
-            Map<?, ?> sortMap = (Map<?, ?>) sortObj;
-            assertTrue(sortMap.containsKey("loanFolderId"));
-            assertEquals(Sort.Direction.ASC, sortMap.get("loanFolderId"));
-        } else if (sortObj instanceof Sort) {
-            Sort sort = (Sort) sortObj;
-            assertTrue(sort.isSorted());
-            assertTrue(sort.stream().anyMatch(order ->
-                    order.getProperty().equals("loanFolderId") &&
-                            order.getDirection() == Sort.Direction.ASC));
-        } else {
-            fail("Unexpected sort field type: " + sortObj.getClass());
+        RepeatStatus status = tasklet.execute(stepContribution, chunkContext);
+
+        assertEquals(RepeatStatus.FINISHED, status);
+        verify(dpoMailToSendRepository, times(1))
+                .deleteWithSendFalseAndProblemeNature2(ProblemNatureEnum.MAIL);
+    }
+
+    /** Utilitaire : injection de champ privé via réflexion */
+    private void setPrivateField(Object instance, String fieldName, Object value) {
+        try {
+            java.lang.reflect.Field field = instance.getClass().getDeclaredField(fieldName);
+            field.setAccessible(true);
+            field.set(instance, value);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
         }
-
-        verifyNoInteractions(repository);
     }
 
-    @Test
-    public void constructor_should_assign_repository_and_init_should_work() throws Exception {
-        BillingSpaceJpaRepository mockRepo = mock(BillingSpaceJpaRepository.class);
-        BillingSpaceSynchroItemReader customReader = new BillingSpaceSynchroItemReader(mockRepo);
-
-        Object repoValue = getDeclaredFieldValue(customReader, "repository");
-        assertSame(mockRepo, repoValue);
-
-        customReader.init();
-
-        Object method = getDeclaredFieldValue(customReader, "methodName");
-        assertEquals("findByBillingSpaceStatus", method);
-
-        @SuppressWarnings("unchecked")
-        List<Object> args = (List<Object>) getDeclaredFieldValue(customReader, "arguments");
-        assertNotNull(args);
-        assertEquals(BillingSpaceStatusEnum.CREATED, args.get(0));
-
-        verifyNoInteractions(mockRepo);
-    }
-
-    @Test
-    public void init_should_be_idempotent_when_called_multiple_times() throws Exception {
-        reader.init();
-        reader.init();
-
-        @SuppressWarnings("unchecked")
-        List<Object> args = (List<Object>) getDeclaredFieldValue(reader, "arguments");
-        assertNotNull(args);
-        assertEquals(1, args.size());
-        assertEquals(BillingSpaceStatusEnum.CREATED, args.get(0));
-
-        verifyNoInteractions(repository);
-    }
-
-    /** Lecture récursive d’un champ privé dans la hiérarchie de classes. */
-    private Object getDeclaredFieldValue(Object instance, String fieldName) throws Exception {
-        Class<?> clazz = instance.getClass();
-        while (clazz != null) {
-            try {
-                Field field = clazz.getDeclaredField(fieldName);
-                field.setAccessible(true);
-                return field.get(instance);
-            } catch (NoSuchFieldException e) {
-                clazz = clazz.getSuperclass();
-            }
+    /** Utilitaire : lecture de champ privé via réflexion */
+    private Object getPrivateField(Object instance, String fieldName) {
+        try {
+            java.lang.reflect.Field field = instance.getClass().getDeclaredField(fieldName);
+            field.setAccessible(true);
+            return field.get(instance);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
         }
-        throw new NoSuchFieldException("Champ introuvable : " + fieldName);
     }
 }
