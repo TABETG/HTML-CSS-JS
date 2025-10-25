@@ -11,19 +11,22 @@ import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.bil
 import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.billingspace.model.BillingSpaceEntity;
 import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.loanfolder.mapper.LoanFolderMapperToDomain;
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.*;
+import org.mockito.junit.MockitoJUnit;
 import org.mockito.junit.MockitoJUnitRunner;
-
 import java.util.Collections;
-
 import static org.junit.Assert.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 @RunWith(MockitoJUnitRunner.class)
 public class BillingSpaceSynchroItemProcessorTest {
+
+    @Rule
+    public MockitoRule rule = MockitoJUnit.rule().strictness(Strictness.LENIENT);
 
     @InjectMocks
     private BillingSpaceSynchroItemProcessor processor;
@@ -69,9 +72,9 @@ public class BillingSpaceSynchroItemProcessorTest {
             billingMapper.when(() -> BillingSpaceMapperToDomain.toDomain(any())).thenReturn(billingSpace);
             loanMapper.when(() -> LoanFolderMapperToDomain.toDomain(any())).thenReturn(loanFolder);
 
-            lenient().when(commandExecutor.execute(eq(SynchroLoanFoldersCommand.class), any(SynchroLoanFoldersRequest.class)))
+            when(commandExecutor.execute(eq(SynchroLoanFoldersCommand.class), any(SynchroLoanFoldersRequest.class)))
                     .thenReturn(loanFolderSynchroResult);
-            lenient().when(commandExecutor.execute(eq(SynchroBillingSpaceCommand.class), any(SynchroBillingSpaceRequest.class)))
+            when(commandExecutor.execute(eq(SynchroBillingSpaceCommand.class), any(SynchroBillingSpaceRequest.class)))
                     .thenReturn(synchroBillingSpace);
 
             when(synchroBillingSpace.getBillingSpaceStatus()).thenReturn(BillingSpaceStatusEnum.TO_CLOSE);
@@ -96,9 +99,9 @@ public class BillingSpaceSynchroItemProcessorTest {
             billingMapper.when(() -> BillingSpaceMapperToDomain.toDomain(any())).thenReturn(billingSpace);
             loanMapper.when(() -> LoanFolderMapperToDomain.toDomain(any())).thenReturn(loanFolder);
 
-            lenient().when(commandExecutor.execute(eq(SynchroLoanFoldersCommand.class), any(SynchroLoanFoldersRequest.class)))
+            when(commandExecutor.execute(eq(SynchroLoanFoldersCommand.class), any(SynchroLoanFoldersRequest.class)))
                     .thenReturn(loanFolderSynchroResult);
-            lenient().when(commandExecutor.execute(eq(SynchroBillingSpaceCommand.class), any(SynchroBillingSpaceRequest.class)))
+            when(commandExecutor.execute(eq(SynchroBillingSpaceCommand.class), any(SynchroBillingSpaceRequest.class)))
                     .thenReturn(synchroBillingSpace);
 
             when(synchroBillingSpace.getBillingSpaceStatus()).thenReturn(BillingSpaceStatusEnum.CLOSED);
