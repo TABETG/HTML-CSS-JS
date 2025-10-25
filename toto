@@ -8,13 +8,9 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnitRunner;
 import org.springframework.batch.core.Job;
-import org.springframework.batch.core.JobExecution;
 import org.springframework.batch.core.Step;
-import org.springframework.batch.core.job.builder.JobBuilder;
 import org.springframework.batch.core.job.flow.FlowJob;
-import org.springframework.batch.core.launch.support.RunIdIncrementer;
 import org.springframework.batch.core.repository.JobRepository;
-import org.springframework.batch.core.step.builder.StepBuilder;
 import org.springframework.batch.core.step.tasklet.TaskletStep;
 import org.springframework.transaction.PlatformTransactionManager;
 
@@ -24,8 +20,8 @@ import static org.junit.Assert.*;
 import static org.mockito.Mockito.*;
 
 /**
- * Test JUnit4 - Couverture 100% DailyMeteorIntegrationConfiguration
- * Compatible Sonar / Jenkins / Jacoco
+ * Test JUnit4 - Couverture 100% de DailyMeteorIntegrationConfiguration
+ * Compatible Sonar / Jenkins / Jacoco / Java 17+
  */
 @RunWith(MockitoJUnitRunner.class)
 public class DailyMeteorIntegrationConfigurationTest {
@@ -48,31 +44,31 @@ public class DailyMeteorIntegrationConfigurationTest {
     }
 
     @Test
-    public void loadDailyMeteorFileJob_should_create_job_with_expected_name_and_incrementer() throws Exception {
-        Step mockStep = new StepBuilder("testStep", jobRepository)
-                .tasklet(loadDailyMeteorFileTasklet, platformTransactionManager)
-                .build();
-
-        Job job = configuration.loadDailyMeteorFileJob(jobRepository, mockStep);
+    public void loadDailyMeteorFileJob_should_create_job_with_expected_properties() throws Exception {
+        Step step = configuration.loadDailyMeteorFileStep(jobRepository);
+        Job job = configuration.loadDailyMeteorFileJob(jobRepository, step);
 
         assertNotNull(job);
         assertTrue(job instanceof FlowJob);
         assertEquals("loadDailyMeteorFileJob", job.getName());
 
-        Field incrementerField = job.getClass().getSuperclass().getDeclaredField("jobParametersIncrementer");
-        incrementerField.setAccessible(true);
-        Object incrementer = incrementerField.get(job);
-        assertTrue(incrementer instanceof RunIdIncrementer);
+        // Vérifie la présence du RunIdIncrementer
+        Field incField = job.getClass().getSuperclass().getDeclaredField("jobParametersIncrementer");
+        incField.setAccessible(true);
+        Object incrementer = incField.get(job);
+        assertNotNull(incrementer);
+        assertEquals("org.springframework.batch.core.launch.support.RunIdIncrementer", incrementer.getClass().getName());
     }
 
     @Test
-    public void loadDailyMeteorFileStep_should_create_step_with_expected_tasklet() throws Exception {
+    public void loadDailyMeteorFileStep_should_create_step_with_tasklet_and_transactionManager() throws Exception {
         Step step = configuration.loadDailyMeteorFileStep(jobRepository);
 
         assertNotNull(step);
         assertTrue(step instanceof TaskletStep);
         assertEquals("loadDailyMeteorFileStep", step.getName());
 
+        // Vérifie que le tasklet et le TM sont bien affectés
         Field taskletField = TaskletStep.class.getDeclaredField("tasklet");
         taskletField.setAccessible(true);
         Object tasklet = taskletField.get(step);
@@ -85,17 +81,39 @@ public class DailyMeteorIntegrationConfigurationTest {
     }
 
     @Test
-    public void autowired_fields_should_be_initialized_correctly() throws Exception {
+    public void autowired_fields_should_be_injected_correctly() throws Exception {
         Field taskletField = DailyMeteorIntegrationConfiguration.class.getDeclaredField("loadDailyMeteorFileTasklet");
         Field tmField = DailyMeteorIntegrationConfiguration.class.getDeclaredField("platformTransactionManager");
+
         taskletField.setAccessible(true);
         tmField.setAccessible(true);
 
         Object injectedTasklet = taskletField.get(configuration);
         Object injectedTm = tmField.get(configuration);
 
-        // Les mocks sont bien injectés par Mockito
         assertSame(loadDailyMeteorFileTasklet, injectedTasklet);
         assertSame(platformTransactionManager, injectedTm);
+    }
+
+    @Test
+    public void constructor_and_methods_should_not_throw_exception() throws Exception {
+        // Vérifie que la configuration supporte un nouvel objet proprement
+        DailyMeteorIntegrationConfiguration config2 = new DailyMeteorIntegrationConfiguration();
+
+        // Injection manuelle pour vérif globale
+        Field taskletField = DailyMeteorIntegrationConfiguration.class.getDeclaredField("loadDailyMeteorFileTasklet");
+        Field tmField = DailyMeteorIntegrationConfiguration.class.getDeclaredField("platformTransactionManager");
+        taskletField.setAccessible(true);
+        tmField.setAccessible(true);
+        taskletField.set(config2, loadDailyMeteorFileTasklet);
+        tmField.set(config2, platformTransactionManager);
+
+        Step step = config2.loadDailyMeteorFileStep(jobRepository);
+        Job job = config2.loadDailyMeteorFileJob(jobRepository, step);
+
+        assertNotNull(job);
+        assertNotNull(step);
+        assertEquals("loadDailyMeteorFileJob", job.getName());
+        assertEquals("loadDailyMeteorFileStep", step.getName());
     }
 }
