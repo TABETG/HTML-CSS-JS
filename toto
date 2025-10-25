@@ -5,7 +5,6 @@ import com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.history.repositor
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnitRunner;
 import org.springframework.batch.core.StepContribution;
@@ -25,7 +24,7 @@ import static org.mockito.Mockito.*;
 public class DeleteDpoTableImageTaskletTest {
 
     @Mock
-    private DPOMailToSendRepository repository;
+    private DPOMailToSendRepository dpoMailToSendRepository;
 
     @Mock
     private StepContribution contribution;
@@ -33,49 +32,51 @@ public class DeleteDpoTableImageTaskletTest {
     @Mock
     private ChunkContext chunkContext;
 
-    @InjectMocks
-    private DeleteDpoTableImageTasklet tasklet = new DeleteDpoTableImageTasklet(ProblemNatureEnum.MAIL);
+    private DeleteDpoTableImageTasklet tasklet;
 
     @Before
-    public void injectRepository() throws Exception {
-        // Injection forcée du repository simulé (évite NoSuchFieldException)
-        setField(tasklet, "dpoMailToSendRepository", repository);
+    public void setUp() throws Exception {
+        // ⚠️ Remplace ici ProblemNatureEnum.TECHNICAL par une valeur EXISTANTE de ton enum
+        tasklet = new DeleteDpoTableImageTasklet(ProblemNatureEnum.TECHNICAL);
+        injectPrivateField(tasklet, "dpoMailToSendRepository", dpoMailToSendRepository);
     }
 
     @Test
-    public void execute_should_return_finished_and_call_repository() throws Exception {
-        when(repository.deleteWithSendFalseAndProblemeNature2(ProblemNatureEnum.MAIL)).thenReturn(5);
+    public void execute_should_call_repository_and_return_finished() throws Exception {
+        when(dpoMailToSendRepository.deleteWithSendFalseAndProblemeNature2(ProblemNatureEnum.TECHNICAL))
+                .thenReturn(5);
 
-        RepeatStatus result = tasklet.execute(contribution, chunkContext);
+        RepeatStatus status = tasklet.execute(contribution, chunkContext);
 
-        assertNotNull(result);
-        assertEquals(RepeatStatus.FINISHED, result);
-        verify(repository, times(1))
-                .deleteWithSendFalseAndProblemeNature2(ProblemNatureEnum.MAIL);
-        verifyNoMoreInteractions(repository);
+        assertNotNull(status);
+        assertEquals(RepeatStatus.FINISHED, status);
+        verify(dpoMailToSendRepository, times(1))
+                .deleteWithSendFalseAndProblemeNature2(ProblemNatureEnum.TECHNICAL);
+        verifyNoMoreInteractions(dpoMailToSendRepository);
     }
 
     @Test
-    public void execute_should_handle_zero_result() throws Exception {
-        when(repository.deleteWithSendFalseAndProblemeNature2(ProblemNatureEnum.MAIL)).thenReturn(0);
+    public void execute_should_handle_zero_deletion() throws Exception {
+        when(dpoMailToSendRepository.deleteWithSendFalseAndProblemeNature2(ProblemNatureEnum.TECHNICAL))
+                .thenReturn(0);
 
-        RepeatStatus result = tasklet.execute(contribution, chunkContext);
+        RepeatStatus status = tasklet.execute(contribution, chunkContext);
 
-        assertEquals(RepeatStatus.FINISHED, result);
-        verify(repository, times(1))
-                .deleteWithSendFalseAndProblemeNature2(ProblemNatureEnum.MAIL);
+        assertEquals(RepeatStatus.FINISHED, status);
+        verify(dpoMailToSendRepository, times(1))
+                .deleteWithSendFalseAndProblemeNature2(ProblemNatureEnum.TECHNICAL);
     }
 
     @Test
-    public void constructor_should_set_problemNature() throws Exception {
-        DeleteDpoTableImageTasklet custom = new DeleteDpoTableImageTasklet(ProblemNatureEnum.ANALYSIS);
-        Object fieldValue = getField(custom, "problemNature");
-        assertEquals(ProblemNatureEnum.ANALYSIS, fieldValue);
+    public void constructor_should_set_problemNature_correctly() throws Exception {
+        // ⚠️ Remplace ici ProblemNatureEnum.FUNCTIONAL par une valeur EXISTANTE de ton enum
+        DeleteDpoTableImageTasklet custom = new DeleteDpoTableImageTasklet(ProblemNatureEnum.FUNCTIONAL);
+        Object fieldValue = getPrivateField(custom, "problemNature");
+        assertEquals(ProblemNatureEnum.FUNCTIONAL, fieldValue);
     }
 
-    // ---- Méthodes utilitaires ----
-
-    private void setField(Object target, String fieldName, Object value) throws Exception {
+    // -------- utilitaires réflexions --------
+    private void injectPrivateField(Object target, String fieldName, Object value) throws Exception {
         Field field = null;
         Class<?> type = target.getClass();
         while (type != null && field == null) {
@@ -92,7 +93,7 @@ public class DeleteDpoTableImageTaskletTest {
         field.set(target, value);
     }
 
-    private Object getField(Object target, String fieldName) throws Exception {
+    private Object getPrivateField(Object target, String fieldName) throws Exception {
         Field field = null;
         Class<?> type = target.getClass();
         while (type != null && field == null) {
