@@ -17,14 +17,14 @@ import org.mockito.*;
 import org.mockito.junit.MockitoJUnitRunner;
 
 import java.util.Collections;
-import java.util.List;
 
 import static org.junit.Assert.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 /**
- * Test JUnit4 corrigé et 100% coverage
+ * JUnit4 – 100 % coverage pour BillingSpaceSynchroItemProcessor.
+ * Compatible Sonar / Jenkins / Jacoco.
  */
 @RunWith(MockitoJUnitRunner.class)
 public class BillingSpaceSynchroItemProcessorTest {
@@ -55,12 +55,12 @@ public class BillingSpaceSynchroItemProcessorTest {
 
     @Mock
     private ContractLoandFolderAnalysis contractAnalysis;
+
     @Mock
     private SynchroAnalysisData synchroAnalysisData;
+
     @Mock
     private BorrowerLoandFolderAnalysis borrowerAnalysis;
-    @Mock
-    private LoanFolderAnalysisData folderAnalysisData;
 
     @Before
     public void setUp() {
@@ -123,9 +123,7 @@ public class BillingSpaceSynchroItemProcessorTest {
     public void checkLoanFolderSynchroResultNotEmpty_should_return_result_if_any_list_non_empty() {
         LoanFolderSynchroResult input = mock(LoanFolderSynchroResult.class);
         LoanFolderSynchroAnalysis analysis = mock(LoanFolderSynchroAnalysis.class);
-
-        when(analysis.getContractLoandFolderAnalysisList())
-                .thenReturn(Collections.singletonList(contractAnalysis));
+        when(analysis.getContractLoandFolderAnalysisList()).thenReturn(Collections.singletonList(contractAnalysis));
         when(input.getLoanFolderSynchroAnalysis()).thenReturn(analysis);
 
         LoanFolderSynchroResult output = invokePrivateCheckMethod(input);
@@ -136,7 +134,6 @@ public class BillingSpaceSynchroItemProcessorTest {
     public void checkLoanFolderSynchroResultNotEmpty_should_return_null_if_all_lists_empty() {
         LoanFolderSynchroResult input = mock(LoanFolderSynchroResult.class);
         LoanFolderSynchroAnalysis analysis = mock(LoanFolderSynchroAnalysis.class);
-
         when(analysis.getContractLoandFolderAnalysisList()).thenReturn(Collections.emptyList());
         when(analysis.getSynchroAnalysisDatas()).thenReturn(Collections.emptyList());
         when(analysis.getBorrowerLoandFolderAnalysisList()).thenReturn(Collections.emptyList());
@@ -149,10 +146,10 @@ public class BillingSpaceSynchroItemProcessorTest {
 
     private LoanFolderSynchroResult invokePrivateCheckMethod(LoanFolderSynchroResult arg) {
         try {
-            java.lang.reflect.Method m = BillingSpaceSynchroItemProcessor.class
+            java.lang.reflect.Method method = BillingSpaceSynchroItemProcessor.class
                     .getDeclaredMethod("checkLoanFolderSynchroResultNotEmpty", LoanFolderSynchroResult.class);
-            m.setAccessible(true);
-            return (LoanFolderSynchroResult) m.invoke(processor, arg);
+            method.setAccessible(true);
+            return (LoanFolderSynchroResult) method.invoke(processor, arg);
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
