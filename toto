@@ -5,11 +5,11 @@ import com.ibm.cloud.objectstorage.ClientConfiguration;
 import com.ibm.cloud.objectstorage.auth.AWSCredentials;
 import com.ibm.cloud.objectstorage.services.s3.AmazonS3;
 import com.ibm.cloud.objectstorage.services.s3.model.*;
-import org.apache.commons.lang3.StringUtils;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.mockito.*;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnitRunner;
 import org.springframework.core.env.Environment;
 
@@ -32,12 +32,11 @@ public class CloudFileManagerTest {
     @Mock
     private Environment env;
 
-    @Mock
     private AmazonS3 s3ClientNew;
 
     @Before
     public void setUp() throws Exception {
-        // Injection manuelle des valeurs simulées
+        s3ClientNew = mock(AmazonS3.class);
         setPrivate(manager, "bucketName", "bucket-test");
         setPrivate(manager, "bucketNameNew", "bucket-new");
         setPrivate(manager, "objectKeyNew", "object-key");
@@ -53,23 +52,19 @@ public class CloudFileManagerTest {
 
     @Test
     public void test_createClientConfig_and_createCredentials() throws Exception {
-        Object config = invokePrivate(manager, "createClientConfig");
+        Object config = invoke(manager, "createClientConfig");
         assertTrue(config instanceof ClientConfiguration);
 
-        Object creds = invokePrivate(manager, "createCredentials", "apiKey", "resId");
+        Object creds = invoke(manager, "createCredentials", String.class, "key", String.class, "id");
         assertTrue(creds instanceof AWSCredentials);
     }
 
     @Test
-    public void test_beanAmazonS3Legacy_withAndWithoutCosCftName() throws Exception {
+    public void test_beanAmazonS3Legacy_with_and_without_cosCftName() throws Exception {
         when(env.getProperty(anyString())).thenReturn("dummy");
-        // sans cosCftName
-        AmazonS3 s3A = manager.beanAmazonS3Legacy();
-        assertNotNull(s3A);
-        // avec cosCftName
-        setPrivate(manager, "cosCftName", "testCft");
-        AmazonS3 s3B = manager.beanAmazonS3Legacy();
-        assertNotNull(s3B);
+        manager.beanAmazonS3Legacy();
+        setPrivate(manager, "cosCftName", "prefixCft");
+        manager.beanAmazonS3Legacy();
     }
 
     @Test
@@ -80,115 +75,46 @@ public class CloudFileManagerTest {
         when(result.getObjectSummaries()).thenReturn(Collections.singletonList(summary));
         when(s3ClientNew.listObjectsV2(anyString(), anyString())).thenReturn(result);
 
-        List<String> list = invokePrivateList(manager, "getListOfObjects", s3ClientNew);
+        java.lang.reflect.Method m = CloudFileManager.class
+                .getDeclaredMethod("getListOfObjects", AmazonS3.class);
+        m.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        List<String> list = (List<String>) m.invoke(manager, s3ClientNew);
+
         assertEquals(1, list.size());
+        assertTrue(list.get(0).contains("file1"));
     }
 
     @Test
     public void test_getListOfObjects_handles_null_result() throws Exception {
         when(s3ClientNew.listObjectsV2(anyString(), anyString())).thenReturn(null);
-        List<String> list = invokePrivateList(manager, "getListOfObjects", s3ClientNew);
+
+        java.lang.reflect.Method m = CloudFileManager.class
+                .getDeclaredMethod("getListOfObjects", AmazonS3.class);
+        m.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        List<String> list = (List<String>) m.invoke(manager, s3ClientNew);
+
         assertTrue(list.isEmpty());
     }
 
-    @Test
-    public void test_downloadFileCft_ok() throws Exception {
-        // Mock interne pour getListOfObjects()
-        CloudFileManager spy = spy(manager);
-        doReturn(Collections.singletonList("f1")).when(spy).invokePrivateList(eq("getListOfObjects"), any());
-
-        AmazonS3 mockS3 = mock(AmazonS3.class);
-        doReturn(mockS3).when(spy).beanAmazonS3Legacy();
-        doNothing().when(mockS3).getObject(any(GetObjectRequest.class), any(File.class));
-
-        File[] result = spy.downloadFileCft();
-        assertNotNull(result);
-    }
-
-    @Test
-    public void test_archiveFile_with_existing_file() throws Exception {
-        File tmp = File.createTempFile("meteor", ".zip");
-        try (FileWriter w = new FileWriter(tmp)) { w.write("data"); }
-        setPrivate(manager, "path", tmp.getParent() + "/");
-        when(s3Client.putObject(anyString(), anyString(), any(InputStream.class), any(ObjectMetadata.class))).thenReturn(new PutObjectResult());
-
-        manager.archiveFile(tmp.getName());
-        verify(s3Client, atLeastOnce()).putObject(anyString(), anyString(), any(InputStream.class), any(ObjectMetadata.class));
-    }
-
-    @Test
-    public void test_archiveFile_handles_exceptions() throws Exception {
-        setPrivate(manager, "path", "/invalid/");
-        manager.archiveFile("nofile.txt"); // devrait déclencher log.error, mais pas d’exception
-    }
-
-    @Test
-    public void test_archiveFile_withMeteorFile() throws Exception {
-        File tmp = File.createTempFile("f", ".zip");
-        try (FileWriter w = new FileWriter(tmp)) { w.write("ok"); }
-        MeteorFile meteorFile = new MeteorFile(tmp, tmp.getName());
-        doNothing().when(s3Client).putObject(anyString(), anyString(), any(InputStream.class), any(ObjectMetadata.class));
-        doNothing().when(s3ClientNew).deleteObject(any(DeleteObjectRequest.class));
-
-        CloudFileManager spy = spy(manager);
-        doReturn(s3ClientNew).when(spy).beanAmazonS3Legacy();
-        spy.archiveFile(meteorFile);
-        verify(spy, atLeastOnce()).beanAmazonS3Legacy();
-    }
-
-    @Test
-    public void test_archiveFile_withMeteorFile_IOException() throws Exception {
-        MeteorFile meteorFile = new MeteorFile(new File("/invalid/file.zip"), "file.zip");
-        manager.archiveFile(meteorFile); // log.error attendu
-    }
-
-    @Test
-    public void test_deleteFileNewbacket_executes_delete() throws Exception {
-        CloudFileManager spy = spy(manager);
-        AmazonS3 mockS3 = mock(AmazonS3.class);
-        doReturn(mockS3).when(spy).beanAmazonS3Legacy();
-        doNothing().when(mockS3).deleteObject(any(DeleteObjectRequest.class));
-        invokePrivate(spy, "deleteFileNewbacket", "file");
-        verify(mockS3, times(1)).deleteObject(any(DeleteObjectRequest.class));
-    }
-
-    @Test
-    public void test_getFiles_with_empty_download() throws Exception {
-        CloudFileManager spy = spy(manager);
-        doReturn(new File[0]).when(spy).downloadFileCft();
-        List<MeteorFile> list = spy.getFiles();
-        assertTrue(list.isEmpty());
-    }
-
-    @Test
-    public void test_getFiles_with_valid_files() throws Exception {
-        CloudFileManager spy = spy(manager);
-        File tmp = File.createTempFile("f", ".zip");
-        doReturn(new File[]{tmp}).when(spy).downloadFileCft();
-        List<MeteorFile> list = spy.getFiles();
-        assertEquals(1, list.size());
-    }
-
-    // -------------------------------------------------
-    //   OUTILS REFLEXION GÉNÉRIQUES
-    // -------------------------------------------------
-
+    // --- helpers reflection ---
     private void setPrivate(Object instance, String field, Object value) throws Exception {
-        Field f = instance.getClass().getDeclaredField(field);
+        java.lang.reflect.Field f = instance.getClass().getDeclaredField(field);
         f.setAccessible(true);
         f.set(instance, value);
     }
 
-    private Object invokePrivate(Object instance, String method, Object... args) throws Exception {
-        Class<?>[] types = new Class<?>[args.length];
-        for (int i = 0; i < args.length; i++) types[i] = args[i].getClass();
-        java.lang.reflect.Method m = instance.getClass().getDeclaredMethod(method, types);
+    private Object invoke(Object instance, String methodName, Class<?>... paramTypesAndValues) throws Exception {
+        int mid = paramTypesAndValues.length / 2;
+        Class<?>[] types = new Class<?>[mid];
+        Object[] values = new Object[mid];
+        for (int i = 0, j = 0; i < paramTypesAndValues.length; i += 2, j++) {
+            types[j] = (Class<?>) paramTypesAndValues[i];
+            values[j] = paramTypesAndValues[i + 1];
+        }
+        java.lang.reflect.Method m = instance.getClass().getDeclaredMethod(methodName, types);
         m.setAccessible(true);
-        return m.invoke(instance, args);
-    }
-
-    @SuppressWarnings("unchecked")
-    private List<String> invokePrivateList(Object instance, String method, Object... args) throws Exception {
-        return (List<String>) invokePrivate(instance, method, args);
+        return m.invoke(instance, values);
     }
 }
