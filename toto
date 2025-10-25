@@ -1,5 +1,6 @@
 package com.bnpparibas.dsibddf.ap00420.streamfact.batch.sendtobmd.service.batch.security.openpgp;
 
+import com.bnpparibas.dsibddf.ap00420.streamfact.batch.sendtobmd.service.batch.security.openpgp.OnePassSignatureProcessor.PartnerPublicKeyPair;
 import org.bouncycastle.openpgp.PGPSignature;
 import org.bouncycastle.openpgp.PGPSignatureSubpacketVector;
 import org.bouncycastle.openpgp.PGPPublicKey;
@@ -18,10 +19,6 @@ import java.util.*;
 import static org.junit.Assert.*;
 import static org.mockito.Mockito.*;
 
-/**
- * JUnit 4 – Classe de test compacte et compatible Sonar/Jacoco/Jenkins.
- * Aucun import JUnit Jupiter, aucun AssertJ.
- */
 @RunWith(MockitoJUnitRunner.class)
 public class OnePassSignatureProcessorTest {
 
@@ -31,8 +28,6 @@ public class OnePassSignatureProcessorTest {
     public void setUp() {
         processor = new OnePassSignatureProcessor();
     }
-
-    // --- Métadonnées / constantes
 
     @Test
     public void class_should_have_component_and_constants() throws Exception {
@@ -45,19 +40,19 @@ public class OnePassSignatureProcessorTest {
         assertTrue((int) buffer.get(null) > 0);
     }
 
-    // --- Public: garde-fous (branches d’erreur)
-
     @Test(expected = IllegalArgumentException.class)
     public void encrypt_should_throw_when_partners_list_is_empty() throws Exception {
-        processor.encryptOnePassSignature("enc.out", "in.txt", Collections.<Object>emptyList(), null, false, false, false);
+        // Liste vide DU BON TYPE générique
+        processor.encryptOnePassSignature("enc.out", "in.txt",
+                Collections.<PartnerPublicKeyPair>emptyList(), null, false, false, false);
     }
 
     @Test(expected = IllegalArgumentException.class)
     public void decrypt_should_throw_when_private_key_pair_is_null() throws Exception {
-        processor.decryptOnePassSignature("enc.in", Collections.<Object>emptyList(), null, "dec.out", false);
+        // Liste vide DU BON TYPE générique
+        processor.decryptOnePassSignature("enc.in",
+                Collections.<PartnerPublicKeyPair>emptyList(), null, "dec.out", false);
     }
-
-    // --- Privées utilitaires
 
     @Test
     public void existsAndNotEmptyContent_should_cover_true_and_false() throws Exception {
@@ -80,25 +75,20 @@ public class OnePassSignatureProcessorTest {
         assertFalse((boolean) m.invoke(processor, f.getAbsolutePath()));
     }
 
-    // --- isValidPGPPublicKey: couvrir 3 branches
-
     @Test
     public void isValidPGPPublicKey_should_cover_all_branches() throws Exception {
         Method m = OnePassSignatureProcessor.class.getDeclaredMethod("isValidPGPPublicKey", PGPPublicKey.class, String.class);
         m.setAccessible(true);
 
-        // 1) validSeconds == 0 -> true
         PGPPublicKey key1 = mock(PGPPublicKey.class);
         when(key1.getValidSeconds()).thenReturn(0L);
         assertTrue((boolean) m.invoke(processor, key1, "file.asc"));
 
-        // 2) non-expiré -> true
         PGPPublicKey key2 = mock(PGPPublicKey.class);
         when(key2.getValidSeconds()).thenReturn(999999L);
         when(key2.getCreationTime()).thenReturn(new Date(System.currentTimeMillis() - 60_000));
         assertTrue((boolean) m.invoke(processor, key2, "file.asc"));
 
-        // 3) expiré -> false
         PGPPublicKey key3 = mock(PGPPublicKey.class);
         when(key3.getValidSeconds()).thenReturn(1L);
         when(key3.getCreationTime()).thenReturn(new Date(System.currentTimeMillis() - 3_600_000));
@@ -106,19 +96,16 @@ public class OnePassSignatureProcessorTest {
         assertFalse((boolean) m.invoke(processor, key3, "file.asc"));
     }
 
-    // --- isMatchingUsage: hasSubpackets=false (true) / hasSubpackets=true (false)
-
     @Test
     public void isMatchingUsage_should_cover_true_and_false() throws Exception {
+        // APPEL VIA RÉFLEXION (méthode private)
         Method m = OnePassSignatureProcessor.class.getDeclaredMethod("isMatchingUsage", PGPSignature.class, int.class);
         m.setAccessible(true);
 
-        // hasSubpackets=false => true
         PGPSignature sig1 = mock(PGPSignature.class);
         when(sig1.hasSubpackets()).thenReturn(false);
         assertTrue((boolean) m.invoke(processor, sig1, 1));
 
-        // hasSubpackets=true -> subpacket présent mais incompatible => false
         PGPSignature sig2 = mock(PGPSignature.class);
         PGPSignatureSubpacketVector vec = mock(PGPSignatureSubpacketVector.class);
         when(sig2.hasSubpackets()).thenReturn(true);
@@ -129,18 +116,15 @@ public class OnePassSignatureProcessorTest {
         int KEY_FLAGS_INDEX = (int) keyFlagsField.get(null);
 
         when(vec.hasSubpacket(KEY_FLAGS_INDEX)).thenReturn(true);
-        when(vec.getKeyFlags()).thenReturn(0); // masque incompatible
+        when(vec.getKeyFlags()).thenReturn(0);
         assertFalse((boolean) m.invoke(processor, sig2, 2));
     }
-
-    // --- hasKeyFlags: master vs subkey
 
     @Test
     public void hasKeyFlags_should_cover_master_and_subkey_paths() throws Exception {
         Method hasKeyFlags = OnePassSignatureProcessor.class.getDeclaredMethod("hasKeyFlags", PGPPublicKey.class, int.class);
         hasKeyFlags.setAccessible(true);
 
-        // Master key -> false si une signature ne matche pas
         PGPPublicKey master = mock(PGPPublicKey.class);
         when(master.isMasterKey()).thenReturn(true);
         @SuppressWarnings("unchecked")
@@ -155,34 +139,27 @@ public class OnePassSignatureProcessorTest {
         doReturn(false).when(spy).isMatchingUsage(any(PGPSignature.class), anyInt());
         assertFalse((boolean) hasKeyFlags.invoke(spy, master, 2));
 
-        // Sub key -> true (itérateurs vides)
         PGPPublicKey sub = mock(PGPPublicKey.class);
         when(sub.isMasterKey()).thenReturn(false);
         when(sub.getSignaturesOfType(anyInt())).thenReturn(Collections.<PGPSignature>emptyList().iterator());
         assertTrue((boolean) hasKeyFlags.invoke(processor, sub, 1));
     }
 
-    // --- Méthodes avec types internes privés : invocation via nom + null (pas de référence de type)
-
     @Test
     public void private_methods_with_internal_types_should_be_invocable() throws Exception {
-        // getPartnerAllPGPPublicKeys(PartnerPublicKeyPair)
         Method m1 = findMethodByName("getPartnerAllPGPPublicKeys");
         m1.setAccessible(true);
         try { m1.invoke(processor, new Object[]{null}); } catch (Throwable ignored) { assertTrue(true); }
 
-        // getFirstValidEncryptionKey(PartnerPublicKeyPair)
         Method m2 = findMethodByName("getFirstValidEncryptionKey");
         m2.setAccessible(true);
         try { m2.invoke(processor, new Object[]{null}); } catch (Throwable ignored) { assertTrue(true); }
 
-        // getAllPGPPrivateKeys(PrivateKeyPair)
         Method m3 = findMethodByName("getAllPGPPrivateKeys");
         m3.setAccessible(true);
         Object privateKeyPair = new Object() { @Override public String toString(){ return "pair"; } };
         try { m3.invoke(processor, privateKeyPair); } catch (Throwable ignored) { assertTrue(true); }
 
-        // readPGPPrivateKeys(PrivateKey)
         Method m4 = findMethodByName("readPGPPrivateKeys");
         m4.setAccessible(true);
         Object privateKey = new Object(){ @Override public String toString(){ return "priv"; } };
@@ -233,8 +210,6 @@ public class OnePassSignatureProcessorTest {
             assertTrue("Missing: " + n, present.contains(n));
         }
     }
-
-    // --- utilitaire
 
     private Method findMethodByName(String name) {
         for (Method m : OnePassSignatureProcessor.class.getDeclaredMethods()) {
