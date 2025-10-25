@@ -1,7 +1,6 @@
 package com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.synchro.update.reader;
 
 import com.bnpparibas.dsibddf.ap00420.streamfact.domain.commons.BillingSpaceStatusEnum;
-import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.billingspace.model.BillingSpaceEntity;
 import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.billingspace.repository.BillingSpaceJpaRepository;
 import org.junit.Before;
 import org.junit.Test;
@@ -11,11 +10,12 @@ import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnitRunner;
 import org.springframework.data.domain.Sort;
 
+import java.lang.reflect.Field;
 import java.util.List;
 import java.util.Map;
 
 import static org.junit.Assert.*;
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 @RunWith(MockitoJUnitRunner.class)
 public class BillingSpaceSynchroItemReaderTest {
@@ -28,23 +28,41 @@ public class BillingSpaceSynchroItemReaderTest {
 
     @Before
     public void setUp() {
-        // rien de spécifique à préparer ici
+        // rien à initialiser
     }
 
     @Test
-    public void init_should_set_repository_method_and_arguments_correctly() {
+    public void init_should_initialize_internal_fields_correctly() throws Exception {
         reader.init();
 
         assertNotNull(reader);
-        assertEquals("findByBillingSpaceStatus", reader.getMethodName());
-        assertSame(repository, reader.getRepository());
 
-        Map<String, Sort.Direction> sortMap = reader.getSort();
+        // Vérifie le champ repository
+        Field repoField = BillingSpaceSynchroItemReader.class.getSuperclass().getDeclaredField("repository");
+        repoField.setAccessible(true);
+        Object repoValue = repoField.get(reader);
+        assertSame(repository, repoValue);
+
+        // Vérifie le champ methodName
+        Field methodField = BillingSpaceSynchroItemReader.class.getSuperclass().getDeclaredField("methodName");
+        methodField.setAccessible(true);
+        Object methodValue = methodField.get(reader);
+        assertEquals("findByBillingSpaceStatus", methodValue);
+
+        // Vérifie le champ sorts
+        Field sortField = BillingSpaceSynchroItemReader.class.getSuperclass().getDeclaredField("sort");
+        sortField.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        Map<String, Sort.Direction> sortMap = (Map<String, Sort.Direction>) sortField.get(reader);
         assertNotNull(sortMap);
         assertTrue(sortMap.containsKey("loanFolderId"));
         assertEquals(Sort.Direction.ASC, sortMap.get("loanFolderId"));
 
-        List<?> args = reader.getArguments();
+        // Vérifie les arguments
+        Field argsField = BillingSpaceSynchroItemReader.class.getSuperclass().getDeclaredField("arguments");
+        argsField.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        List<Object> args = (List<Object>) argsField.get(reader);
         assertNotNull(args);
         assertEquals(1, args.size());
         assertEquals(BillingSpaceStatusEnum.CREATED, args.get(0));
@@ -53,19 +71,13 @@ public class BillingSpaceSynchroItemReaderTest {
     }
 
     @Test
-    public void constructor_should_assign_repository() {
-        BillingSpaceJpaRepository mockRepo = mock(BillingSpaceJpaRepository.class);
+    public void constructor_should_assign_repository_field() throws Exception {
+        BillingSpaceJpaRepository mockRepo = org.mockito.Mockito.mock(BillingSpaceJpaRepository.class);
         BillingSpaceSynchroItemReader customReader = new BillingSpaceSynchroItemReader(mockRepo);
-        assertSame(mockRepo, getPrivateRepository(customReader));
-    }
 
-    private BillingSpaceJpaRepository getPrivateRepository(BillingSpaceSynchroItemReader readerInstance) {
-        try {
-            java.lang.reflect.Field field = BillingSpaceSynchroItemReader.class.getDeclaredField("repository");
-            field.setAccessible(true);
-            return (BillingSpaceJpaRepository) field.get(readerInstance);
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
+        Field field = BillingSpaceSynchroItemReader.class.getDeclaredField("repository");
+        field.setAccessible(true);
+        Object value = field.get(customReader);
+        assertSame(mockRepo, value);
     }
 }
