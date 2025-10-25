@@ -1,15 +1,22 @@
-package com.bnpparibas.dsibddf.ap00420.streamfact.batch.common.tasklet;
+package com.bnpparibas.dsibddf.ap00420.streamfact.batch.dailymeteorintegration.job;
 
-import com.bnpparibas.dsibddf.ap00420.streamfact.domain.commons.ProblemNatureEnum;
-import com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.history.repository.DPOMailToSendRepository;
+import com.bnpparibas.dsibddf.ap00420.streamfact.batch.dailymeteorintegration.tasklet.LoadDailyMeteorFileTasklet;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnitRunner;
-import org.springframework.batch.core.StepContribution;
-import org.springframework.batch.core.scope.context.ChunkContext;
-import org.springframework.batch.repeat.RepeatStatus;
+import org.springframework.batch.core.Job;
+import org.springframework.batch.core.JobExecution;
+import org.springframework.batch.core.Step;
+import org.springframework.batch.core.job.builder.JobBuilder;
+import org.springframework.batch.core.job.flow.FlowJob;
+import org.springframework.batch.core.launch.support.RunIdIncrementer;
+import org.springframework.batch.core.repository.JobRepository;
+import org.springframework.batch.core.step.builder.StepBuilder;
+import org.springframework.batch.core.step.tasklet.TaskletStep;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import java.lang.reflect.Field;
 
@@ -17,96 +24,78 @@ import static org.junit.Assert.*;
 import static org.mockito.Mockito.*;
 
 /**
- * Test JUnit4 - Couverture 100% DeleteDpoTableImageTasklet
- * Compatible Sonar / Jenkins / Jacoco / Java 17+
+ * Test JUnit4 - Couverture 100% DailyMeteorIntegrationConfiguration
+ * Compatible Sonar / Jenkins / Jacoco
  */
 @RunWith(MockitoJUnitRunner.class)
-public class DeleteDpoTableImageTaskletTest {
+public class DailyMeteorIntegrationConfigurationTest {
 
     @Mock
-    private DPOMailToSendRepository dpoMailToSendRepository;
+    private LoadDailyMeteorFileTasklet loadDailyMeteorFileTasklet;
 
     @Mock
-    private StepContribution contribution;
+    private JobRepository jobRepository;
 
     @Mock
-    private ChunkContext chunkContext;
+    private PlatformTransactionManager platformTransactionManager;
 
-    private DeleteDpoTableImageTasklet tasklet;
+    @InjectMocks
+    private DailyMeteorIntegrationConfiguration configuration;
 
     @Before
-    public void setUp() throws Exception {
-        // ⚠️ Remplace ici ProblemNatureEnum.TECHNICAL par une valeur EXISTANTE de ton enum
-        tasklet = new DeleteDpoTableImageTasklet(ProblemNatureEnum.TECHNICAL);
-        injectPrivateField(tasklet, "dpoMailToSendRepository", dpoMailToSendRepository);
+    public void setUp() {
+        assertNotNull(configuration);
     }
 
     @Test
-    public void execute_should_call_repository_and_return_finished() throws Exception {
-        when(dpoMailToSendRepository.deleteWithSendFalseAndProblemeNature2(ProblemNatureEnum.TECHNICAL))
-                .thenReturn(5);
+    public void loadDailyMeteorFileJob_should_create_job_with_expected_name_and_incrementer() throws Exception {
+        Step mockStep = new StepBuilder("testStep", jobRepository)
+                .tasklet(loadDailyMeteorFileTasklet, platformTransactionManager)
+                .build();
 
-        RepeatStatus status = tasklet.execute(contribution, chunkContext);
+        Job job = configuration.loadDailyMeteorFileJob(jobRepository, mockStep);
 
-        assertNotNull(status);
-        assertEquals(RepeatStatus.FINISHED, status);
-        verify(dpoMailToSendRepository, times(1))
-                .deleteWithSendFalseAndProblemeNature2(ProblemNatureEnum.TECHNICAL);
-        verifyNoMoreInteractions(dpoMailToSendRepository);
+        assertNotNull(job);
+        assertTrue(job instanceof FlowJob);
+        assertEquals("loadDailyMeteorFileJob", job.getName());
+
+        Field incrementerField = job.getClass().getSuperclass().getDeclaredField("jobParametersIncrementer");
+        incrementerField.setAccessible(true);
+        Object incrementer = incrementerField.get(job);
+        assertTrue(incrementer instanceof RunIdIncrementer);
     }
 
     @Test
-    public void execute_should_handle_zero_deletion() throws Exception {
-        when(dpoMailToSendRepository.deleteWithSendFalseAndProblemeNature2(ProblemNatureEnum.TECHNICAL))
-                .thenReturn(0);
+    public void loadDailyMeteorFileStep_should_create_step_with_expected_tasklet() throws Exception {
+        Step step = configuration.loadDailyMeteorFileStep(jobRepository);
 
-        RepeatStatus status = tasklet.execute(contribution, chunkContext);
+        assertNotNull(step);
+        assertTrue(step instanceof TaskletStep);
+        assertEquals("loadDailyMeteorFileStep", step.getName());
 
-        assertEquals(RepeatStatus.FINISHED, status);
-        verify(dpoMailToSendRepository, times(1))
-                .deleteWithSendFalseAndProblemeNature2(ProblemNatureEnum.TECHNICAL);
+        Field taskletField = TaskletStep.class.getDeclaredField("tasklet");
+        taskletField.setAccessible(true);
+        Object tasklet = taskletField.get(step);
+        assertSame(loadDailyMeteorFileTasklet, tasklet);
+
+        Field tmField = TaskletStep.class.getDeclaredField("transactionManager");
+        tmField.setAccessible(true);
+        Object tm = tmField.get(step);
+        assertSame(platformTransactionManager, tm);
     }
 
     @Test
-    public void constructor_should_set_problemNature_correctly() throws Exception {
-        // ⚠️ Remplace ici ProblemNatureEnum.FUNCTIONAL par une valeur EXISTANTE de ton enum
-        DeleteDpoTableImageTasklet custom = new DeleteDpoTableImageTasklet(ProblemNatureEnum.FUNCTIONAL);
-        Object fieldValue = getPrivateField(custom, "problemNature");
-        assertEquals(ProblemNatureEnum.FUNCTIONAL, fieldValue);
-    }
+    public void autowired_fields_should_be_initialized_correctly() throws Exception {
+        Field taskletField = DailyMeteorIntegrationConfiguration.class.getDeclaredField("loadDailyMeteorFileTasklet");
+        Field tmField = DailyMeteorIntegrationConfiguration.class.getDeclaredField("platformTransactionManager");
+        taskletField.setAccessible(true);
+        tmField.setAccessible(true);
 
-    // -------- utilitaires réflexions --------
-    private void injectPrivateField(Object target, String fieldName, Object value) throws Exception {
-        Field field = null;
-        Class<?> type = target.getClass();
-        while (type != null && field == null) {
-            try {
-                field = type.getDeclaredField(fieldName);
-            } catch (NoSuchFieldException e) {
-                type = type.getSuperclass();
-            }
-        }
-        if (field == null) {
-            throw new NoSuchFieldException("Champ introuvable : " + fieldName);
-        }
-        field.setAccessible(true);
-        field.set(target, value);
-    }
+        Object injectedTasklet = taskletField.get(configuration);
+        Object injectedTm = tmField.get(configuration);
 
-    private Object getPrivateField(Object target, String fieldName) throws Exception {
-        Field field = null;
-        Class<?> type = target.getClass();
-        while (type != null && field == null) {
-            try {
-                field = type.getDeclaredField(fieldName);
-            } catch (NoSuchFieldException e) {
-                type = type.getSuperclass();
-            }
-        }
-        if (field == null) {
-            throw new NoSuchFieldException("Champ introuvable : " + fieldName);
-        }
-        field.setAccessible(true);
-        return field.get(target);
+        // Les mocks sont bien injectés par Mockito
+        assertSame(loadDailyMeteorFileTasklet, injectedTasklet);
+        assertSame(platformTransactionManager, injectedTm);
     }
 }
