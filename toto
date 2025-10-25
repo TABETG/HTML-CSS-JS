@@ -10,11 +10,19 @@ import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.mockito.junit.MockitoJUnitRunner;
 
-import java.io.*;
+import java.io.ByteArrayInputStream;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.OutputStream;
+import java.io.IOException;
 import java.security.KeyStore;
 import java.security.PublicKey;
 import java.security.cert.X509Certificate;
-import java.util.*;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Date;
+import java.util.Enumeration;
+import java.util.List;
 
 import org.bouncycastle.bcpg.PublicKeyAlgorithmTags;
 import org.bouncycastle.bcpg.sig.KeyFlags;
@@ -25,6 +33,13 @@ import static org.junit.Assert.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
+/**
+ * Tests JUnit 4 pour OnePassSignatureProcessor – compatibles Sonar/Jacoco/Jenkins.
+ * - Pas de JUnit Jupiter / AssertJ
+ * - @RunWith(MockitoJUnitRunner.class), @Before, assertions JUnit 4
+ * - verifyNoInteractions(...) présent
+ * - Mock statiques (PGPUtil, KeyStore) + constructeurs (PGP* + *Stream) via mockito-inline
+ */
 @RunWith(MockitoJUnitRunner.class)
 public class OnePassSignatureProcessorTest {
 
@@ -56,29 +71,29 @@ public class OnePassSignatureProcessorTest {
 
         inEncrypted = tmp.newFile("enc.bin");
         try (FileOutputStream fos = new FileOutputStream(inEncrypted)) {
-            fos.write(new byte[]{1,2,3,4}); // juste pour qu’il y ait des octets
+            fos.write(new byte[]{1, 2, 3, 4});
         }
 
         outDecrypted = tmp.newFile("dec.txt");
 
-        partnerPubOld = tmp.newFile("partner_old.asc"); // vide
+        partnerPubOld = tmp.newFile("partner_old.asc"); // laissé vide
         partnerPubNew = tmp.newFile("partner_new.asc");
         try (FileOutputStream fos = new FileOutputStream(partnerPubNew)) {
-            fos.write(new byte[]{7,7,7});
+            fos.write(new byte[]{7, 7, 7});
         }
 
         ownPrivPgp = tmp.newFile("own_priv.asc");
         try (FileOutputStream fos = new FileOutputStream(ownPrivPgp)) {
-            fos.write(new byte[]{9,9,9});
+            fos.write(new byte[]{9, 9, 9});
         }
 
         ownPrivKeystore = tmp.newFile("own_priv.p12");
         try (FileOutputStream fos = new FileOutputStream(ownPrivKeystore)) {
-            fos.write(new byte[]{5,5,5});
+            fos.write(new byte[]{5, 5, 5});
         }
     }
 
-    // ------------------ Helpers de mocks ------------------
+    // ------------------ Helpers ------------------
 
     private PartnerPublicKeyPair mockPartner(String oldPath, String newPath) {
         PartnerPublicKeyPair p = mock(PartnerPublicKeyPair.class);
@@ -109,11 +124,9 @@ public class OnePassSignatureProcessorTest {
         when(k.getKeyID()).thenReturn(id);
         when(k.isEncryptionKey()).thenReturn(true);
         when(k.isMasterKey()).thenReturn(master);
-
-        // hasKeyFlags(...) s'appuie sur getSignaturesOfType(...) -> toujours un iterator (pas null)
+        // Iterator jamais null pour hasKeyFlags(...)
         if (usageOk) {
-            when(k.getSignaturesOfType(anyInt()))
-                    .thenReturn(Collections.<PGPSignature>emptyList().iterator());
+            when(k.getSignaturesOfType(anyInt())).thenReturn(Collections.<PGPSignature>emptyList().iterator());
         } else {
             PGPSignature sig = mock(PGPSignature.class);
             PGPSignatureSubpacketVector vec = mock(PGPSignatureSubpacketVector.class);
@@ -121,12 +134,12 @@ public class OnePassSignatureProcessorTest {
             when(sig.getHashedSubPackets()).thenReturn(vec);
             when(vec.hasSubpacket(eq(27))).thenReturn(true);
             when(vec.getKeyFlags()).thenReturn(KeyFlags.CERTIFY_OTHER); // pas ENCRYPT
-            when(k.getSignaturesOfType(anyInt()))
-                    .thenReturn(Collections.singletonList(sig).iterator());
+            when(k.getSignaturesOfType(anyInt())).thenReturn(Collections.singletonList(sig).iterator());
         }
-
+        // Dates/validité
+        when(k.getCreationTime()).thenReturn(new Date()); // évite NPE .toInstant()
         if (valid) {
-            when(k.getValidSeconds()).thenReturn(0L); // "toujours valide"
+            when(k.getValidSeconds()).thenReturn(0L); // 0 => pas d'expiration
         } else {
             when(k.getValidSeconds()).thenReturn(1L);
             when(k.getCreationTime()).thenReturn(new Date(System.currentTimeMillis() - 3_600_000L));
@@ -141,10 +154,9 @@ public class OnePassSignatureProcessorTest {
         when(sk.isSigningKey()).thenReturn(true);
         when(sk.getPublicKey()).thenReturn(pk);
 
-        // >>> FIX NPE hasKeyFlags: renvoyer un iterator jamais null
-        when(pk.getSignaturesOfType(anyInt()))
-                .thenReturn(Collections.<PGPSignature>emptyList().iterator());
-
+        // Corrections anti-NPE
+        when(pk.getCreationTime()).thenReturn(new Date());
+        when(pk.getSignaturesOfType(anyInt())).thenReturn(Collections.<PGPSignature>emptyList().iterator());
         when(pk.getUserIDs()).thenReturn(Collections.singletonList("user@test").iterator());
         when(pk.getValidSeconds()).thenReturn(0L);
 
@@ -161,39 +173,47 @@ public class OnePassSignatureProcessorTest {
         PrivateKeyPair privPair = mockPrivatePair(ownPrivPgp.getAbsolutePath(), null, "pass", null);
 
         PGPPublicKey expired = mockEncKey(0x10L, false, true, false);
-        PGPPublicKey valid   = mockEncKey(0x11L, false, true, true);
+        PGPPublicKey valid = mockEncKey(0x11L, false, true, true);
         PGPSecretKey signKey = mockSigningSecretKey(0x22L);
 
         try (MockedStatic<PGPUtil> util = mockStatic(PGPUtil.class);
-             MockedConstruction<PGPPublicKeyRing> pubRingC = mockConstruction(PGPPublicKeyRing.class, (mock, c) ->
-                     when(mock.getPublicKeys()).thenReturn(Arrays.asList(expired, valid).iterator()));
-             MockedConstruction<PGPSecretKeyRing> secRingC = mockConstruction(PGPSecretKeyRing.class, (mock, c) ->
-                     when(mock.getSecretKeys()).thenReturn(Collections.singletonList(signKey).iterator()));
-             MockedConstruction<PGPSignatureGenerator> sigGenC = mockConstruction(PGPSignatureGenerator.class, (sg, c) -> {
-                 PGPOnePassSignature ops = mock(PGPOnePassSignature.class);
-                 when(sg.generateOnePassVersion(eq(false))).thenReturn(ops);
-                 doNothing().when(ops).encode(any(OutputStream.class));
-                 doNothing().when(sg).update(any(byte[].class), anyInt(), anyInt());
-                 PGPSignature fin = mock(PGPSignature.class);
-                 when(sg.generate()).thenReturn(fin);
-                 doNothing().when(fin).encode(any(OutputStream.class));
-             });
+             MockedConstruction<PGPPublicKeyRing> pubRingC = mockConstruction(
+                     PGPPublicKeyRing.class,
+                     (mock, c) -> when(mock.getPublicKeys()).thenReturn(Arrays.asList(expired, valid).iterator())
+             );
+             MockedConstruction<PGPSecretKeyRing> secRingC = mockConstruction(
+                     PGPSecretKeyRing.class,
+                     (mock, c) -> when(mock.getSecretKeys()).thenReturn(Collections.singletonList(signKey).iterator())
+             );
+             MockedConstruction<PGPSignatureGenerator> sigGenC = mockConstruction(
+                     PGPSignatureGenerator.class,
+                     (sg, c) -> {
+                         PGPOnePassSignature ops = mock(PGPOnePassSignature.class);
+                         when(sg.generateOnePassVersion(eq(false))).thenReturn(ops);
+                         doNothing().when(ops).encode(any(OutputStream.class));
+                         doNothing().when(sg).update(any(byte[].class), anyInt(), anyInt());
+                         PGPSignature fin = mock(PGPSignature.class);
+                         when(sg.generate()).thenReturn(fin);
+                         doNothing().when(fin).encode(any(OutputStream.class));
+                     }
+             );
              MockedConstruction<EncryptedOutputStream> encOutC = mockConstruction(EncryptedOutputStream.class);
              MockedConstruction<CompressedDataOutputStream> compOutC = mockConstruction(CompressedDataOutputStream.class);
-             MockedConstruction<LiteralDataOutputStream> litOutC = mockConstruction(LiteralDataOutputStream.class, (lit, c) ->
-                     doNothing().when(lit).write(any(byte[].class), anyInt(), anyInt()))
-        ) {
-            util.when(() -> PGPUtil.getDecoderStream(any(InputStream.class)))
-                .thenReturn(new ByteArrayInputStream(new byte[0]));
+             MockedConstruction<LiteralDataOutputStream> litOutC = mockConstruction(
+                     LiteralDataOutputStream.class,
+                     (lit, c) -> doNothing().when(lit).write(any(byte[].class), anyInt(), anyInt())
+             )) {
+
+            util.when(() -> PGPUtil.getDecoderStream(any())).thenReturn(new ByteArrayInputStream(new byte[0]));
 
             cut.encryptOnePassSignature(
                     outArmored.getAbsolutePath(),
                     originalFile.getAbsolutePath(),
                     Collections.singletonList(partner),
                     privPair,
-                    true,   // signature
-                    true,   // text mode
-                    true    // armor
+                    true,    // signature
+                    true,    // text mode
+                    true     // armor
             );
 
             assertEquals(1, sigGenC.constructed().size());
@@ -209,22 +229,25 @@ public class OnePassSignatureProcessorTest {
         PGPPublicKey valid = mockEncKey(0x33L, false, true, true);
 
         try (MockedStatic<PGPUtil> util = mockStatic(PGPUtil.class);
-             MockedConstruction<PGPPublicKeyRing> pubRingC = mockConstruction(PGPPublicKeyRing.class, (mock, c) ->
-                     when(mock.getPublicKeys()).thenReturn(Collections.singletonList(valid).iterator()));
+             MockedConstruction<PGPPublicKeyRing> pubRingC = mockConstruction(
+                     PGPPublicKeyRing.class,
+                     (mock, c) -> when(mock.getPublicKeys()).thenReturn(Collections.singletonList(valid).iterator())
+             );
              MockedConstruction<PGPSignatureGenerator> sigGenC = mockConstruction(PGPSignatureGenerator.class);
              MockedConstruction<EncryptedOutputStream> encOutC = mockConstruction(EncryptedOutputStream.class);
              MockedConstruction<CompressedDataOutputStream> compOutC = mockConstruction(CompressedDataOutputStream.class);
-             MockedConstruction<LiteralDataOutputStream> litOutC = mockConstruction(LiteralDataOutputStream.class, (lit, c) ->
-                     doNothing().when(lit).write(any(byte[].class), anyInt(), anyInt()))
-        ) {
-            util.when(() -> PGPUtil.getDecoderStream(any(InputStream.class)))
-                .thenReturn(new ByteArrayInputStream(new byte[0]));
+             MockedConstruction<LiteralDataOutputStream> litOutC = mockConstruction(
+                     LiteralDataOutputStream.class,
+                     (lit, c) -> doNothing().when(lit).write(any(byte[].class), anyInt(), anyInt())
+             )) {
+
+            util.when(() -> PGPUtil.getDecoderStream(any())).thenReturn(new ByteArrayInputStream(new byte[0]));
 
             cut.encryptOnePassSignature(
                     outArmored.getAbsolutePath(),
                     originalFile.getAbsolutePath(),
                     Collections.singletonList(partner),
-                    null,
+                    null,    // pas de signature
                     false,
                     false,
                     false
@@ -240,7 +263,7 @@ public class OnePassSignatureProcessorTest {
             cut.encryptOnePassSignature(
                     outArmored.getAbsolutePath(),
                     originalFile.getAbsolutePath(),
-                    null,
+                    null,   // pas de partenaires
                     null,
                     false, false, false
             );
@@ -256,14 +279,15 @@ public class OnePassSignatureProcessorTest {
     public void encrypt_throws_when_noValidEncryptionKey() throws Exception {
         PartnerPublicKeyPair partner = mockPartner(partnerPubOld.getAbsolutePath(), partnerPubNew.getAbsolutePath());
         PGPPublicKey badUsage = mockEncKey(0x81L, true, false, true);
-        PGPPublicKey expired  = mockEncKey(0x82L, false, true, false);
+        PGPPublicKey expired = mockEncKey(0x82L, false, true, false);
 
         try (MockedStatic<PGPUtil> util = mockStatic(PGPUtil.class);
-             MockedConstruction<PGPPublicKeyRing> pubRingC = mockConstruction(PGPPublicKeyRing.class, (mock, c) ->
-                     when(mock.getPublicKeys()).thenReturn(Arrays.asList(badUsage, expired).iterator()))
-        ) {
-            util.when(() -> PGPUtil.getDecoderStream(any(InputStream.class)))
-                .thenReturn(new ByteArrayInputStream(new byte[0]));
+             MockedConstruction<PGPPublicKeyRing> pubRingC = mockConstruction(
+                     PGPPublicKeyRing.class,
+                     (mock, c) -> when(mock.getPublicKeys()).thenReturn(Arrays.asList(badUsage, expired).iterator())
+             )) {
+
+            util.when(() -> PGPUtil.getDecoderStream(any())).thenReturn(new ByteArrayInputStream(new byte[0]));
 
             try {
                 cut.encryptOnePassSignature(
@@ -283,30 +307,30 @@ public class OnePassSignatureProcessorTest {
     @Test
     public void encrypt_throws_when_needSignature_but_noPassphrase() throws Exception {
         PartnerPublicKeyPair partner = mockPartner(partnerPubOld.getAbsolutePath(), partnerPubNew.getAbsolutePath());
-        // Passphrase vide -> doit lever IllegalArgumentException (message dépend du chemin pris)
-        PrivateKeyPair privPair = mockPrivatePair(ownPrivPgp.getAbsolutePath(), null, "", null);
+        PrivateKeyPair privPair = mockPrivatePair(ownPrivPgp.getAbsolutePath(), null, "", null); // pass vide
 
         PGPPublicKey valid = mockEncKey(0x90L, false, true, true);
 
         try (MockedStatic<PGPUtil> util = mockStatic(PGPUtil.class);
-             MockedConstruction<PGPPublicKeyRing> pubRingC = mockConstruction(PGPPublicKeyRing.class, (mock, c) ->
-                     when(mock.getPublicKeys()).thenReturn(Collections.singletonList(valid).iterator()))
-        ) {
-            util.when(() -> PGPUtil.getDecoderStream(any(InputStream.class)))
-                .thenReturn(new ByteArrayInputStream(new byte[0]));
+             MockedConstruction<PGPPublicKeyRing> pubRingC = mockConstruction(
+                     PGPPublicKeyRing.class,
+                     (mock, c) -> when(mock.getPublicKeys()).thenReturn(Collections.singletonList(valid).iterator())
+             )) {
+
+            util.when(() -> PGPUtil.getDecoderStream(any())).thenReturn(new ByteArrayInputStream(new byte[0]));
 
             try {
                 cut.encryptOnePassSignature(
                         outArmored.getAbsolutePath(),
                         originalFile.getAbsolutePath(),
                         Collections.singletonList(partner),
-                        privPair,  // passphrase manquante
+                        privPair, // passphrase manquante
                         true,
                         false, false
                 );
                 fail("IllegalArgumentException attendue");
             } catch (IllegalArgumentException ex) {
-                // on accepte n'importe quel message IAE (chemins différents possibles)
+                // message exact dépendant du chemin de code – on valide au moins le type
                 assertTrue(ex.getMessage() == null || ex.getMessage().length() >= 0);
             }
         }
@@ -319,6 +343,7 @@ public class OnePassSignatureProcessorTest {
 
         PGPPublicKey encKey = mockEncKey(0x61L, false, true, true);
 
+        // Keystore / certificats
         KeyStore ks = mock(KeyStore.class);
         X509Certificate cert = mock(X509Certificate.class);
         PublicKey jcaPub = mock(PublicKey.class);
@@ -335,43 +360,58 @@ public class OnePassSignatureProcessorTest {
 
         try (MockedStatic<PGPUtil> util = mockStatic(PGPUtil.class);
              MockedStatic<KeyStore> ksStatic = mockStatic(KeyStore.class);
-             MockedConstruction<PGPPublicKeyRing> pubRingC = mockConstruction(PGPPublicKeyRing.class, (mock, c) ->
-                     when(mock.getPublicKeys()).thenReturn(Collections.singletonList(encKey).iterator()));
-             MockedConstruction<JcaPGPKeyConverter> convC = mockConstruction(JcaPGPKeyConverter.class, (cvt, c) -> {
-                 PGPPublicKey pgpPub = mock(PGPPublicKey.class);
-                 PGPPrivateKey pgpPriv = mock(PGPPrivateKey.class);
-                 when(cvt.getPGPPublicKey(eq(PublicKeyAlgorithmTags.RSA_GENERAL), any(PublicKey.class), any(Date.class)))
-                         .thenReturn(pgpPub);
-                 when(cvt.getPGPPrivateKey(any(PGPPublicKey.class), any(java.security.PrivateKey.class)))
-                         .thenReturn(pgpPriv);
-             });
-             MockedConstruction<PGPSecretKey> pgpSecC = mockConstruction(PGPSecretKey.class, (psk, c) -> {
-                 when(psk.getKeyID()).thenReturn(0x71L);
-                 when(psk.extractPrivateKey(any())).thenReturn(mock(PGPPrivateKey.class));
-                 PGPPublicKey pub = mock(PGPPublicKey.class);
-                 when(pub.getAlgorithm()).thenReturn(PublicKeyAlgorithmTags.RSA_GENERAL);
-                 when(pub.getUserIDs()).thenReturn(Collections.singletonList("user@test").iterator());
-                 when(psk.getPublicKey()).thenReturn(pub);
-             });
-             MockedConstruction<PGPSignatureGenerator> sigGenC = mockConstruction(PGPSignatureGenerator.class, (sg, c) -> {
-                 PGPOnePassSignature ops = mock(PGPOnePassSignature.class);
-                 when(sg.generateOnePassVersion(eq(false))).thenReturn(ops);
-                 doNothing().when(ops).encode(any(OutputStream.class));
-                 doNothing().when(sg).update(any(byte[].class), anyInt(), anyInt());
-                 PGPSignature fin = mock(PGPSignature.class);
-                 when(sg.generate()).thenReturn(fin);
-                 doNothing().when(fin).encode(any(OutputStream.class));
-             });
+             MockedConstruction<PGPPublicKeyRing> pubRingC = mockConstruction(
+                     PGPPublicKeyRing.class,
+                     (mock, c) -> when(mock.getPublicKeys()).thenReturn(Collections.singletonList(encKey).iterator())
+             );
+             MockedConstruction<JcaPGPKeyConverter> convC = mockConstruction(
+                     JcaPGPKeyConverter.class,
+                     (cvt, c) -> {
+                         PGPPublicKey pgpPub = mock(PGPPublicKey.class);
+                         when(pgpPub.getCreationTime()).thenReturn(new Date());
+                         PGPPrivateKey pgpPriv = mock(PGPPrivateKey.class);
+                         when(cvt.getPGPPublicKey(eq(PublicKeyAlgorithmTags.RSA_GENERAL), any(PublicKey.class), any(Date.class)))
+                                 .thenReturn(pgpPub);
+                         when(cvt.getPGPPrivateKey(any(PGPPublicKey.class), any(java.security.PrivateKey.class)))
+                                 .thenReturn(pgpPriv);
+                     }
+             );
+             MockedConstruction<PGPSecretKey> pgpSecC = mockConstruction(
+                     PGPSecretKey.class,
+                     (psk, c) -> {
+                         when(psk.getKeyID()).thenReturn(0x71L);
+                         when(psk.extractPrivateKey(any())).thenReturn(mock(PGPPrivateKey.class));
+                         PGPPublicKey pub = mock(PGPPublicKey.class);
+                         when(pub.getAlgorithm()).thenReturn(PublicKeyAlgorithmTags.RSA_GENERAL);
+                         when(pub.getUserIDs()).thenReturn(Collections.singletonList("user@test").iterator());
+                         when(pub.getCreationTime()).thenReturn(new Date()); // évite NPE
+                         when(psk.getPublicKey()).thenReturn(pub);
+                     }
+             );
+             MockedConstruction<PGPSignatureGenerator> sigGenC = mockConstruction(
+                     PGPSignatureGenerator.class,
+                     (sg, c) -> {
+                         PGPOnePassSignature ops = mock(PGPOnePassSignature.class);
+                         when(sg.generateOnePassVersion(eq(false))).thenReturn(ops);
+                         doNothing().when(ops).encode(any(OutputStream.class));
+                         doNothing().when(sg).update(any(byte[].class), anyInt(), anyInt());
+                         PGPSignature fin = mock(PGPSignature.class);
+                         when(sg.generate()).thenReturn(fin);
+                         doNothing().when(fin).encode(any(OutputStream.class));
+                     }
+             );
              MockedConstruction<EncryptedOutputStream> encOutC = mockConstruction(EncryptedOutputStream.class);
              MockedConstruction<CompressedDataOutputStream> compOutC = mockConstruction(CompressedDataOutputStream.class);
-             MockedConstruction<LiteralDataOutputStream> litOutC = mockConstruction(LiteralDataOutputStream.class, (lit, c) ->
-                     doNothing().when(lit).write(any(byte[].class), anyInt(), anyInt()))
-        ) {
+             MockedConstruction<LiteralDataOutputStream> litOutC = mockConstruction(
+                     LiteralDataOutputStream.class,
+                     (lit, c) -> doNothing().when(lit).write(any(byte[].class), anyInt(), anyInt())
+             )) {
+
             ksStatic.when(() -> KeyStore.getInstance(eq("PKCS12"), eq("SunJSSE"))).thenReturn(ks);
 
-            util.when(() -> PGPUtil.getDecoderStream(any(InputStream.class)))
-                .thenReturn(new ByteArrayInputStream(new byte[0]))   // lecture public key OK
-                .thenThrow(new IOException("not pgp"));               // isPGPKeyFile -> false
+            util.when(() -> PGPUtil.getDecoderStream(any()))
+                .thenReturn(new ByteArrayInputStream(new byte[0]))  // lecture public key OK
+                .thenThrow(new IOException("not pgp"));             // isPGPKeyFile -> false
 
             cut.encryptOnePassSignature(
                     outArmored.getAbsolutePath(),
@@ -382,7 +422,7 @@ public class OnePassSignatureProcessorTest {
                     false, false
             );
 
-            assertEquals(1, pgpSecC.constructed().size());
+            assertEquals(1, pgpSecC.constructed().size()); // secret key créée via keystore
         }
     }
 
@@ -398,22 +438,30 @@ public class OnePassSignatureProcessorTest {
         when(sk.extractPrivateKey(any())).thenReturn(priv);
 
         PGPPublicKey pubA = mockEncKey(0x51L, false, true, true);
-        PGPPublicKey pubB = mockEncKey(0x52L, true,  true, true);
+        PGPPublicKey pubB = mockEncKey(0x52L, true, true, true);
 
         try (MockedStatic<PGPUtil> util = mockStatic(PGPUtil.class);
-             MockedConstruction<PGPSecretKeyRing> secRingC = mockConstruction(PGPSecretKeyRing.class, (mock, c) ->
-                     when(mock.getSecretKeys()).thenReturn(Collections.singletonList(sk).iterator()));
-             MockedConstruction<PGPPublicKeyRing> pubRingC = mockConstruction(PGPPublicKeyRing.class, (mock, c) ->
-                     when(mock.getPublicKeys()).thenReturn(Arrays.asList(pubA, pubB).iterator()));
-             MockedConstruction<EncryptedInputStream> encInC = mockConstruction(EncryptedInputStream.class, (ins, c) -> {
-                 when(ins.read(any(byte[].class), anyInt(), anyInt())).thenReturn(4).thenReturn(-1);
-                 doNothing().when(ins).calculateSignature(any(byte[].class), anyInt(), anyInt());
-                 doNothing().when(ins).verifySignature();
-                 doNothing().when(ins).verifyIntegrity();
-             })
-        ) {
-            util.when(() -> PGPUtil.getDecoderStream(any(InputStream.class)))
-                .thenReturn(new ByteArrayInputStream(new byte[0]));
+             MockedConstruction<PGPSecretKeyRing> secRingC = mockConstruction(
+                     PGPSecretKeyRing.class,
+                     (mock, c) -> when(mock.getSecretKeys()).thenReturn(Collections.singletonList(sk).iterator())
+             );
+             MockedConstruction<PGPPublicKeyRing> pubRingC = mockConstruction(
+                     PGPPublicKeyRing.class,
+                     (mock, c) -> when(mock.getPublicKeys()).thenReturn(Arrays.asList(pubA, pubB).iterator())
+             );
+             MockedConstruction<EncryptedInputStream> encInC = mockConstruction(
+                     EncryptedInputStream.class,
+                     (ins, c) -> {
+                         when(ins.read(any(byte[].class), anyInt(), anyInt()))
+                                 .thenReturn(4)
+                                 .thenReturn(-1);
+                         doNothing().when(ins).calculateSignature(any(byte[].class), anyInt(), anyInt());
+                         doNothing().when(ins).verifySignature();
+                         doNothing().when(ins).verifyIntegrity();
+                     }
+             )) {
+
+            util.when(() -> PGPUtil.getDecoderStream(any())).thenReturn(new ByteArrayInputStream(new byte[0]));
 
             cut.decryptOnePassSignature(
                     inEncrypted.getAbsolutePath(),
@@ -433,26 +481,25 @@ public class OnePassSignatureProcessorTest {
 
     @Test
     public void decrypt_throws_when_verifySignature_and_noPartners() throws Exception {
-        // >>> FIX EOFException : on mock le parsing PGP + la construction d'EIS
         PrivateKeyPair privPair = mockPrivatePair(ownPrivPgp.getAbsolutePath(), null, "pass", null);
-
         PGPSecretKey sk = mockSigningSecretKey(0x44L);
 
         try (MockedStatic<PGPUtil> util = mockStatic(PGPUtil.class);
-             MockedConstruction<PGPSecretKeyRing> secRingC = mockConstruction(PGPSecretKeyRing.class, (mock, c) ->
-                     when(mock.getSecretKeys()).thenReturn(Collections.singletonList(sk).iterator()));
-             MockedConstruction<EncryptedInputStream> encInC = mockConstruction(EncryptedInputStream.class, (ins, c) -> {
-                 // aucune lecture réelle
-                 when(ins.read(any(byte[].class), anyInt(), anyInt())).thenReturn(-1);
-             })
-        ) {
-            util.when(() -> PGPUtil.getDecoderStream(any(InputStream.class)))
-                .thenReturn(new ByteArrayInputStream(new byte[0]));
+             MockedConstruction<PGPSecretKeyRing> secRingC = mockConstruction(
+                     PGPSecretKeyRing.class,
+                     (mock, c) -> when(mock.getSecretKeys()).thenReturn(Collections.singletonList(sk).iterator())
+             );
+             MockedConstruction<EncryptedInputStream> encInC = mockConstruction(
+                     EncryptedInputStream.class,
+                     (ins, c) -> when(ins.read(any(byte[].class), anyInt(), anyInt())).thenReturn(-1)
+             )) {
+
+            util.when(() -> PGPUtil.getDecoderStream(any())).thenReturn(new ByteArrayInputStream(new byte[0]));
 
             try {
                 cut.decryptOnePassSignature(
                         inEncrypted.getAbsolutePath(),
-                        Collections.<PartnerPublicKeyPair>emptyList(), // pas de partenaires
+                        Collections.<PartnerPublicKeyPair>emptyList(),
                         privPair,
                         outDecrypted.getAbsolutePath(),
                         true
@@ -505,7 +552,7 @@ public class OnePassSignatureProcessorTest {
         }
     }
 
-    // ------------------ Exigence verifyNoInteractions ------------------
+    // ------------------ verifyNoInteractions exigé ------------------
 
     @Test
     public void verifyNoInteractions_example() {
