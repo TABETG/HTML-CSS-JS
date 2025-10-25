@@ -1,119 +1,194 @@
-package com.bnpparibas.dsibddf.ap00420.streamfact.batch.dailymeteorintegration.job;
+package com.bnpparibas.dsibddf.ap00420.streamfact.batch.dailymeteorintegration.manager;
 
-import com.bnpparibas.dsibddf.ap00420.streamfact.batch.dailymeteorintegration.tasklet.LoadDailyMeteorFileTasklet;
+import com.bnpparibas.dsibddf.ap00420.streamfact.batch.dailymeteorintegration.model.MeteorFile;
+import com.ibm.cloud.objectstorage.ClientConfiguration;
+import com.ibm.cloud.objectstorage.auth.AWSCredentials;
+import com.ibm.cloud.objectstorage.services.s3.AmazonS3;
+import com.ibm.cloud.objectstorage.services.s3.model.*;
+import org.apache.commons.lang3.StringUtils;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
+import org.mockito.*;
 import org.mockito.junit.MockitoJUnitRunner;
-import org.springframework.batch.core.Job;
-import org.springframework.batch.core.Step;
-import org.springframework.batch.core.job.flow.FlowJob;
-import org.springframework.batch.core.repository.JobRepository;
-import org.springframework.batch.core.step.tasklet.TaskletStep;
-import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.core.env.Environment;
 
-import java.lang.reflect.Field;
+import java.io.*;
+import java.net.URL;
+import java.util.*;
 
 import static org.junit.Assert.*;
 import static org.mockito.Mockito.*;
 
-/**
- * Test JUnit4 - Couverture 100% de DailyMeteorIntegrationConfiguration
- * Compatible Sonar / Jenkins / Jacoco / Java 17+
- */
 @RunWith(MockitoJUnitRunner.class)
-public class DailyMeteorIntegrationConfigurationTest {
-
-    @Mock
-    private LoadDailyMeteorFileTasklet loadDailyMeteorFileTasklet;
-
-    @Mock
-    private JobRepository jobRepository;
-
-    @Mock
-    private PlatformTransactionManager platformTransactionManager;
+public class CloudFileManagerTest {
 
     @InjectMocks
-    private DailyMeteorIntegrationConfiguration configuration;
+    private CloudFileManager manager;
+
+    @Mock
+    private AmazonS3 s3Client;
+
+    @Mock
+    private Environment env;
+
+    @Mock
+    private AmazonS3 s3ClientNew;
 
     @Before
-    public void setUp() {
-        assertNotNull(configuration);
+    public void setUp() throws Exception {
+        // Injection manuelle des valeurs simulées
+        setPrivate(manager, "bucketName", "bucket-test");
+        setPrivate(manager, "bucketNameNew", "bucket-new");
+        setPrivate(manager, "objectKeyNew", "object-key");
+        setPrivate(manager, "prefix", "prefix");
+        setPrivate(manager, "path", "/tmp/");
+        setPrivate(manager, "cosCftName", "");
+        setPrivate(manager, "endpointNew", new URL("http://localhost"));
+        setPrivate(manager, "location", "eu-fr2");
+        setPrivate(manager, "cosIamEndpoint", "iam.endpoint");
+        setPrivate(manager, "cosTimeOut", 5000);
+        setPrivate(manager, "env", env);
     }
 
     @Test
-    public void loadDailyMeteorFileJob_should_create_job_with_expected_properties() throws Exception {
-        Step step = configuration.loadDailyMeteorFileStep(jobRepository);
-        Job job = configuration.loadDailyMeteorFileJob(jobRepository, step);
+    public void test_createClientConfig_and_createCredentials() throws Exception {
+        Object config = invokePrivate(manager, "createClientConfig");
+        assertTrue(config instanceof ClientConfiguration);
 
-        assertNotNull(job);
-        assertTrue(job instanceof FlowJob);
-        assertEquals("loadDailyMeteorFileJob", job.getName());
-
-        // Vérifie la présence du RunIdIncrementer
-        Field incField = job.getClass().getSuperclass().getDeclaredField("jobParametersIncrementer");
-        incField.setAccessible(true);
-        Object incrementer = incField.get(job);
-        assertNotNull(incrementer);
-        assertEquals("org.springframework.batch.core.launch.support.RunIdIncrementer", incrementer.getClass().getName());
+        Object creds = invokePrivate(manager, "createCredentials", "apiKey", "resId");
+        assertTrue(creds instanceof AWSCredentials);
     }
 
     @Test
-    public void loadDailyMeteorFileStep_should_create_step_with_tasklet_and_transactionManager() throws Exception {
-        Step step = configuration.loadDailyMeteorFileStep(jobRepository);
-
-        assertNotNull(step);
-        assertTrue(step instanceof TaskletStep);
-        assertEquals("loadDailyMeteorFileStep", step.getName());
-
-        // Vérifie que le tasklet et le TM sont bien affectés
-        Field taskletField = TaskletStep.class.getDeclaredField("tasklet");
-        taskletField.setAccessible(true);
-        Object tasklet = taskletField.get(step);
-        assertSame(loadDailyMeteorFileTasklet, tasklet);
-
-        Field tmField = TaskletStep.class.getDeclaredField("transactionManager");
-        tmField.setAccessible(true);
-        Object tm = tmField.get(step);
-        assertSame(platformTransactionManager, tm);
+    public void test_beanAmazonS3Legacy_withAndWithoutCosCftName() throws Exception {
+        when(env.getProperty(anyString())).thenReturn("dummy");
+        // sans cosCftName
+        AmazonS3 s3A = manager.beanAmazonS3Legacy();
+        assertNotNull(s3A);
+        // avec cosCftName
+        setPrivate(manager, "cosCftName", "testCft");
+        AmazonS3 s3B = manager.beanAmazonS3Legacy();
+        assertNotNull(s3B);
     }
 
     @Test
-    public void autowired_fields_should_be_injected_correctly() throws Exception {
-        Field taskletField = DailyMeteorIntegrationConfiguration.class.getDeclaredField("loadDailyMeteorFileTasklet");
-        Field tmField = DailyMeteorIntegrationConfiguration.class.getDeclaredField("platformTransactionManager");
+    public void test_getListOfObjects_returns_nonEmptyList() throws Exception {
+        ListObjectsV2Result result = mock(ListObjectsV2Result.class);
+        S3ObjectSummary summary = new S3ObjectSummary();
+        summary.setKey("prefix/file1");
+        when(result.getObjectSummaries()).thenReturn(Collections.singletonList(summary));
+        when(s3ClientNew.listObjectsV2(anyString(), anyString())).thenReturn(result);
 
-        taskletField.setAccessible(true);
-        tmField.setAccessible(true);
-
-        Object injectedTasklet = taskletField.get(configuration);
-        Object injectedTm = tmField.get(configuration);
-
-        assertSame(loadDailyMeteorFileTasklet, injectedTasklet);
-        assertSame(platformTransactionManager, injectedTm);
+        List<String> list = invokePrivateList(manager, "getListOfObjects", s3ClientNew);
+        assertEquals(1, list.size());
     }
 
     @Test
-    public void constructor_and_methods_should_not_throw_exception() throws Exception {
-        // Vérifie que la configuration supporte un nouvel objet proprement
-        DailyMeteorIntegrationConfiguration config2 = new DailyMeteorIntegrationConfiguration();
+    public void test_getListOfObjects_handles_null_result() throws Exception {
+        when(s3ClientNew.listObjectsV2(anyString(), anyString())).thenReturn(null);
+        List<String> list = invokePrivateList(manager, "getListOfObjects", s3ClientNew);
+        assertTrue(list.isEmpty());
+    }
 
-        // Injection manuelle pour vérif globale
-        Field taskletField = DailyMeteorIntegrationConfiguration.class.getDeclaredField("loadDailyMeteorFileTasklet");
-        Field tmField = DailyMeteorIntegrationConfiguration.class.getDeclaredField("platformTransactionManager");
-        taskletField.setAccessible(true);
-        tmField.setAccessible(true);
-        taskletField.set(config2, loadDailyMeteorFileTasklet);
-        tmField.set(config2, platformTransactionManager);
+    @Test
+    public void test_downloadFileCft_ok() throws Exception {
+        // Mock interne pour getListOfObjects()
+        CloudFileManager spy = spy(manager);
+        doReturn(Collections.singletonList("f1")).when(spy).invokePrivateList(eq("getListOfObjects"), any());
 
-        Step step = config2.loadDailyMeteorFileStep(jobRepository);
-        Job job = config2.loadDailyMeteorFileJob(jobRepository, step);
+        AmazonS3 mockS3 = mock(AmazonS3.class);
+        doReturn(mockS3).when(spy).beanAmazonS3Legacy();
+        doNothing().when(mockS3).getObject(any(GetObjectRequest.class), any(File.class));
 
-        assertNotNull(job);
-        assertNotNull(step);
-        assertEquals("loadDailyMeteorFileJob", job.getName());
-        assertEquals("loadDailyMeteorFileStep", step.getName());
+        File[] result = spy.downloadFileCft();
+        assertNotNull(result);
+    }
+
+    @Test
+    public void test_archiveFile_with_existing_file() throws Exception {
+        File tmp = File.createTempFile("meteor", ".zip");
+        try (FileWriter w = new FileWriter(tmp)) { w.write("data"); }
+        setPrivate(manager, "path", tmp.getParent() + "/");
+        when(s3Client.putObject(anyString(), anyString(), any(InputStream.class), any(ObjectMetadata.class))).thenReturn(new PutObjectResult());
+
+        manager.archiveFile(tmp.getName());
+        verify(s3Client, atLeastOnce()).putObject(anyString(), anyString(), any(InputStream.class), any(ObjectMetadata.class));
+    }
+
+    @Test
+    public void test_archiveFile_handles_exceptions() throws Exception {
+        setPrivate(manager, "path", "/invalid/");
+        manager.archiveFile("nofile.txt"); // devrait déclencher log.error, mais pas d’exception
+    }
+
+    @Test
+    public void test_archiveFile_withMeteorFile() throws Exception {
+        File tmp = File.createTempFile("f", ".zip");
+        try (FileWriter w = new FileWriter(tmp)) { w.write("ok"); }
+        MeteorFile meteorFile = new MeteorFile(tmp, tmp.getName());
+        doNothing().when(s3Client).putObject(anyString(), anyString(), any(InputStream.class), any(ObjectMetadata.class));
+        doNothing().when(s3ClientNew).deleteObject(any(DeleteObjectRequest.class));
+
+        CloudFileManager spy = spy(manager);
+        doReturn(s3ClientNew).when(spy).beanAmazonS3Legacy();
+        spy.archiveFile(meteorFile);
+        verify(spy, atLeastOnce()).beanAmazonS3Legacy();
+    }
+
+    @Test
+    public void test_archiveFile_withMeteorFile_IOException() throws Exception {
+        MeteorFile meteorFile = new MeteorFile(new File("/invalid/file.zip"), "file.zip");
+        manager.archiveFile(meteorFile); // log.error attendu
+    }
+
+    @Test
+    public void test_deleteFileNewbacket_executes_delete() throws Exception {
+        CloudFileManager spy = spy(manager);
+        AmazonS3 mockS3 = mock(AmazonS3.class);
+        doReturn(mockS3).when(spy).beanAmazonS3Legacy();
+        doNothing().when(mockS3).deleteObject(any(DeleteObjectRequest.class));
+        invokePrivate(spy, "deleteFileNewbacket", "file");
+        verify(mockS3, times(1)).deleteObject(any(DeleteObjectRequest.class));
+    }
+
+    @Test
+    public void test_getFiles_with_empty_download() throws Exception {
+        CloudFileManager spy = spy(manager);
+        doReturn(new File[0]).when(spy).downloadFileCft();
+        List<MeteorFile> list = spy.getFiles();
+        assertTrue(list.isEmpty());
+    }
+
+    @Test
+    public void test_getFiles_with_valid_files() throws Exception {
+        CloudFileManager spy = spy(manager);
+        File tmp = File.createTempFile("f", ".zip");
+        doReturn(new File[]{tmp}).when(spy).downloadFileCft();
+        List<MeteorFile> list = spy.getFiles();
+        assertEquals(1, list.size());
+    }
+
+    // -------------------------------------------------
+    //   OUTILS REFLEXION GÉNÉRIQUES
+    // -------------------------------------------------
+
+    private void setPrivate(Object instance, String field, Object value) throws Exception {
+        Field f = instance.getClass().getDeclaredField(field);
+        f.setAccessible(true);
+        f.set(instance, value);
+    }
+
+    private Object invokePrivate(Object instance, String method, Object... args) throws Exception {
+        Class<?>[] types = new Class<?>[args.length];
+        for (int i = 0; i < args.length; i++) types[i] = args[i].getClass();
+        java.lang.reflect.Method m = instance.getClass().getDeclaredMethod(method, types);
+        m.setAccessible(true);
+        return m.invoke(instance, args);
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<String> invokePrivateList(Object instance, String method, Object... args) throws Exception {
+        return (List<String>) invokePrivate(instance, method, args);
     }
 }
