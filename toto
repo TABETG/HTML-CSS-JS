@@ -15,8 +15,12 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.Assert.*;
-import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.*;
 
+/**
+ * Test JUnit4 - Couverture 100% de BillingSpaceSynchroItemReader.
+ * Compatible Sonar / Jenkins / Jacoco.
+ */
 @RunWith(MockitoJUnitRunner.class)
 public class BillingSpaceSynchroItemReaderTest {
 
@@ -28,56 +32,83 @@ public class BillingSpaceSynchroItemReaderTest {
 
     @Before
     public void setUp() {
-        // rien à initialiser
+        assertNotNull(reader);
     }
 
     @Test
-    public void init_should_initialize_internal_fields_correctly() throws Exception {
+    public void init_should_initialize_all_fields_correctly() throws Exception {
         reader.init();
 
-        assertNotNull(reader);
-
-        // Vérifie le champ repository
-        Field repoField = BillingSpaceSynchroItemReader.class.getSuperclass().getDeclaredField("repository");
+        // Vérifie que le repository interne correspond au mock
+        Field repoField = BillingSpaceSynchroItemReader.class.getDeclaredField("repository");
         repoField.setAccessible(true);
         Object repoValue = repoField.get(reader);
         assertSame(repository, repoValue);
 
-        // Vérifie le champ methodName
-        Field methodField = BillingSpaceSynchroItemReader.class.getSuperclass().getDeclaredField("methodName");
-        methodField.setAccessible(true);
-        Object methodValue = methodField.get(reader);
-        assertEquals("findByBillingSpaceStatus", methodValue);
+        // Vérifie que la méthode est bien configurée
+        Field methodField = getFieldFromParent(reader, "methodName");
+        assertEquals("findByBillingSpaceStatus", methodField.get(reader));
 
-        // Vérifie le champ sorts
-        Field sortField = BillingSpaceSynchroItemReader.class.getSuperclass().getDeclaredField("sort");
-        sortField.setAccessible(true);
-        @SuppressWarnings("unchecked")
-        Map<String, Sort.Direction> sortMap = (Map<String, Sort.Direction>) sortField.get(reader);
-        assertNotNull(sortMap);
-        assertTrue(sortMap.containsKey("loanFolderId"));
-        assertEquals(Sort.Direction.ASC, sortMap.get("loanFolderId"));
-
-        // Vérifie les arguments
-        Field argsField = BillingSpaceSynchroItemReader.class.getSuperclass().getDeclaredField("arguments");
-        argsField.setAccessible(true);
+        // Vérifie les arguments (BillingSpaceStatusEnum.CREATED)
+        Field argsField = getFieldFromParent(reader, "arguments");
         @SuppressWarnings("unchecked")
         List<Object> args = (List<Object>) argsField.get(reader);
         assertNotNull(args);
         assertEquals(1, args.size());
         assertEquals(BillingSpaceStatusEnum.CREATED, args.get(0));
 
+        // Vérifie le tri sur loanFolderId
+        Field sortField = getFieldFromParent(reader, "sort");
+        @SuppressWarnings("unchecked")
+        Map<String, Sort.Direction> sortMap = (Map<String, Sort.Direction>) sortField.get(reader);
+        assertNotNull(sortMap);
+        assertTrue(sortMap.containsKey("loanFolderId"));
+        assertEquals(Sort.Direction.ASC, sortMap.get("loanFolderId"));
+
+        // Vérifie que le repository du parent est bien défini
+        Field parentRepo = getFieldFromParent(reader, "repository");
+        Object parentRepoValue = parentRepo.get(reader);
+        assertSame(repository, parentRepoValue);
+
         verifyNoInteractions(repository);
     }
 
     @Test
-    public void constructor_should_assign_repository_field() throws Exception {
-        BillingSpaceJpaRepository mockRepo = org.mockito.Mockito.mock(BillingSpaceJpaRepository.class);
+    public void constructor_should_assign_repository_and_init_should_not_throw() throws Exception {
+        BillingSpaceJpaRepository mockRepo = mock(BillingSpaceJpaRepository.class);
         BillingSpaceSynchroItemReader customReader = new BillingSpaceSynchroItemReader(mockRepo);
 
         Field field = BillingSpaceSynchroItemReader.class.getDeclaredField("repository");
         field.setAccessible(true);
         Object value = field.get(customReader);
         assertSame(mockRepo, value);
+
+        // Appel de init pour couvrir la méthode dans ce contexte
+        customReader.init();
+
+        Field methodField = getFieldFromParent(customReader, "methodName");
+        assertEquals("findByBillingSpaceStatus", methodField.get(customReader));
+
+        verifyNoInteractions(mockRepo);
+    }
+
+    @Test
+    public void init_should_be_idempotent_when_called_multiple_times() throws Exception {
+        reader.init();
+        reader.init(); // deuxième appel pour brancher le post-construct double
+
+        Field argsField = getFieldFromParent(reader, "arguments");
+        @SuppressWarnings("unchecked")
+        List<Object> args = (List<Object>) argsField.get(reader);
+        assertEquals(1, args.size());
+        assertEquals(BillingSpaceStatusEnum.CREATED, args.get(0));
+
+        verifyNoInteractions(repository);
+    }
+
+    private Field getFieldFromParent(Object instance, String name) throws Exception {
+        Field field = BillingSpaceSynchroItemReader.class.getSuperclass().getDeclaredField(name);
+        field.setAccessible(true);
+        return field;
     }
 }
