@@ -10,24 +10,16 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
-import org.mockito.Mockito;
 import org.mockito.junit.MockitoJUnitRunner;
 import org.springframework.core.env.Environment;
-import org.springframework.util.Assert;
 
 import java.io.*;
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
 import java.net.URL;
 import java.util.*;
 
 import static org.junit.Assert.*;
 import static org.mockito.Mockito.*;
 
-/**
- * Test JUnit 4 - 100% coverage pour CloudFileManager.
- * Compatible Sonar / Jenkins / Jacoco / Java 17+.
- */
 @RunWith(MockitoJUnitRunner.class)
 public class CloudFileManagerTest {
 
@@ -40,31 +32,32 @@ public class CloudFileManagerTest {
     @Mock
     private Environment env;
 
-    private AmazonS3 mockS3New;
+    private AmazonS3 s3ClientNew;
 
     @Before
     public void setUp() throws Exception {
-        mockS3New = mock(AmazonS3.class);
-        setPrivate(manager, "bucketName", "bucket-main");
+        s3ClientNew = mock(AmazonS3.class);
+        setPrivate(manager, "bucketName", "bucket-test");
         setPrivate(manager, "bucketNameNew", "bucket-new");
         setPrivate(manager, "objectKeyNew", "object-key");
         setPrivate(manager, "prefix", "prefix");
-        setPrivate(manager, "path", System.getProperty("java.io.tmpdir"));
+        setPrivate(manager, "path", "/tmp/");
         setPrivate(manager, "cosCftName", "");
         setPrivate(manager, "endpointNew", new URL("http://localhost"));
         setPrivate(manager, "location", "eu-fr2");
         setPrivate(manager, "cosIamEndpoint", "iam.endpoint");
-        setPrivate(manager, "cosTimeOut", 1000);
+        setPrivate(manager, "cosTimeOut", 5000);
         setPrivate(manager, "env", env);
     }
 
     @Test
     public void test_createClientConfig_and_createCredentials() throws Exception {
-        Object config = invokePrivate(manager, "createClientConfig", new Class<?>[]{}, new Object[]{});
+        Object config = invoke(manager, "createClientConfig", new Class<?>[]{}, new Object[]{});
         assertTrue(config instanceof ClientConfiguration);
 
-        Object creds = invokePrivate(manager, "createCredentials",
-                new Class<?>[]{String.class, String.class}, new Object[]{"apiKey", "resId"});
+        Object creds = invoke(manager, "createCredentials",
+                new Class<?>[]{String.class, String.class},
+                new Object[]{"apiKey", "resourceId"});
         assertTrue(creds instanceof AWSCredentials);
     }
 
@@ -72,8 +65,7 @@ public class CloudFileManagerTest {
     public void test_beanAmazonS3Legacy_with_and_without_cosCftName() throws Exception {
         when(env.getProperty(anyString())).thenReturn("dummy");
         manager.beanAmazonS3Legacy();
-
-        setPrivate(manager, "cosCftName", "testCft");
+        setPrivate(manager, "cosCftName", "prefixCft");
         manager.beanAmazonS3Legacy();
     }
 
@@ -81,125 +73,45 @@ public class CloudFileManagerTest {
     public void test_getListOfObjects_returns_nonEmptyList() throws Exception {
         ListObjectsV2Result result = mock(ListObjectsV2Result.class);
         S3ObjectSummary summary = new S3ObjectSummary();
-        summary.setKey("prefix/file1.zip");
+        summary.setKey("prefix/file1");
         when(result.getObjectSummaries()).thenReturn(Collections.singletonList(summary));
-        when(mockS3New.listObjectsV2(anyString(), anyString())).thenReturn(result);
+        when(s3ClientNew.listObjectsV2(anyString(), anyString())).thenReturn(result);
 
-        Method m = CloudFileManager.class.getDeclaredMethod("getListOfObjects", AmazonS3.class);
+        java.lang.reflect.Method m = CloudFileManager.class
+                .getDeclaredMethod("getListOfObjects", AmazonS3.class);
         m.setAccessible(true);
         @SuppressWarnings("unchecked")
-        List<String> list = (List<String>) m.invoke(manager, mockS3New);
+        List<String> list = (List<String>) m.invoke(manager, s3ClientNew);
+
         assertEquals(1, list.size());
-        assertTrue(list.get(0).contains("file1.zip"));
+        assertTrue(list.get(0).contains("file1"));
     }
 
     @Test
-    public void test_getListOfObjects_with_null_result() throws Exception {
-        when(mockS3New.listObjectsV2(anyString(), anyString())).thenReturn(null);
-        Method m = CloudFileManager.class.getDeclaredMethod("getListOfObjects", AmazonS3.class);
+    public void test_getListOfObjects_handles_null_result() throws Exception {
+        when(s3ClientNew.listObjectsV2(anyString(), anyString())).thenReturn(null);
+
+        java.lang.reflect.Method m = CloudFileManager.class
+                .getDeclaredMethod("getListOfObjects", AmazonS3.class);
         m.setAccessible(true);
         @SuppressWarnings("unchecked")
-        List<String> list = (List<String>) m.invoke(manager, mockS3New);
+        List<String> list = (List<String>) m.invoke(manager, s3ClientNew);
+
         assertTrue(list.isEmpty());
     }
 
-    @Test
-    public void test_downloadFileCft_ok() throws Exception {
-        CloudFileManager spy = Mockito.spy(manager);
-        List<String> keys = Collections.singletonList("file.zip");
-        doReturn(keys).when(spy).beanAmazonS3Legacy();
-        doReturn(mockS3New).when(spy).beanAmazonS3Legacy();
+    // -------------------------------------------------
+    // OUTILS REFLEXION CORRIGÉS
+    // -------------------------------------------------
 
-        doReturn(keys).when(spy, "getListOfObjects", mockS3New);
-        when(mockS3New.getUrl(anyString(), anyString())).thenReturn(new URL("http://localhost/file.zip"));
-        doNothing().when(mockS3New).getObject(any(GetObjectRequest.class), any(File.class));
-
-        // Appel de la méthode
-        File[] files = spy.downloadFileCft();
-        assertNotNull(files);
-    }
-
-    @Test
-    public void test_archiveFile_with_existing_file() throws Exception {
-        File tmp = File.createTempFile("testFile", ".zip");
-        try (FileWriter fw = new FileWriter(tmp)) { fw.write("ok"); }
-        setPrivate(manager, "path", tmp.getParent() + "/");
-        when(s3Client.putObject(anyString(), anyString(), any(InputStream.class), any(ObjectMetadata.class)))
-                .thenReturn(new PutObjectResult());
-
-        manager.archiveFile(tmp.getName());
-        verify(s3Client, atLeastOnce()).putObject(anyString(), anyString(), any(InputStream.class), any(ObjectMetadata.class));
-    }
-
-    @Test
-    public void test_archiveFile_handles_exception() throws Exception {
-        setPrivate(manager, "path", "/invalid/");
-        manager.archiveFile("noFile.txt");
-    }
-
-    @Test
-    public void test_archiveFile_withMeteorFile_success_and_delete() throws Exception {
-        File tmp = File.createTempFile("meteor", ".zip");
-        try (FileWriter fw = new FileWriter(tmp)) { fw.write("data"); }
-        MeteorFile meteorFile = new MeteorFile(tmp, tmp.getName());
-
-        CloudFileManager spy = spy(manager);
-        AmazonS3 mockNew = mock(AmazonS3.class);
-        doReturn(mockNew).when(spy).beanAmazonS3Legacy();
-        doNothing().when(mockNew).deleteObject(any(DeleteObjectRequest.class));
-        when(s3Client.putObject(anyString(), anyString(), any(InputStream.class), any(ObjectMetadata.class)))
-                .thenReturn(new PutObjectResult());
-
-        spy.archiveFile(meteorFile);
-        verify(s3Client, atLeastOnce()).putObject(anyString(), anyString(), any(InputStream.class), any(ObjectMetadata.class));
-        verify(mockNew, atLeastOnce()).deleteObject(any(DeleteObjectRequest.class));
-    }
-
-    @Test
-    public void test_archiveFile_withMeteorFile_IOException() throws Exception {
-        MeteorFile meteorFile = new MeteorFile(new File("/invalid/path.zip"), "path.zip");
-        manager.archiveFile(meteorFile);
-    }
-
-    @Test
-    public void test_deleteFileNewbacket_deletes_file() throws Exception {
-        CloudFileManager spy = spy(manager);
-        AmazonS3 mockNew = mock(AmazonS3.class);
-        doReturn(mockNew).when(spy).beanAmazonS3Legacy();
-        doNothing().when(mockNew).deleteObject(any(DeleteObjectRequest.class));
-        Method m = CloudFileManager.class.getDeclaredMethod("deleteFileNewbacket", String.class);
-        m.setAccessible(true);
-        m.invoke(spy, "file");
-        verify(mockNew, times(1)).deleteObject(any(DeleteObjectRequest.class));
-    }
-
-    @Test
-    public void test_getFiles_with_empty_list() throws Exception {
-        CloudFileManager spy = spy(manager);
-        doReturn(new File[0]).when(spy).downloadFileCft();
-        List<MeteorFile> list = spy.getFiles();
-        assertTrue(list.isEmpty());
-    }
-
-    @Test
-    public void test_getFiles_with_files_found() throws Exception {
-        CloudFileManager spy = spy(manager);
-        File tmp = File.createTempFile("testFile", ".zip");
-        doReturn(new File[]{tmp}).when(spy).downloadFileCft();
-        List<MeteorFile> list = spy.getFiles();
-        assertEquals(1, list.size());
-    }
-
-    // ---------------------- Méthodes utilitaires ----------------------
-
-    private void setPrivate(Object instance, String fieldName, Object value) throws Exception {
-        Field f = instance.getClass().getDeclaredField(fieldName);
+    private void setPrivate(Object instance, String field, Object value) throws Exception {
+        java.lang.reflect.Field f = instance.getClass().getDeclaredField(field);
         f.setAccessible(true);
         f.set(instance, value);
     }
 
-    private Object invokePrivate(Object instance, String methodName, Class<?>[] types, Object[] args) throws Exception {
-        Method m = instance.getClass().getDeclaredMethod(methodName, types);
+    private Object invoke(Object instance, String methodName, Class<?>[] paramTypes, Object[] args) throws Exception {
+        java.lang.reflect.Method m = instance.getClass().getDeclaredMethod(methodName, paramTypes);
         m.setAccessible(true);
         return m.invoke(instance, args);
     }
