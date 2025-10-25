@@ -1,4 +1,4 @@
-package com.bnpparibas.dsibddf.ap00420.streamfact.batch.replay.sendpaymentrequestprocessed.processor;
+package com.bnpparibas.dsibddf.ap00420.streamfact.batch.replay.sendpaymentrequestpaid.processor;
 
 import com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.history.model.DocaposteEventHistory;
 import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.history.mapper.DocaposteEventHistoryEntityMapperToDomain;
@@ -15,63 +15,63 @@ import static org.junit.Assert.*;
 import static org.mockito.Mockito.*;
 
 /**
- * Test JUnit4 – 100% coverage SendPaymentRequestProcessedProcessor
+ * Test JUnit4 – 100 % coverage pour ReplaySendPaymentRequestPaidItemProcessor
  * Compatible Sonar / Jenkins / Jacoco / Java 17+
  */
 @RunWith(MockitoJUnitRunner.class)
-public class SendPaymentRequestProcessedProcessorTest {
+public class ReplaySendPaymentRequestPaidItemProcessorTest {
 
-    private SendPaymentRequestProcessedProcessor processor;
+    private ReplaySendPaymentRequestPaidItemProcessor processor;
 
     @Before
     public void setUp() {
-        processor = new SendPaymentRequestProcessedProcessor();
+        processor = new ReplaySendPaymentRequestPaidItemProcessor();
     }
 
     @Test
     public void process_should_call_mapper_and_return_result() {
-        DocaposteEventHistoryEntity entity = new DocaposteEventHistoryEntity();
+        DocaposteEventHistoryEntity input = new DocaposteEventHistoryEntity();
         DocaposteEventHistory expected = new DocaposteEventHistory();
 
         try (MockedStatic<DocaposteEventHistoryEntityMapperToDomain> mockedMapper =
                      Mockito.mockStatic(DocaposteEventHistoryEntityMapperToDomain.class)) {
 
-            mockedMapper.when(() -> DocaposteEventHistoryEntityMapperToDomain.toDomain(entity))
+            mockedMapper.when(() -> DocaposteEventHistoryEntityMapperToDomain.toDomain(input))
                     .thenReturn(expected);
 
-            DocaposteEventHistory result = processor.process(entity);
+            DocaposteEventHistory result = processor.process(input);
 
             assertNotNull(result);
             assertSame(expected, result);
-            mockedMapper.verify(() -> DocaposteEventHistoryEntityMapperToDomain.toDomain(entity), times(1));
+            mockedMapper.verify(() -> DocaposteEventHistoryEntityMapperToDomain.toDomain(input), times(1));
         }
     }
 
     @Test
     public void process_should_return_null_when_mapper_returns_null() {
-        DocaposteEventHistoryEntity entity = new DocaposteEventHistoryEntity();
+        DocaposteEventHistoryEntity input = new DocaposteEventHistoryEntity();
 
         try (MockedStatic<DocaposteEventHistoryEntityMapperToDomain> mockedMapper =
                      Mockito.mockStatic(DocaposteEventHistoryEntityMapperToDomain.class)) {
 
-            mockedMapper.when(() -> DocaposteEventHistoryEntityMapperToDomain.toDomain(entity))
+            mockedMapper.when(() -> DocaposteEventHistoryEntityMapperToDomain.toDomain(input))
                     .thenReturn(null);
 
-            DocaposteEventHistory result = processor.process(entity);
+            DocaposteEventHistory result = processor.process(input);
 
             assertNull(result);
-            mockedMapper.verify(() -> DocaposteEventHistoryEntityMapperToDomain.toDomain(entity), times(1));
+            mockedMapper.verify(() -> DocaposteEventHistoryEntityMapperToDomain.toDomain(input), times(1));
         }
+    }
+
+    @Test
+    public void class_should_have_slf4j_and_component_annotations() {
+        assertNotNull(ReplaySendPaymentRequestPaidItemProcessor.class.getAnnotation(org.springframework.stereotype.Component.class));
+        assertNotNull(ReplaySendPaymentRequestPaidItemProcessor.class.getAnnotation(lombok.extern.slf4j.Slf4j.class));
     }
 
     @Test
     public void class_should_implement_itemprocessor_interface() {
         assertTrue(processor instanceof ItemProcessor);
-    }
-
-    @Test
-    public void class_should_have_component_and_slf4j_annotations() {
-        assertNotNull(SendPaymentRequestProcessedProcessor.class.getAnnotation(org.springframework.stereotype.Component.class));
-        assertNotNull(SendPaymentRequestProcessedProcessor.class.getAnnotation(lombok.extern.slf4j.Slf4j.class));
     }
 }
