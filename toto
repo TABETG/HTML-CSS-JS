@@ -3,7 +3,6 @@ package com.bnpparibas.dsibddf.ap00420.streamfact.batch.dailymeteorintegration.t
 import com.bnpparibas.dsibddf.ap00420.streamfact.batch.dailymeteorintegration.manager.FileManager;
 import com.bnpparibas.dsibddf.ap00420.streamfact.batch.dailymeteorintegration.model.MeteorFile;
 import com.bnpparibas.dsibddf.ap00420.streamfact.domain.commons.ContractTypeEnum;
-import com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.meteorflux.model.MeteorFlux;
 import com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.meteorflux.repository.MeteorFluxRepository;
 import org.junit.Before;
 import org.junit.Test;
@@ -23,8 +22,8 @@ import static org.junit.Assert.*;
 import static org.mockito.Mockito.*;
 
 /**
- * Test unitaire 100% coverage pour LoadDailyMeteorFileTasklet
- * Compatible JUnit4 / Jenkins / Sonar / Jacoco / Java 17+
+ * Test JUnit 4 – 100 % coverage LoadDailyMeteorFileTasklet
+ * Compatible Sonar / Jenkins / Jacoco / Java 17+
  */
 @RunWith(MockitoJUnitRunner.class)
 public class LoadDailyMeteorFileTaskletTest {
@@ -51,7 +50,6 @@ public class LoadDailyMeteorFileTaskletTest {
     public void setUp() throws Exception {
         validFile = File.createTempFile("meteor_valid", ".txt");
         try (BufferedWriter writer = new BufferedWriter(new FileWriter(validFile))) {
-            // Ligne complète (commence par 02) avec toutes les sous-chaînes valides
             StringBuilder sb = new StringBuilder();
             sb.append("02");                                              // code
             sb.append(String.format("%-23s", "12345678901234567890123")); // loanAccountNumber
@@ -70,17 +68,21 @@ public class LoadDailyMeteorFileTaskletTest {
 
         invalidFile = File.createTempFile("meteor_invalid", ".txt");
         try (BufferedWriter writer = new BufferedWriter(new FileWriter(invalidFile))) {
-            writer.write("invalid_line"); // pas de “02” ni de longueurs suffisantes
+            writer.write("invalid_line");
             writer.newLine();
         }
     }
 
-    // ============= TESTS PRINCIPAUX =============
+    // =====================================================
+    // =============== TESTS PRINCIPAUX ====================
+    // =====================================================
 
     @Test
     public void execute_should_return_finished_when_no_files() throws Exception {
         when(fileManager.getFiles()).thenReturn(Collections.emptyList());
+
         RepeatStatus result = tasklet.execute(stepContribution, chunkContext);
+
         assertEquals(RepeatStatus.FINISHED, result);
         verify(fileManager).getFiles();
     }
@@ -96,7 +98,8 @@ public class LoadDailyMeteorFileTaskletTest {
 
         assertEquals(RepeatStatus.FINISHED, result);
         verify(meteorFluxRepository, atLeastOnce()).saveAll(anyList());
-        verify(fileManager).archiveFile(meteorFile);
+        // on précise explicitement la version archiveFile(MeteorFile)
+        verify(fileManager).archiveFile((MeteorFile) any(MeteorFile.class));
     }
 
     @Test
@@ -107,26 +110,30 @@ public class LoadDailyMeteorFileTaskletTest {
         RepeatStatus result = tasklet.execute(stepContribution, chunkContext);
 
         assertEquals(RepeatStatus.FINISHED, result);
-        verify(fileManager, never()).archiveFile(any());
+        verify(fileManager, never()).archiveFile(any(MeteorFile.class));
     }
 
     @Test
     public void extractMeteorFileData_should_return_true_for_valid_file() throws Exception {
         when(meteorFluxRepository.existsByLoanAccountNumber(anyString())).thenReturn(false);
         when(meteorFluxRepository.saveAll(anyList())).thenReturn(Collections.emptyList());
+
         boolean result = invokeExtract(validFile);
+
         assertTrue(result);
         verify(meteorFluxRepository, atLeastOnce()).saveAll(anyList());
     }
 
     @Test
-    public void extractMeteorFileData_should_return_true_even_when_line_is_invalid() throws Exception {
+    public void extractMeteorFileData_should_return_true_even_when_invalid() throws Exception {
         boolean result = invokeExtract(invalidFile);
         assertTrue(result);
         verifyNoInteractions(meteorFluxRepository);
     }
 
-    // ============= TESTS UNITAIRES DE MÉTHODES STATIQUES =============
+    // =====================================================
+    // =============== TESTS STATIQUES =====================
+    // =====================================================
 
     @Test
     public void convertIdProtToContractType_should_return_expected_values() throws Exception {
@@ -153,7 +160,7 @@ public class LoadDailyMeteorFileTaskletTest {
 
         BigDecimal ok = (BigDecimal) m.invoke(null, "123");
         BigDecimal empty = (BigDecimal) m.invoke(null, "   ");
-        BigDecimal invalid = (BigDecimal) m.invoke(null, "ABC");
+        BigDecimal invalid = (BigDecimal) m.invoke(null, "XYZ");
 
         assertEquals(new BigDecimal("123"), ok);
         assertEquals(BigDecimal.ZERO, empty);
@@ -161,7 +168,7 @@ public class LoadDailyMeteorFileTaskletTest {
     }
 
     @Test
-    public void safeSubstring_should_handle_short_strings() throws Exception {
+    public void safeSubstring_should_handle_short_and_null_values() throws Exception {
         java.lang.reflect.Method m = LoadDailyMeteorFileTasklet.class
                 .getDeclaredMethod("safeSubstring", String.class, int.class, int.class);
         m.setAccessible(true);
@@ -175,7 +182,9 @@ public class LoadDailyMeteorFileTaskletTest {
         assertEquals("", result3);
     }
 
-    // ============= MÉTHODES UTILITAIRES PRIVÉES =============
+    // =====================================================
+    // =============== MÉTHODES UTILITAIRES ================
+    // =====================================================
 
     private boolean invokeExtract(File file) throws Exception {
         java.lang.reflect.Method m = LoadDailyMeteorFileTasklet.class
