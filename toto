@@ -1,38 +1,30 @@
-package com.bnpparibas.dsibddf.ap00420.streamfact.batch.dailymeteorintegration.tasklet;
+package com.bnpparibas.dsibddf.ap00420.streamfact.batch.common.tasklet;
 
-import com.bnpparibas.dsibddf.ap00420.streamfact.batch.dailymeteorintegration.manager.FileManager;
-import com.bnpparibas.dsibddf.ap00420.streamfact.batch.dailymeteorintegration.model.MeteorFile;
-import com.bnpparibas.dsibddf.ap00420.streamfact.domain.commons.ContractTypeEnum;
-import com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.meteorflux.repository.MeteorFluxRepository;
+import com.bnpparibas.dsibddf.ap00420.streamfact.domain.commons.ProblemNatureEnum;
+import com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.history.repository.DPOMailToSendRepository;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnitRunner;
 import org.springframework.batch.core.StepContribution;
 import org.springframework.batch.core.scope.context.ChunkContext;
 import org.springframework.batch.repeat.RepeatStatus;
 
-import java.io.*;
-import java.math.BigDecimal;
-import java.util.*;
+import java.lang.reflect.Field;
 
 import static org.junit.Assert.*;
 import static org.mockito.Mockito.*;
 
 /**
- * Test JUnit 4 – 100 % coverage LoadDailyMeteorFileTasklet
- * Compatible Jenkins / Sonar / Jacoco
+ * Test JUnit4 – Couverture 100 % DeleteDpoTableImageTasklet
+ * Compatible Sonar / Jenkins / Jacoco / Java 17+
  */
 @RunWith(MockitoJUnitRunner.class)
-public class LoadDailyMeteorFileTaskletTest {
+public class DeleteDpoTableImageTaskletTest {
 
     @Mock
-    private MeteorFluxRepository meteorFluxRepository;
-
-    @Mock
-    private FileManager fileManager;
+    private DPOMailToSendRepository dpoMailToSendRepository;
 
     @Mock
     private StepContribution stepContribution;
@@ -40,109 +32,82 @@ public class LoadDailyMeteorFileTaskletTest {
     @Mock
     private ChunkContext chunkContext;
 
-    @InjectMocks
-    private LoadDailyMeteorFileTasklet tasklet;
-
-    private File validFile;
-    private File invalidFile;
+    private DeleteDpoTableImageTasklet tasklet;
 
     @Before
     public void setUp() throws Exception {
-        validFile = File.createTempFile("meteor_valid", ".txt");
-        try (BufferedWriter writer = new BufferedWriter(new FileWriter(validFile))) {
-            // Ligne complète et cohérente avec les index utilisés
-            StringBuilder sb = new StringBuilder();
-            sb.append("02"); // code
-            sb.append(String.format("%-23s", "12345678901234567890123")); // loanAccountNumber
-            sb.append(String.format("%65s", "")); // padding
-            sb.append("001"); // idProt
-            sb.append("0000000000000010"); // personalContributionAmount
-            sb.append("0000000000000020"); // purchaseAmount
-            sb.append("0000000000000030"); // renovationAmount
-            sb.append(String.format("%48s", "")); // padding
-            sb.append("0000000000000040"); // landAmount
-            sb.append(String.format("%370s", "")); // padding
-            sb.append(String.format("%-23s", "loanFolderTest")); // loanFolderId
-            writer.write(sb.toString());
-            writer.newLine();
+        // Remplace ici ProblemNatureEnum.TECHNICAL par une valeur réelle existante dans ton enum
+        tasklet = new DeleteDpoTableImageTasklet(ProblemNatureEnum.TECHNICAL);
+        injectPrivateField(tasklet, "dpoMailToSendRepository", dpoMailToSendRepository);
+    }
+
+    @Test
+    public void execute_should_call_repository_and_return_finished() throws Exception {
+        when(dpoMailToSendRepository.deleteWithSendFalseAndProblemeNature2(ProblemNatureEnum.TECHNICAL))
+                .thenReturn(5);
+
+        RepeatStatus status = tasklet.execute(stepContribution, chunkContext);
+
+        assertNotNull(status);
+        assertEquals(RepeatStatus.FINISHED, status);
+        verify(dpoMailToSendRepository, times(1))
+                .deleteWithSendFalseAndProblemeNature2(ProblemNatureEnum.TECHNICAL);
+        verifyNoMoreInteractions(dpoMailToSendRepository);
+    }
+
+    @Test
+    public void execute_should_handle_zero_deletion() throws Exception {
+        when(dpoMailToSendRepository.deleteWithSendFalseAndProblemeNature2(ProblemNatureEnum.TECHNICAL))
+                .thenReturn(0);
+
+        RepeatStatus status = tasklet.execute(stepContribution, chunkContext);
+
+        assertEquals(RepeatStatus.FINISHED, status);
+        verify(dpoMailToSendRepository, times(1))
+                .deleteWithSendFalseAndProblemeNature2(ProblemNatureEnum.TECHNICAL);
+        verifyNoMoreInteractions(dpoMailToSendRepository);
+    }
+
+    @Test
+    public void constructor_should_initialize_problemNature_field() throws Exception {
+        DeleteDpoTableImageTasklet another = new DeleteDpoTableImageTasklet(ProblemNatureEnum.ANALYSIS);
+        Object fieldValue = getPrivateField(another, "problemNature");
+        assertEquals(ProblemNatureEnum.ANALYSIS, fieldValue);
+    }
+
+    // ========= utilitaires réflexion =========
+
+    private void injectPrivateField(Object target, String fieldName, Object value) throws Exception {
+        Field field = null;
+        Class<?> clazz = target.getClass();
+        while (clazz != null && field == null) {
+            try {
+                field = clazz.getDeclaredField(fieldName);
+            } catch (NoSuchFieldException e) {
+                clazz = clazz.getSuperclass();
+            }
         }
-
-        invalidFile = File.createTempFile("meteor_invalid", ".txt");
-        try (BufferedWriter writer = new BufferedWriter(new FileWriter(invalidFile))) {
-            writer.write("invalid_line");
-            writer.newLine();
+        if (field == null) {
+            throw new NoSuchFieldException("Champ introuvable : " + fieldName);
         }
+        field.setAccessible(true);
+        field.set(target, value);
     }
 
-    // =====================================================
-    // =============== TESTS PRINCIPAUX ====================
-    // =====================================================
-
-    @Test
-    public void execute_should_return_finished_when_no_files() throws Exception {
-        when(fileManager.getFiles()).thenReturn(Collections.emptyList());
-
-        RepeatStatus result = tasklet.execute(stepContribution, chunkContext);
-
-        assertEquals(RepeatStatus.FINISHED, result);
-        verify(fileManager).getFiles();
-        verifyNoInteractions(meteorFluxRepository);
-    }
-
-    @Test
-    public void execute_should_process_valid_file_and_archive() throws Exception {
-        MeteorFile meteorFile = new MeteorFile(validFile, validFile.getName());
-        when(fileManager.getFiles()).thenReturn(Collections.singletonList(meteorFile));
-        when(meteorFluxRepository.existsByLoanAccountNumber(anyString())).thenReturn(false);
-        when(meteorFluxRepository.saveAll(anyList())).thenReturn(Collections.emptyList());
-
-        RepeatStatus result = tasklet.execute(stepContribution, chunkContext);
-
-        assertEquals(RepeatStatus.FINISHED, result);
-        verify(meteorFluxRepository, atLeastOnce()).saveAll(anyList());
-        verify(fileManager, atLeastOnce()).archiveFile(any(MeteorFile.class));
-    }
-
-    @Test
-    public void execute_should_handle_invalid_file_but_still_archive() throws Exception {
-        MeteorFile meteorFile = new MeteorFile(invalidFile, invalidFile.getName());
-        when(fileManager.getFiles()).thenReturn(Collections.singletonList(meteorFile));
-
-        RepeatStatus result = tasklet.execute(stepContribution, chunkContext);
-
-        assertEquals(RepeatStatus.FINISHED, result);
-        verify(fileManager, atLeastOnce()).archiveFile(any(MeteorFile.class));
-    }
-
-    // =====================================================
-    // =============== TESTS STATIQUES =====================
-    // =====================================================
-
-    @Test
-    public void convertIdProtToContractType_should_return_expected_values() throws Exception {
-        String pri = invokeConvert("001");
-        String pro = invokeConvert("003");
-        String none = invokeConvert("999");
-        assertEquals(ContractTypeEnum.PRI.getCode(), pri);
-        assertEquals(ContractTypeEnum.PRO.getCode(), pro);
-        assertEquals("", none);
-    }
-
-    @Test
-    public void valueIsEmptyOrNull_should_return_true_and_false() {
-        assertTrue(LoadDailyMeteorFileTasklet.valueIsEmptyOrNull(null));
-        assertTrue(LoadDailyMeteorFileTasklet.valueIsEmptyOrNull(""));
-        assertFalse(LoadDailyMeteorFileTasklet.valueIsEmptyOrNull("ok"));
-    }
-
-    // =====================================================
-    // =============== MÉTHODES UTILITAIRES ================
-    // =====================================================
-
-    private String invokeConvert(String idProt) throws Exception {
-        java.lang.reflect.Method m = LoadDailyMeteorFileTasklet.class
-                .getDeclaredMethod("convertIdProtToContractType", String.class);
-        m.setAccessible(true);
-        return (String) m.invoke(null, idProt);
+    private Object getPrivateField(Object target, String fieldName) throws Exception {
+        Field field = null;
+        Class<?> clazz = target.getClass();
+        while (clazz != null && field == null) {
+            try {
+                field = clazz.getDeclaredField(fieldName);
+            } catch (NoSuchFieldException e) {
+                clazz = clazz.getSuperclass();
+            }
+        }
+        if (field == null) {
+            throw new NoSuchFieldException("Champ introuvable : " + fieldName);
+        }
+        field.setAccessible(true);
+        return field.get(target);
     }
 }
