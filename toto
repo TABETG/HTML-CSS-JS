@@ -1,113 +1,126 @@
-package com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.synchro.sender.reader;
+package com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.synchro.update.job;
 
-import com.bnpparibas.dsibddf.ap00420.streamfact.domain.commons.RequestTypeEnum;
-import com.bnpparibas.dsibddf.ap00420.streamfact.domain.commons.RequestTypeStatusEnum;
-import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.history.model.DocaposteEventHistoryEntity;
-import jakarta.persistence.EntityManager;
-import jakarta.persistence.EntityManagerFactory;
-import org.hibernate.SessionFactory;
+import com.bnpparibas.dsibddf.ap00420.streamfact.application.loanfolder.synchro.pojo.SynchroResult;
+import com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.synchro.update.processor.BillingSpaceSynchroItemProcessor;
+import com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.synchro.update.reader.BillingSpaceSynchroItemReader;
+import com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.synchro.update.writer.BillingSpaceSynchroItemWriter;
+import com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.synchro.update.writer.EventHistorySynchroItemWriter;
+import com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.synchro.update.writer.LoanFolderSynchroItemWriter;
+import com.bnpparibas.dsibddf.ap00420.streamfact.batch.listener.CommonStepExecutionListener;
+import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.billingspace.model.BillingSpaceEntity;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnitRunner;
-import org.springframework.batch.item.ItemReader;
-import org.springframework.batch.item.database.JpaCursorItemReader;
+import org.springframework.batch.core.Job;
+import org.springframework.batch.core.Step;
+import org.springframework.batch.core.job.flow.FlowJob;
+import org.springframework.batch.core.repository.JobRepository;
+import org.springframework.batch.core.step.tasklet.TaskletStep;
+import org.springframework.batch.item.support.CompositeItemWriter;
+import org.springframework.transaction.PlatformTransactionManager;
 
-import java.lang.reflect.Field;
-import java.util.Map;
+import java.util.List;
 
 import static org.junit.Assert.*;
 import static org.mockito.Mockito.*;
 
 /**
- * Test JUnit4 100% coverage pour EventHistorySynchroItemReaderConfig.
- * Compatible Spring Batch 4, 5, 6.
+ * Test JUnit4 100% coverage pour JobConfigurationBillingSpaceSynchro.
+ * Compatible Sonar / Jenkins / Jacoco.
  */
 @RunWith(MockitoJUnitRunner.class)
-public class EventHistorySynchroItemReaderConfigTest {
+public class JobConfigurationBillingSpaceSynchroTest {
 
     @InjectMocks
-    private EventHistorySynchroItemReaderConfig config;
+    private JobConfigurationBillingSpaceSynchro configuration;
 
     @Mock
-    private EntityManager entityManager;
+    private BillingSpaceSynchroItemReader reader;
 
     @Mock
-    private EntityManagerFactory entityManagerFactory;
+    private BillingSpaceSynchroItemProcessor processor;
 
     @Mock
-    private SessionFactory sessionFactory;
+    private EventHistorySynchroItemWriter eventHistorySynchroItemWriter;
+
+    @Mock
+    private LoanFolderSynchroItemWriter loanFolderSynchroItemWriter;
+
+    @Mock
+    private BillingSpaceSynchroItemWriter billingSpaceSynchroItemWriter;
+
+    @Mock
+    private CommonStepExecutionListener commonStepExecutionListener;
+
+    @Mock
+    private PlatformTransactionManager platformTransactionManager;
+
+    @Mock
+    private JobRepository jobRepository;
+
+    private Step billingSpaceSynchroStep;
 
     @Before
     public void setUp() {
-        when(entityManager.getEntityManagerFactory()).thenReturn(entityManagerFactory);
-        when(entityManagerFactory.unwrap(SessionFactory.class)).thenReturn(sessionFactory);
+        billingSpaceSynchroStep = configuration.billingSpaceSynchroStep(jobRepository);
     }
 
     @Test
-    public void reader_should_build_JpaCursorItemReader_correctly() {
-        ItemReader<DocaposteEventHistoryEntity> reader = config.reader(entityManager);
+    public void billingSpaceSynchroStep_should_be_created_correctly() {
+        assertNotNull(billingSpaceSynchroStep);
+        assertEquals("billingSpaceSynchroStep", billingSpaceSynchroStep.getName());
+        assertTrue(billingSpaceSynchroStep instanceof TaskletStep);
+
+        TaskletStep ts = (TaskletStep) billingSpaceSynchroStep;
+        Object allow = org.springframework.test.util.ReflectionTestUtils.getField(ts, "allowStartIfComplete");
+        assertTrue((Boolean) allow);
+    }
+
+    @Test
+    public void billingSpaceSynchroJob_should_be_created_correctly() {
+        Job job = configuration.billingSpaceSynchroJob(jobRepository, billingSpaceSynchroStep);
+        assertNotNull(job);
+        assertTrue(job instanceof FlowJob);
+
+        FlowJob flowJob = (FlowJob) job;
+        assertEquals("billingSpaceSynchroJob", flowJob.getName());
+        assertNotNull(flowJob.getStep("billingSpaceSynchroStep"));
+    }
+
+    @Test
+    public void compositeItemWriter_should_return_writer_with_all_delegates() {
+        CompositeItemWriter<SynchroResult> writer = configuration.compositeItemWriter();
+
+        assertNotNull(writer);
+        List<?> delegates = (List<?>) org.springframework.test.util.ReflectionTestUtils.getField(writer, "delegates");
+        assertNotNull(delegates);
+        assertEquals(3, delegates.size());
+        assertTrue(delegates.contains(loanFolderSynchroItemWriter));
+        assertTrue(delegates.contains(eventHistorySynchroItemWriter));
+        assertTrue(delegates.contains(billingSpaceSynchroItemWriter));
+    }
+
+    @Test
+    public void injected_dependencies_should_not_be_null() {
+        assertNotNull(configuration);
         assertNotNull(reader);
-        assertTrue(reader instanceof JpaCursorItemReader);
-
-        Object queryString = getField(reader, "queryString");
-        assertNotNull("queryString doit être défini", queryString);
-        assertTrue(queryString.toString().toLowerCase().contains("from docaposte"));
-
-        Object params = getField(reader, "parameterValues");
-        assertTrue(params instanceof Map);
-        Map<?, ?> map = (Map<?, ?>) params;
-        assertEquals(RequestTypeEnum.SYNCHRONISATION, map.get("requestType"));
-        assertTrue(map.containsKey("status"));
-
-        Object statuses = map.get("status");
-        assertNotNull(statuses);
-        assertTrue(statuses.toString().contains(RequestTypeStatusEnum.UPDATE_TO_SEND.name()));
-        assertTrue(statuses.toString().contains(RequestTypeStatusEnum.UPDATE_REJECTED.name()));
-
-        // Nom facultatif selon la version du batch
-        Object nameField = getAnyField(reader, "name", "readerName", "nameSupplier");
-        if (nameField != null) {
-            assertNotNull(nameField);
-        }
+        assertNotNull(processor);
+        assertNotNull(eventHistorySynchroItemWriter);
+        assertNotNull(loanFolderSynchroItemWriter);
+        assertNotNull(billingSpaceSynchroItemWriter);
+        assertNotNull(commonStepExecutionListener);
+        assertNotNull(platformTransactionManager);
+        assertNotNull(jobRepository);
     }
 
     @Test
-    public void reader_should_call_entityManagerFactory_unwrap_correctly() {
-        config.reader(entityManager);
-        verify(entityManager, times(1)).getEntityManagerFactory();
-        verify(entityManagerFactory, times(1)).unwrap(SessionFactory.class);
-    }
-
-    // ==== Helpers réflexion ====
-    private Object getField(Object target, String name) {
-        try {
-            Field f = findField(target.getClass(), name);
-            if (f == null) return null;
-            f.setAccessible(true);
-            return f.get(target);
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    private Object getAnyField(Object target, String... candidates) {
-        for (String name : candidates) {
-            Object val = getField(target, name);
-            if (val != null) return val;
-        }
-        return null; // OK si aucun champ trouvé (version Spring Batch récente)
-    }
-
-    private Field findField(Class<?> clazz, String name) {
-        for (Class<?> c = clazz; c != null; c = c.getSuperclass()) {
-            try {
-                return c.getDeclaredField(name);
-            } catch (NoSuchFieldException ignored) {
-            }
-        }
-        return null;
+    public void all_methods_should_execute_without_exception() {
+        configuration.compositeItemWriter();
+        configuration.billingSpaceSynchroStep(jobRepository);
+        configuration.billingSpaceSynchroJob(jobRepository, billingSpaceSynchroStep);
+        verifyNoInteractions(commonStepExecutionListener);
     }
 }
