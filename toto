@@ -1,3 +1,9 @@
+Parfait — voici des classes de test JUnit 4 prêtes pour Sonar/Jacoco/Jenkins, avec @RunWith(MockitoJUnitRunner.class), @Before, imports org.junit.*, org.mockito.*, org.mockito.junit.MockitoJUnitRunner, pas d’AssertJ, et verifyNoInteractions(...) au lieu de verifyZeroInteractions(...).
+Elles gardent la logique métiers/mocks et corrigent l’ambiguïté sur la surcharge archiveFile(...) en vérifiant explicitement la variante MeteorFile.
+(Basées sur votre dépôt dailymeteorintegration que vous avez déposé. )
+
+1) LoadDailyMeteorFileTaskletTest.java
+
 package com.bnpparibas.dsibddf.ap00420.streamfact.batch.dailymeteorintegration.tasklet;
 
 import com.bnpparibas.dsibddf.ap00420.streamfact.batch.dailymeteorintegration.manager.FileManager;
@@ -17,12 +23,10 @@ import org.springframework.batch.repeat.RepeatStatus;
 import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileWriter;
-
 import java.util.Collections;
 
 import static org.junit.Assert.*;
 import static org.mockito.Mockito.*;
-import static org.mockito.ArgumentMatchers.*;
 
 @RunWith(MockitoJUnitRunner.class)
 public class LoadDailyMeteorFileTaskletTest {
@@ -72,7 +76,7 @@ public class LoadDailyMeteorFileTaskletTest {
         }
     }
 
-    // =============== TESTS PRINCIPAUX ===============
+    // ================== PRINCIPAL ==================
 
     @Test
     public void execute_should_return_finished_when_no_files() throws Exception {
@@ -93,11 +97,11 @@ public class LoadDailyMeteorFileTaskletTest {
         RepeatStatus result = tasklet.execute(stepContribution, chunkContext);
 
         assertEquals(RepeatStatus.FINISHED, result);
-        // Désambiguïsation de l’overload archiveFile(String) / archiveFile(MeteorFile)
-        verify(fileManager, atLeastOnce()).archiveFile(isA(MeteorFile.class));
+        // IMPORTANT : préciser le type pour éviter l’ambiguïté de surcharge
+        verify(fileManager, atLeastOnce()).archiveFile(any(MeteorFile.class));
     }
 
-    // =============== TESTS STATIQUES ===============
+    // ================== STATIQUES ==================
 
     @Test
     public void convertIdProtToContractType_should_return_expected_values() throws Exception {
@@ -116,7 +120,7 @@ public class LoadDailyMeteorFileTaskletTest {
         assertFalse(LoadDailyMeteorFileTasklet.valueIsEmptyOrNull("ok"));
     }
 
-    // =============== OUTILS REFLEXION ===============
+    // ================== OUTILS ==================
 
     private String invokeConvert(String idProt) throws Exception {
         java.lang.reflect.Method m = LoadDailyMeteorFileTasklet.class
@@ -125,3 +129,268 @@ public class LoadDailyMeteorFileTaskletTest {
         return (String) m.invoke(null, idProt);
     }
 }
+
+Source : adapté de votre dépôt pour respecter strictement JUnit 4 et Sonar. 
+
+
+---
+
+2) CloudFileManagerTest.java
+
+package com.bnpparibas.dsibddf.ap00420.streamfact.batch.dailymeteorintegration.manager;
+
+import com.bnpparibas.dsibddf.ap00420.streamfact.batch.dailymeteorintegration.model.MeteorFile;
+import com.ibm.cloud.objectstorage.ClientConfiguration;
+import com.ibm.cloud.objectstorage.auth.AWSCredentials;
+import com.ibm.cloud.objectstorage.services.s3.AmazonS3;
+import com.ibm.cloud.objectstorage.services.s3.model.ListObjectsV2Result;
+import com.ibm.cloud.objectstorage.services.s3.model.S3ObjectSummary;
+import org.junit.Before;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.MockitoJUnitRunner;
+import org.springframework.core.env.Environment;
+
+import java.net.URL;
+import java.util.Collections;
+import java.util.List;
+
+import static org.junit.Assert.*;
+import static org.mockito.Mockito.*;
+
+@RunWith(MockitoJUnitRunner.class)
+public class CloudFileManagerTest {
+
+    @InjectMocks
+    private CloudFileManager manager;
+
+    @Mock
+    private AmazonS3 s3Client;
+
+    @Mock
+    private Environment env;
+
+    private AmazonS3 s3ClientNew;
+
+    @Before
+    public void setUp() throws Exception {
+        s3ClientNew = mock(AmazonS3.class);
+        setPrivate(manager, "bucketName", "bucket-test");
+        setPrivate(manager, "bucketNameNew", "bucket-new");
+        setPrivate(manager, "objectKeyNew", "object-key");
+        setPrivate(manager, "prefix", "prefix");
+        setPrivate(manager, "path", "/tmp/");
+        setPrivate(manager, "cosCftName", "");
+        setPrivate(manager, "endpointNew", new URL("http://localhost"));
+        setPrivate(manager, "location", "eu-fr2");
+        setPrivate(manager, "cosIamEndpoint", "iam.endpoint");
+        setPrivate(manager, "cosTimeOut", 5000);
+        setPrivate(manager, "env", env);
+    }
+
+    @Test
+    public void test_createClientConfig_and_createCredentials() throws Exception {
+        Object config = invoke(manager, "createClientConfig", new Class<?>[]{}, new Object[]{});
+        assertTrue(config instanceof ClientConfiguration);
+
+        Object creds = invoke(
+                manager,
+                "createCredentials",
+                new Class<?>[]{String.class, String.class},
+                new Object[]{"apiKey", "resourceId"}
+        );
+        assertTrue(creds instanceof AWSCredentials);
+    }
+
+    @Test
+    public void test_getListOfObjects_returns_nonEmptyList() throws Exception {
+        ListObjectsV2Result result = mock(ListObjectsV2Result.class);
+        S3ObjectSummary summary = new S3ObjectSummary();
+        summary.setKey("prefix/file1");
+        when(result.getObjectSummaries()).thenReturn(Collections.singletonList(summary));
+        when(s3ClientNew.listObjectsV2(anyString(), anyString())).thenReturn(result);
+
+        java.lang.reflect.Method m = CloudFileManager.class.getDeclaredMethod("getListOfObjects", AmazonS3.class);
+        m.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        List<String> list = (List<String>) m.invoke(manager, s3ClientNew);
+
+        assertEquals(1, list.size());
+        assertTrue(list.get(0).contains("file1"));
+    }
+
+    @Test
+    public void test_getListOfObjects_handles_null_result() throws Exception {
+        when(s3ClientNew.listObjectsV2(anyString(), anyString())).thenReturn(null);
+
+        java.lang.reflect.Method m = CloudFileManager.class.getDeclaredMethod("getListOfObjects", AmazonS3.class);
+        m.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        List<String> list = (List<String>) m.invoke(manager, s3ClientNew);
+
+        assertTrue(list.isEmpty());
+    }
+
+    // ================== OUTILS RÉFLEXION ==================
+
+    private void setPrivate(Object instance, String field, Object value) throws Exception {
+        java.lang.reflect.Field f = instance.getClass().getDeclaredField(field);
+        f.setAccessible(true);
+        f.set(instance, value);
+    }
+
+    private Object invoke(Object instance, String methodName, Class<?>[] paramTypes, Object[] args) throws Exception {
+        java.lang.reflect.Method m = instance.getClass().getDeclaredMethod(methodName, paramTypes);
+        m.setAccessible(true);
+        return m.invoke(instance, args);
+    }
+}
+
+Source : conforme JUnit 4 et Sonar (aucun import Jupiter/AssertJ). 
+
+
+---
+
+3) DailyMeteorIntegrationConfigurationTest.java
+
+package com.bnpparibas.dsibddf.ap00420.streamfact.batch.dailymeteorintegration.job;
+
+import com.bnpparibas.dsibddf.ap00420.streamfact.batch.dailymeteorintegration.tasklet.LoadDailyMeteorFileTasklet;
+import org.junit.Before;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.MockitoJUnitRunner;
+import org.springframework.batch.core.Job;
+import org.springframework.batch.core.Step;
+import org.springframework.batch.core.job.flow.FlowJob;
+import org.springframework.batch.core.repository.JobRepository;
+import org.springframework.batch.core.step.tasklet.TaskletStep;
+import org.springframework.transaction.PlatformTransactionManager;
+
+import java.lang.reflect.Field;
+
+import static org.junit.Assert.*;
+import static org.mockito.Mockito.*;
+
+@RunWith(MockitoJUnitRunner.class)
+public class DailyMeteorIntegrationConfigurationTest {
+
+    @Mock
+    private LoadDailyMeteorFileTasklet loadDailyMeteorFileTasklet;
+
+    @Mock
+    private JobRepository jobRepository;
+
+    @Mock
+    private PlatformTransactionManager platformTransactionManager;
+
+    @InjectMocks
+    private DailyMeteorIntegrationConfiguration configuration;
+
+    @Before
+    public void setUp() {
+        assertNotNull(configuration);
+    }
+
+    @Test
+    public void loadDailyMeteorFileJob_should_create_job_with_expected_properties() throws Exception {
+        Step step = configuration.loadDailyMeteorFileStep(jobRepository);
+        Job job = configuration.loadDailyMeteorFileJob(jobRepository, step);
+
+        assertNotNull(job);
+        assertTrue(job instanceof FlowJob);
+        assertEquals("loadDailyMeteorFileJob", job.getName());
+
+        Field incField = job.getClass().getSuperclass().getDeclaredField("jobParametersIncrementer");
+        incField.setAccessible(true);
+        Object incrementer = incField.get(job);
+        assertNotNull(incrementer);
+        assertEquals("org.springframework.batch.core.launch.support.RunIdIncrementer",
+                incrementer.getClass().getName());
+    }
+
+    @Test
+    public void loadDailyMeteorFileStep_should_create_step_with_tasklet_and_transactionManager() throws Exception {
+        Step step = configuration.loadDailyMeteorFileStep(jobRepository);
+
+        assertNotNull(step);
+        assertTrue(step instanceof TaskletStep);
+        assertEquals("loadDailyMeteorFileStep", step.getName());
+
+        Field taskletField = TaskletStep.class.getDeclaredField("tasklet");
+        taskletField.setAccessible(true);
+        Object tasklet = taskletField.get(step);
+        assertSame(loadDailyMeteorFileTasklet, tasklet);
+
+        Field tmField = TaskletStep.class.getDeclaredField("transactionManager");
+        tmField.setAccessible(true);
+        Object tm = tmField.get(step);
+        assertSame(platformTransactionManager, tm);
+    }
+
+    @Test
+    public void autowired_fields_should_be_injected_correctly() throws Exception {
+        Field taskletField = DailyMeteorIntegrationConfiguration.class
+                .getDeclaredField("loadDailyMeteorFileTasklet");
+        Field tmField = DailyMeteorIntegrationConfiguration.class
+                .getDeclaredField("platformTransactionManager");
+
+        taskletField.setAccessible(true);
+        tmField.setAccessible(true);
+
+        Object injectedTasklet = taskletField.get(configuration);
+        Object injectedTm = tmField.get(configuration);
+
+        assertSame(loadDailyMeteorFileTasklet, injectedTasklet);
+        assertSame(platformTransactionManager, injectedTm);
+    }
+
+    @Test
+    public void constructor_and_methods_should_not_throw_exception() throws Exception {
+        DailyMeteorIntegrationConfiguration config2 = new DailyMeteorIntegrationConfiguration();
+
+        Field taskletField = DailyMeteorIntegrationConfiguration.class
+                .getDeclaredField("loadDailyMeteorFileTasklet");
+        Field tmField = DailyMeteorIntegrationConfiguration.class
+                .getDeclaredField("platformTransactionManager");
+        taskletField.setAccessible(true);
+        tmField.setAccessible(true);
+        taskletField.set(config2, loadDailyMeteorFileTasklet);
+        tmField.set(config2, platformTransactionManager);
+
+        Step step = config2.loadDailyMeteorFileStep(jobRepository);
+        Job job = config2.loadDailyMeteorFileJob(jobRepository, step);
+
+        assertNotNull(job);
+        assertNotNull(step);
+        assertEquals("loadDailyMeteorFileJob", job.getName());
+        assertEquals("loadDailyMeteorFileStep", step.getName());
+    }
+}
+
+Source : couverture fine de la configuration Spring Batch en JUnit 4. 
+
+
+---
+
+Note importante — surcharge archiveFile(...)
+
+Si vous aviez l’erreur :
+
+reference to archiveFile is ambiguous
+both method archiveFile(String) ... and method archiveFile(MeteorFile) ...
+
+corrigez la vérification Mockito en précisant le type :
+
+verify(fileManager, atLeastOnce()).archiveFile(any(MeteorFile.class)); // ✅ évite l’ambiguïté
+
+(et évitez any() nu ou anyString() ici).
+
+
+---
+
+Besoin que je sépare les fichiers physiquement (noms/chemins exacts src/test/java/...) ou que j’ajoute d’autres cas limites pour pousser la couverture ? Je peux te donner les chemins et un mvn -q -DskipITs test prêt à copier-coller.
