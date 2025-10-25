@@ -12,13 +12,14 @@ import org.springframework.data.domain.Sort;
 
 import java.lang.reflect.Field;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.Assert.*;
 import static org.mockito.Mockito.*;
 
 /**
- * JUnit4 – Couverture 100 % BillingSpaceSynchroItemReader
- * Compatible Sonar / Jenkins / Jacoco / Java 17+ / Spring Batch 5+
+ * Test JUnit 4 – Couverture 100% BillingSpaceSynchroItemReader.
+ * Compatible Sonar / Jenkins / Jacoco / Java 17+ / Spring Batch 5+.
  */
 @RunWith(MockitoJUnitRunner.class)
 public class BillingSpaceSynchroItemReaderTest {
@@ -35,73 +36,92 @@ public class BillingSpaceSynchroItemReaderTest {
     }
 
     @Test
-    public void init_should_initialize_all_internal_fields() throws Exception {
+    public void init_should_initialize_all_fields_correctly() throws Exception {
         reader.init();
 
         // Vérifie repository
-        Object repo = getAnyField(reader, "repository");
+        Object repo = getDeclaredFieldValue(reader, "repository");
         assertSame(repository, repo);
 
         // Vérifie methodName
-        Object method = getAnyField(reader, "methodName");
+        Object method = getDeclaredFieldValue(reader, "methodName");
         assertEquals("findByBillingSpaceStatus", method);
 
         // Vérifie arguments
         @SuppressWarnings("unchecked")
-        List<Object> args = (List<Object>) getAnyField(reader, "arguments");
+        List<Object> args = (List<Object>) getDeclaredFieldValue(reader, "arguments");
         assertNotNull(args);
         assertEquals(1, args.size());
         assertEquals(BillingSpaceStatusEnum.CREATED, args.get(0));
 
-        // Vérifie sort (type Sort)
-        Object sortObj = getAnyField(reader, "sort");
+        // Vérifie sort (HashMap)
+        Object sortObj = getDeclaredFieldValue(reader, "sort");
         assertNotNull(sortObj);
-        assertTrue(sortObj instanceof Sort);
-        Sort sort = (Sort) sortObj;
-        assertTrue(sort.isSorted());
-        assertTrue(sort.stream().anyMatch(order ->
-                order.getProperty().equals("loanFolderId") &&
-                order.getDirection() == Sort.Direction.ASC));
+
+        if (sortObj instanceof Map) {
+            Map<?, ?> sortMap = (Map<?, ?>) sortObj;
+            assertTrue(sortMap.containsKey("loanFolderId"));
+            assertEquals(Sort.Direction.ASC, sortMap.get("loanFolderId"));
+        } else if (sortObj instanceof Sort) {
+            Sort sort = (Sort) sortObj;
+            assertTrue(sort.isSorted());
+            assertTrue(sort.stream().anyMatch(order ->
+                    order.getProperty().equals("loanFolderId") &&
+                            order.getDirection() == Sort.Direction.ASC));
+        } else {
+            fail("Unexpected sort field type: " + sortObj.getClass());
+        }
 
         verifyNoInteractions(repository);
     }
 
     @Test
-    public void constructor_should_assign_repository_correctly() throws Exception {
+    public void constructor_should_assign_repository_and_init_should_work() throws Exception {
         BillingSpaceJpaRepository mockRepo = mock(BillingSpaceJpaRepository.class);
         BillingSpaceSynchroItemReader customReader = new BillingSpaceSynchroItemReader(mockRepo);
 
-        Object repoField = getAnyField(customReader, "repository");
-        assertSame(mockRepo, repoField);
+        Object repoValue = getDeclaredFieldValue(customReader, "repository");
+        assertSame(mockRepo, repoValue);
 
         customReader.init();
-        Object methodName = getAnyField(customReader, "methodName");
-        assertEquals("findByBillingSpaceStatus", methodName);
+
+        Object method = getDeclaredFieldValue(customReader, "methodName");
+        assertEquals("findByBillingSpaceStatus", method);
+
+        @SuppressWarnings("unchecked")
+        List<Object> args = (List<Object>) getDeclaredFieldValue(customReader, "arguments");
+        assertNotNull(args);
+        assertEquals(BillingSpaceStatusEnum.CREATED, args.get(0));
 
         verifyNoInteractions(mockRepo);
     }
 
     @Test
-    public void init_should_be_idempotent_when_called_twice() throws Exception {
+    public void init_should_be_idempotent_when_called_multiple_times() throws Exception {
         reader.init();
         reader.init();
-        Object args = getAnyField(reader, "arguments");
+
+        @SuppressWarnings("unchecked")
+        List<Object> args = (List<Object>) getDeclaredFieldValue(reader, "arguments");
         assertNotNull(args);
+        assertEquals(1, args.size());
+        assertEquals(BillingSpaceStatusEnum.CREATED, args.get(0));
+
         verifyNoInteractions(repository);
     }
 
-    /** Recherche récursive d’un champ dans la hiérarchie de classes. */
-    private Object getAnyField(Object instance, String name) throws Exception {
+    /** Lecture récursive d’un champ privé dans la hiérarchie de classes. */
+    private Object getDeclaredFieldValue(Object instance, String fieldName) throws Exception {
         Class<?> clazz = instance.getClass();
         while (clazz != null) {
-            for (Field f : clazz.getDeclaredFields()) {
-                if (f.getName().equals(name)) {
-                    f.setAccessible(true);
-                    return f.get(instance);
-                }
+            try {
+                Field field = clazz.getDeclaredField(fieldName);
+                field.setAccessible(true);
+                return field.get(instance);
+            } catch (NoSuchFieldException e) {
+                clazz = clazz.getSuperclass();
             }
-            clazz = clazz.getSuperclass();
         }
-        throw new NoSuchFieldException("Champ introuvable : " + name);
+        throw new NoSuchFieldException("Champ introuvable : " + fieldName);
     }
 }
