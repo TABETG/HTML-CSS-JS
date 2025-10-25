@@ -1,119 +1,80 @@
-package com.bnpparibas.dsibddf.ap00420.streamfact.batch.replay.sendtransferavrequest.processor;
+package com.bnpparibas.dsibddf.ap00420.streamfact.batch.replay.sendpaymentrequestprocessed.processor;
 
 import com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.history.model.DocaposteEventHistory;
-import com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.transferAv.TransferAvRequest;
 import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.history.mapper.DocaposteEventHistoryEntityMapperToDomain;
 import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.history.model.DocaposteEventHistoryEntity;
-import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.transferAv.mapper.TransferRequestMapperToDomain;
-import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.transferAv.model.TransferAvRequestEntity;
-import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.transferAv.repository.TransferAvJpaRepository;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 import org.mockito.junit.MockitoJUnitRunner;
 import org.springframework.batch.item.ItemProcessor;
 
-import java.util.Optional;
-
 import static org.junit.Assert.*;
 import static org.mockito.Mockito.*;
 
 /**
- * Test JUnit 4 – 100 % coverage pour ReplaySendTransferAvRequestItemprocessor
- * Compatible Sonar / Jenkins / Jacoco / Java 17+
+ * JUnit 4 – 100% coverage (lignes + branches) pour SendPaymentRequestProcessedProcessor.
+ * Aucune dépendance JUnit Jupiter / AssertJ. Compatible Sonar/Jenkins/Jacoco.
+ *
+ * Dépendances test requises :
+ *  - junit:junit:4.13.2
+ *  - org.mockito:mockito-core:4.11.0
+ *  - org.mockito:mockito-inline:4.11.0   (pour le mock des méthodes statiques)
  */
 @RunWith(MockitoJUnitRunner.class)
-public class ReplaySendTransferAvRequestItemprocessorTest {
+public class SendPaymentRequestProcessedProcessorTest {
 
-    @Mock
-    private TransferAvJpaRepository transferAvJpaRepository;
-
-    @InjectMocks
-    private ReplaySendTransferAvRequestItemprocessor processor;
-
-    private DocaposteEventHistoryEntity entity;
-    private DocaposteEventHistory docaposteEventHistory;
+    private SendPaymentRequestProcessedProcessor processor;
 
     @Before
     public void setUp() {
-        entity = new DocaposteEventHistoryEntity();
-        docaposteEventHistory = new DocaposteEventHistory();
-        docaposteEventHistory.setTransferAvRequestId("REQ-001");
+        processor = new SendPaymentRequestProcessedProcessor();
     }
 
     @Test
-    public void process_should_return_mapped_domain_when_found() throws Exception {
-        TransferAvRequestEntity transferEntity = new TransferAvRequestEntity();
-        TransferAvRequest expected = new TransferAvRequest();
+    public void process_should_call_static_mapper_and_return_domain() {
+        DocaposteEventHistoryEntity input = new DocaposteEventHistoryEntity();
+        DocaposteEventHistory expected = new DocaposteEventHistory();
 
-        try (MockedStatic<DocaposteEventHistoryEntityMapperToDomain> mockedHistoryMapper =
-                     Mockito.mockStatic(DocaposteEventHistoryEntityMapperToDomain.class);
-             MockedStatic<TransferRequestMapperToDomain> mockedTransferMapper =
-                     Mockito.mockStatic(TransferRequestMapperToDomain.class)) {
+        try (MockedStatic<DocaposteEventHistoryEntityMapperToDomain> mocked =
+                     Mockito.mockStatic(DocaposteEventHistoryEntityMapperToDomain.class)) {
 
-            mockedHistoryMapper.when(() ->
-                    DocaposteEventHistoryEntityMapperToDomain.toDomain(entity))
-                    .thenReturn(docaposteEventHistory);
+            mocked.when(() -> DocaposteEventHistoryEntityMapperToDomain.toDomain(input))
+                  .thenReturn(expected);
 
-            when(transferAvJpaRepository.findByTransferAvRequestId("REQ-001"))
-                    .thenReturn(Optional.of(transferEntity));
-
-            mockedTransferMapper.when(() ->
-                    TransferRequestMapperToDomain.transferRequestToDomain(transferEntity))
-                    .thenReturn(expected);
-
-            TransferAvRequest result = processor.process(entity);
+            DocaposteEventHistory result = processor.process(input);
 
             assertNotNull(result);
             assertSame(expected, result);
-
-            // Verify calls
-            mockedHistoryMapper.verify(() ->
-                    DocaposteEventHistoryEntityMapperToDomain.toDomain(entity), times(1));
-            verify(transferAvJpaRepository, times(1))
-                    .findByTransferAvRequestId("REQ-001");
-            mockedTransferMapper.verify(() ->
-                    TransferRequestMapperToDomain.transferRequestToDomain(transferEntity), times(1));
+            mocked.verify(() -> DocaposteEventHistoryEntityMapperToDomain.toDomain(input), times(1));
         }
     }
 
     @Test
-    public void process_should_return_null_when_repository_returns_empty() throws Exception {
-        try (MockedStatic<DocaposteEventHistoryEntityMapperToDomain> mockedHistoryMapper =
+    public void process_should_return_null_when_mapper_returns_null() {
+        DocaposteEventHistoryEntity input = new DocaposteEventHistoryEntity();
+
+        try (MockedStatic<DocaposteEventHistoryEntityMapperToDomain> mocked =
                      Mockito.mockStatic(DocaposteEventHistoryEntityMapperToDomain.class)) {
 
-            mockedHistoryMapper.when(() ->
-                    DocaposteEventHistoryEntityMapperToDomain.toDomain(entity))
-                    .thenReturn(docaposteEventHistory);
+            mocked.when(() -> DocaposteEventHistoryEntityMapperToDomain.toDomain(input))
+                  .thenReturn(null);
 
-            when(transferAvJpaRepository.findByTransferAvRequestId("REQ-001"))
-                    .thenReturn(Optional.empty());
-
-            TransferAvRequest result = processor.process(entity);
+            DocaposteEventHistory result = processor.process(input);
 
             assertNull(result);
-            verify(transferAvJpaRepository, times(1))
-                    .findByTransferAvRequestId("REQ-001");
+            mocked.verify(() -> DocaposteEventHistoryEntityMapperToDomain.toDomain(input), times(1));
         }
     }
 
     @Test
-    public void class_should_have_component_annotation_and_implement_itemprocessor() {
-        assertNotNull(ReplaySendTransferAvRequestItemprocessor.class
-                .getAnnotation(org.springframework.stereotype.Component.class));
+    public void class_should_have_expected_annotations_and_interface() {
         assertTrue(processor instanceof ItemProcessor);
-    }
-
-    @Test
-    public void autowired_field_should_be_injected_via_mock() throws Exception {
-        java.lang.reflect.Field f =
-                ReplaySendTransferAvRequestItemprocessor.class.getDeclaredField("transferAvJpaRepository");
-        f.setAccessible(true);
-        Object repo = f.get(processor);
-        assertSame(transferAvJpaRepository, repo);
+        assertNotNull(SendPaymentRequestProcessedProcessor.class
+                .getAnnotation(org.springframework.stereotype.Component.class));
+        assertNotNull(SendPaymentRequestProcessedProcessor.class
+                .getAnnotation(lombok.extern.slf4j.Slf4j.class));
     }
 }
