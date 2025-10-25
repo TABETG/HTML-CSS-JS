@@ -1,106 +1,106 @@
-package com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.synchro.sender.processor;
+package com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.synchro.sender.reader;
 
-import com.bnpparibas.bddf.cqrs.command.v2.CommandExecutorV2;
-import com.bnpparibas.dsibddf.ap00420.streamfact.application.loanfolder.synchro.pojo.SynchroSendLoanFolder;
-import com.bnpparibas.dsibddf.ap00420.streamfact.application.loanfolder.synchro.sender.SendSynchroLoanFoldersCommand;
-import com.bnpparibas.dsibddf.ap00420.streamfact.application.loanfolder.synchro.sender.SendSynchroLoanFoldersRequest;
-import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.history.mapper.DocaposteEventHistoryEntityMapperToDomain;
+import com.bnpparibas.dsibddf.ap00420.streamfact.domain.commons.RequestTypeEnum;
+import com.bnpparibas.dsibddf.ap00420.streamfact.domain.commons.RequestTypeStatusEnum;
 import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.history.model.DocaposteEventHistoryEntity;
-import com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.history.model.DocaposteEventHistory;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.EntityManagerFactory;
+import org.hibernate.SessionFactory;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.mockito.*;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnitRunner;
+import org.springframework.batch.item.ItemReader;
+import org.springframework.batch.item.database.JpaCursorItemReader;
+
+import java.util.Map;
 
 import static org.junit.Assert.*;
-import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 /**
- * Test JUnit 4 avec 100% de couverture
- * pour BillingSpaceSendSynchroItemProcessor
- * Compatible Sonar / Jenkins / Jacoco.
+ * Test JUnit4 100% coverage pour EventHistorySynchroItemReaderConfig.
+ * Compatible SonarQube / Jenkins / Jacoco.
  */
 @RunWith(MockitoJUnitRunner.class)
-public class BillingSpaceSendSynchroItemProcessorTest {
+public class EventHistorySynchroItemReaderConfigTest {
 
     @InjectMocks
-    private BillingSpaceSendSynchroItemProcessor processor;
+    private EventHistorySynchroItemReaderConfig config;
 
     @Mock
-    private CommandExecutorV2 commandExecutor;
+    private EntityManager entityManager;
 
     @Mock
-    private DocaposteEventHistoryEntity entity;
+    private EntityManagerFactory entityManagerFactory;
 
     @Mock
-    private SynchroSendLoanFolder expectedResponse;
-
-    @Mock
-    private DocaposteEventHistory mappedHistory;
+    private SessionFactory sessionFactory;
 
     @Before
     public void setUp() {
-        when(entity.getLoanFolderId()).thenReturn("LF001");
+        when(entityManager.getEntityManagerFactory()).thenReturn(entityManagerFactory);
+        when(entityManagerFactory.unwrap(SessionFactory.class)).thenReturn(sessionFactory);
     }
 
     @Test
-    public void process_should_execute_command_and_return_result() {
-        try (MockedStatic<DocaposteEventHistoryEntityMapperToDomain> mockedMapper =
-                     Mockito.mockStatic(DocaposteEventHistoryEntityMapperToDomain.class)) {
+    public void reader_should_build_JpaCursorItemReader_correctly() {
+        ItemReader<DocaposteEventHistoryEntity> reader = config.reader(entityManager);
 
-            mockedMapper.when(() -> DocaposteEventHistoryEntityMapperToDomain.toDomain(entity))
-                    .thenReturn(mappedHistory);
+        assertNotNull(reader);
+        assertTrue(reader instanceof JpaCursorItemReader);
 
-            when(commandExecutor.execute(eq(SendSynchroLoanFoldersCommand.class),
-                    any(SendSynchroLoanFoldersRequest.class)))
-                    .thenReturn(expectedResponse);
+        // Vérifie que le queryString correspond bien
+        Object queryString = getPrivateField(reader, "queryString");
+        assertNotNull(queryString);
+        assertTrue(queryString.toString().contains("FROM docaposteEventHistory"));
 
-            SynchroSendLoanFolder result = processor.process(entity);
+        // Vérifie les paramètres injectés
+        Object params = getPrivateField(reader, "parameterValues");
+        assertNotNull(params);
+        assertTrue(params instanceof Map);
+        Map<?, ?> paramMap = (Map<?, ?>) params;
+        assertEquals(RequestTypeEnum.SYNCHRONISATION, paramMap.get("requestType"));
+        assertTrue(paramMap.containsKey("status"));
 
-            assertNotNull(result);
-            assertSame(expectedResponse, result);
-            mockedMapper.verify(() -> DocaposteEventHistoryEntityMapperToDomain.toDomain(entity));
-            verify(commandExecutor).execute(eq(SendSynchroLoanFoldersCommand.class),
-                    any(SendSynchroLoanFoldersRequest.class));
-        }
-    }
+        Object statusList = paramMap.get("status");
+        assertNotNull(statusList);
+        assertTrue(statusList.toString().contains(RequestTypeStatusEnum.UPDATE_TO_SEND.name()));
+        assertTrue(statusList.toString().contains(RequestTypeStatusEnum.UPDATE_REJECTED.name()));
 
-    @Test(expected = RuntimeException.class)
-    public void process_should_throw_exception_when_executor_fails() {
-        try (MockedStatic<DocaposteEventHistoryEntityMapperToDomain> mockedMapper =
-                     Mockito.mockStatic(DocaposteEventHistoryEntityMapperToDomain.class)) {
-
-            mockedMapper.when(() -> DocaposteEventHistoryEntityMapperToDomain.toDomain(entity))
-                    .thenReturn(mappedHistory);
-
-            when(commandExecutor.execute(eq(SendSynchroLoanFoldersCommand.class),
-                    any(SendSynchroLoanFoldersRequest.class)))
-                    .thenThrow(new RuntimeException("Command failure"));
-
-            processor.process(entity);
-        }
+        // Vérifie le nom du reader
+        Object name = getPrivateField(reader, "name");
+        assertEquals("docaposte_event_history_cursor", name);
     }
 
     @Test
-    public void process_should_use_correct_loanFolderId_and_mapping() {
-        try (MockedStatic<DocaposteEventHistoryEntityMapperToDomain> mockedMapper =
-                     Mockito.mockStatic(DocaposteEventHistoryEntityMapperToDomain.class)) {
+    public void reader_should_call_entityManagerFactory_unwrap_correctly() {
+        config.reader(entityManager);
+        verify(entityManager, times(1)).getEntityManagerFactory();
+        verify(entityManagerFactory, times(1)).unwrap(SessionFactory.class);
+    }
 
-            mockedMapper.when(() -> DocaposteEventHistoryEntityMapperToDomain.toDomain(entity))
-                    .thenReturn(mappedHistory);
-
-            when(commandExecutor.execute(eq(SendSynchroLoanFoldersCommand.class),
-                    any(SendSynchroLoanFoldersRequest.class)))
-                    .thenReturn(expectedResponse);
-
-            SynchroSendLoanFolder result = processor.process(entity);
-
-            assertEquals(expectedResponse, result);
-            verify(commandExecutor, times(1))
-                    .execute(eq(SendSynchroLoanFoldersCommand.class), any(SendSynchroLoanFoldersRequest.class));
-            mockedMapper.verify(() -> DocaposteEventHistoryEntityMapperToDomain.toDomain(entity));
+    // ---- Utilitaire de réflexion ----
+    private Object getPrivateField(Object target, String fieldName) {
+        try {
+            java.lang.reflect.Field f = findField(target.getClass(), fieldName);
+            assertNotNull("Champ introuvable : " + fieldName, f);
+            f.setAccessible(true);
+            return f.get(target);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
         }
+    }
+
+    private java.lang.reflect.Field findField(Class<?> clazz, String name) {
+        for (Class<?> c = clazz; c != null; c = c.getSuperclass()) {
+            try {
+                return c.getDeclaredField(name);
+            } catch (NoSuchFieldException ignored) {
+            }
+        }
+        return null;
     }
 }
