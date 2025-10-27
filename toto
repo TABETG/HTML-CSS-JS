@@ -1,159 +1,53 @@
-Parfait 👌 — j’ai pu analyser ton rapport JaCoCo (index.html) et le pom.xml précédent.
-Voici la liste des classes à tester (non exclues Sonar), c’est-à-dire celles réellement comptabilisées dans la couverture :
+Voici les cibles à tester en priorité (elles comptent pour la couverture Sonar et je ne vois aucun test correspondant dans l’arborescence fournie) :
+
+1. com.bnpparibas.dsibddf.ap00420.streamfact.batch.paymentrequestpaid.writer.PaymentRequestPaidWriter
+→ Classe présente, pas listée côté tests. Les readers et Configuration sont exclus de Sonar, pas les writers, donc celle-ci fera monter la couverture.
+
+
+2. com.bnpparibas.dsibddf.ap00420.streamfact.batch.paymentrequestpaid.writer.BillingSpaceUpdatePaymentRequestItemWriter
+→ Même logique : writer non exclu, pas de test vu dans la sortie target/test-classes.
+
+
+3. com.bnpparibas.dsibddf.ap00420.streamfact.batch.replay.billingspacecreation.creationerror.writer.SendBillingSpaceWriter
+→ Writer non exclu ; le reader du même job est exclu (inutile de l’uniter), donc cible idéale.
+
+
+4. com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.synchro.sender.writer.BillingSpaceSendSynchroItemWriter
+→ Writer non exclu, pas de test repéré (les tests existants concernent le package synchro.update.writer).
+
+
 
 
 ---
 
-✅ Classes prioritaires à tester (non exclues Sonar)
+À éviter (n’augmente pas la couverture Sonar)
 
-📦 com.bnpparibas.dsibddf.ap00420.streamfact.batch.paymentrequestpaid
+Tous les Reader des batchs (patterns */reader/*Reader.java). 
 
-PaymentRequestPaidItemProcessor.java
+Toutes les classes de configuration (*Config.java, *Configuration.java, JobConfiguration*.java). 
 
-PaymentRequestPaidWriter.java
-
-PaymentRequestPaidReader.java
-
-PaymentRequestPaidJob.java
-
-
-📦 com.bnpparibas.dsibddf.ap00420.streamfact.batch.replay.billingspacecreation
-
-BillingSpaceCreationErrorItemProcessor.java
-
-BillingSpaceCreationErrorWriter.java
-
-BillingSpaceCreationToSendReader.java
-
-BillingSpaceCreationToSendWriter.java
-
-BillingSpaceCreationErrorJob.java
-
-BillingSpaceCreationToSendJob.java
-
-
-📦 com.bnpparibas.dsibddf.ap00420.streamfact.batch.replay.recalculcompletude
-
-RecalculCompletudeItemProcessor.java
-
-RecalculCompletudeReader.java
-
-RecalculCompletudeWriter.java
-
-RecalculCompletudeJob.java
-
-
-📦 com.bnpparibas.dsibddf.ap00420.streamfact.batch.replay.sendpaymentrequestpaid
-
-SendPaymentRequestPaidReader.java
-
-SendPaymentRequestPaidJob.java
-
-
-📦 com.bnpparibas.dsibddf.ap00420.streamfact.batch.replay.sendtransferavrequest
-
-SendTransferAvRequestJob.java
-
-
-📦 com.bnpparibas.dsibddf.ap00420.streamfact.batch.dailymeteorintegration
-
-DailyMeteorIntegrationManager.java
-
-DailyMeteorIntegrationTasklet.java
-
-
-📦 com.bnpparibas.dsibddf.ap00420.streamfact.batch.sendtobmd
-
-SendToBmdTasklet.java
-
-SendToBmdWriter.java
-
-SendToBmdReader.java
-
-SendToBmdJob.java
-
-SendToBmdListener.java
-
-
-📦 com.bnpparibas.dsibddf.ap00420.streamfact.batch.purge
-
-PurgeTasklet.java
-
-PurgeReader.java
-
-PurgeWriter.java
-
-PurgeListener.java
-
-PurgeDto.java
-
-
-📦 com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.synchro.update
-
-BillingSpaceSynchroUpdateWriter.java
-
-
-📦 com.bnpparibas.dsibddf.ap00420.streamfact.batch.maestrostatuspaymentrequest
-
-MaestroStatusPaymentRequestProcessor.java
-
-MaestroStatusPaymentRequestWriter.java
-
-MaestroStatusPaymentRequestReader.java
-
-MaestroStatusPaymentRequestJob.java
-
-
-📦 com.bnpparibas.dsibddf.ap00420.streamfact.batch.maestrodatajob
-
-MaestroDataJobTasklet.java
-
-MaestroDataJobProcessor.java
-
-MaestroDataJobListener.java
-
-MaestroDataJobJob.java
-
-MaestroDataJobModel.java
-
-MaestroDataJobS3cos.java
-
-
-📦 com.bnpparibas.dsibddf.ap00420.streamfact.batch.stockintegration
-
-StockIntegrationReader.java
-
-StockIntegrationJob.java
-
-StockIntegrationDto.java
-
-
-📦 com.bnpparibas.dsibddf.ap00420.streamfact.batch.loadstockintegration
-
-LoadStockIntegrationJob.java
-
-LoadStockIntegrationModel.java
+La majeure partie des infrastructure REST (request/response/config), domain/commons, domain/engines, etc., exclus par le pom.
 
 
 
 ---
 
-⚙️ Comment les prioriser pour atteindre 100 % Sonar
+Indices de l’arborescence
 
-Priorité	Classe	Type	Objectif
+On voit bien des tests déjà présents pour synchro.update.writer (donc moins prioritaires). 
 
-🔥 Haute	PaymentRequestPaidItemProcessor	Processor	100 % coverage logique métier
-🔥 Haute	PaymentRequestPaidWriter	Writer	Tester le write() et le log
-🔥 Haute	BillingSpaceCreationErrorItemProcessor	Processor	Cas nominal + erreurs
-⚡ Moyenne	RecalculCompletudeItemProcessor	Processor	Cas standard + exception
-⚡ Moyenne	SendPaymentRequestPaidReader	Reader	Test du flux d’entrée
-⚡ Moyenne	PurgeWriter, PurgeReader, PurgeTasklet	Batch	Cas normal + vide
-🟢 Faible	MaestroDataJobTasklet	Tasklet	Test d’exécution simple
-🟢 Faible	StockIntegrationReader, LoadStockIntegrationJob	Lecture	Vérifier execute() sans crash
+Je ne vois pas de test compilé pour les writers listés en (1) à (4). 
 
 
 
 ---
 
-Souhaites-tu que je te crée automatiquement les classes de tests JUnit 4 correspondantes (avec 100 % coverage) pour ces classes prioritaires (ex. PaymentRequestPaidItemProcessorTest, BillingSpaceCreationErrorItemProcessorTest, etc.) ?
-👉 Je peux te générer un bloc de tests complet, prêt à copier dans src/test/java/....
+Mini-plan de test (JUnit4 + Mockito, compatibles Sonar/Jenkins)
+
+Utiliser @RunWith(MockitoJUnitRunner.class), @Before, @Test, assertions JUnit (assertEquals, assertTrue, …) et verifyNoInteractions(...) si besoin. Pas d’AssertJ, pas de Jupiter.
+
+Pour les ItemWriter : préparer un Chunk<> avec des objets factices, vérifier les appels (saveAll, sendDossierBox, mise à jour repo/événements) et les branches « liste vide ».
+(Ceci respecte vos contraintes JUnit4/Sonar.)
+
+
+Si tu veux, je te génère tout de suite la classe de test JUnit4 pour PaymentRequestPaidWriter (ou l’une des autres) au format exact demandé.
