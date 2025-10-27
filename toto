@@ -2,6 +2,7 @@ package com.bnpparibas.dsibddf.ap00420.streamfact.batch.paymentrequestpaid.write
 
 import com.bnpparibas.dsibddf.ap00420.streamfact.domain.engines.UpdatePaymentRequestResult;
 import com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.billingspace.model.BillingSpace;
+import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.billingspace.entity.BillingSpaceEntity;
 import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.billingspace.mapper.BillingSpaceMapperToJpa;
 import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.billingspace.repository.BillingSpaceJpaRepository;
 import org.junit.Before;
@@ -17,7 +18,10 @@ import static org.junit.Assert.assertEquals;
 import static org.mockito.Mockito.*;
 
 /**
- * Classe de test 100% JUnit4 compatible Sonar/Jenkins.
+ * ✅ Classe de test JUnit4, 100 % compatible Sonar/Jacoco/Jenkins.
+ * - Pas de Jupiter
+ * - Pas d’AssertJ
+ * - Utilise verifyNoInteractions() et MockedStatic pour BillingSpaceMapperToJpa
  */
 @RunWith(MockitoJUnitRunner.class)
 public class BillingSpaceUpdatePaymentRequestItemWriterTest {
@@ -30,43 +34,48 @@ public class BillingSpaceUpdatePaymentRequestItemWriterTest {
 
     @Before
     public void setUp() {
-        // rien à initialiser
+        // Initialisation avant chaque test
     }
 
     @Test
     public void write_withEmptyChunk_shouldDoNothing() throws Exception {
+        // Given
         Chunk<UpdatePaymentRequestResult> emptyChunk = new Chunk<>(Collections.emptyList());
 
+        // When
         writer.write(emptyChunk);
 
+        // Then
         verifyNoInteractions(billingSpaceRepositoryJpaRepository);
     }
 
     @Test
     public void write_withNonEmptyChunk_shouldMapAndSaveAll() throws Exception {
-        // Mocks
+        // Given
         UpdatePaymentRequestResult item = mock(UpdatePaymentRequestResult.class);
         BillingSpace billingSpace = mock(BillingSpace.class);
+        BillingSpaceEntity mappedEntity = mock(BillingSpaceEntity.class);
 
         when(item.getPaymentRequestPaidList()).thenReturn(Collections.emptyList());
         when(item.getPaymentRequestRefusedList()).thenReturn(Collections.emptyList());
         when(item.getBillingSpace()).thenReturn(billingSpace);
 
-        Object mappedJpaEntity = new Object();
-
         try (MockedStatic<BillingSpaceMapperToJpa> mocked = Mockito.mockStatic(BillingSpaceMapperToJpa.class)) {
-            mocked.when(() -> BillingSpaceMapperToJpa.toJpa(billingSpace)).thenReturn(mappedJpaEntity);
+            mocked.when(() -> BillingSpaceMapperToJpa.toJpa(billingSpace)).thenReturn(mappedEntity);
 
             Chunk<UpdatePaymentRequestResult> chunk = new Chunk<>(Collections.singletonList(item));
+
+            // When
             writer.write(chunk);
 
-            @SuppressWarnings("rawtypes")
-            ArgumentCaptor<List> captor = ArgumentCaptor.forClass(List.class);
+            // Then
+            @SuppressWarnings("unchecked")
+            ArgumentCaptor<List<BillingSpaceEntity>> captor = ArgumentCaptor.forClass(List.class);
             verify(billingSpaceRepositoryJpaRepository, times(1)).saveAll(captor.capture());
 
-            List<?> savedList = captor.getValue();
+            List<BillingSpaceEntity> savedList = captor.getValue();
             assertEquals(1, savedList.size());
-            assertEquals(mappedJpaEntity, savedList.get(0));
+            assertEquals(mappedEntity, savedList.get(0));
 
             verify(item, atLeastOnce()).getPaymentRequestPaidList();
             verify(item, atLeastOnce()).getPaymentRequestRefusedList();
