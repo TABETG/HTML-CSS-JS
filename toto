@@ -1,87 +1,258 @@
-package com.bnpparibas.dsibddf.ap00420.streamfact.batch.paymentrequestpaid.writer;
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
 
-import com.bnpparibas.dsibddf.ap00420.streamfact.domain.engines.UpdatePaymentRequestResult;
-import com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.billingspace.model.BillingSpace;
-import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.billingspace.entity.BillingSpaceEntity;
-import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.billingspace.mapper.BillingSpaceMapperToJpa;
-import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.billingspace.repository.BillingSpaceJpaRepository;
-import org.junit.Before;
-import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.mockito.*;
-import org.mockito.junit.MockitoJUnitRunner;
-import org.springframework.batch.item.Chunk;
+    <modelVersion>4.0.0</modelVersion>
 
-import java.util.*;
+    <groupId>com.bnpparibas.dsibddf.ap00420</groupId>
+    <artifactId>stream-fact</artifactId>
+    <version>1.1</version>
+    <packaging>pom</packaging>
+    <name>stream-fact parent POM</name>
 
-import static org.junit.Assert.assertEquals;
-import static org.mockito.Mockito.*;
+    <!-- ========================= -->
+    <!--       MODULES             -->
+    <!-- ========================= -->
+    <modules>
+        <module>stream-fact-domain</module>
+        <module>stream-fact-application</module>
+        <module>stream-fact-exposition</module>
+        <module>stream-fact-infra-sql</module>
+        <module>stream-fact-infra-rest-clients</module>
+        <module>stream-fact-infra-jms</module>
+        <module>stream-fact-batch</module>
+        <module>stream-fact-infra-smtp</module>
+        <module>stream-fact-infra-soap-clients</module>
+        <module>stream-fact-infra-static-filestore</module>
+    </modules>
 
-/**
- * ✅ Classe de test JUnit4, 100 % compatible Sonar/Jacoco/Jenkins.
- * - Pas de Jupiter
- * - Pas d’AssertJ
- * - Utilise verifyNoInteractions() et MockedStatic pour BillingSpaceMapperToJpa
- */
-@RunWith(MockitoJUnitRunner.class)
-public class BillingSpaceUpdatePaymentRequestItemWriterTest {
+    <!-- ========================= -->
+    <!--        PROPERTIES          -->
+    <!-- ========================= -->
+    <properties>
+        <java.version>17</java.version>
+        <spring-boot.version>3.1.2</spring-boot.version>
+        <spring-cloud.version>2022.0.3</spring-cloud.version>
+        <jacoco-maven-plugin.version>0.8.8</jacoco-maven-plugin.version>
+        <spring-boot-maven-plugin.version>2.6.5</spring-boot-maven-plugin.version>
+        <maven.compiler.release>${java.version}</maven.compiler.release>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
 
-    @Mock
-    private BillingSpaceJpaRepository billingSpaceRepositoryJpaRepository;
+        <framework-bddf.version>3.3.0</framework-bddf.version>
+        <lombok.version>1.18.30</lombok.version>
+        <jjwt.version>0.7.0</jjwt.version>
+        <commons-lang.version>3.5</commons-lang.version>
+        <httpclient.version>5.2.1</httpclient.version>
+        <spring.cloud.task.version>2.0.0.RELEASE</spring.cloud.task.version>
+        <poi.version>4.1.0</poi.version>
+        <opencsv.version>5.3</opencsv.version>
+        <postgresql.version>42.4.1</postgresql.version>
+        <logstash-logback-encoder.version>5.3</logstash-logback-encoder.version>
+        <springdoc.version>2.0.2</springdoc.version>
+        <jackson.version>2.13.4</jackson.version>
+        <xstream.version>1.4.20</xstream.version>
+        <cucumber.version>7.6.0</cucumber.version>
+        <cucumber.io.version>7.6.0</cucumber.io.version>
 
-    @InjectMocks
-    private BillingSpaceUpdatePaymentRequestItemWriter writer;
+        <!-- exclusions Sonar -->
+        <sonar.exclusions>
+            **/JobConfiguration*.java,
+            **/*Config.java,
+            **/*Configuration.java,
+            **/reader/*Reader.java,
+            **/domain/**/*.java,
+            **/exposition/**/*.java,
+            **/infrastructure/rest/**/*.java,
+            **/infrastructure/soap/**/*.java,
+            **/MockImpl.java
+        </sonar.exclusions>
+    </properties>
 
-    @Before
-    public void setUp() {
-        // Initialisation avant chaque test
-    }
+    <!-- ========================= -->
+    <!-- DEPENDENCY MANAGEMENT     -->
+    <!-- ========================= -->
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>com.bnpparibas.dsibddf.ap00420</groupId>
+                <artifactId>stream-fact-domain</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.bnpparibas.dsibddf.ap00420</groupId>
+                <artifactId>stream-fact-application</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.bnpparibas.dsibddf.ap00420</groupId>
+                <artifactId>stream-fact-batch</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-dependencies</artifactId>
+                <version>${spring-boot.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework.cloud</groupId>
+                <artifactId>spring-cloud-dependencies</artifactId>
+                <version>${spring-cloud.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
-    @Test
-    public void write_withEmptyChunk_shouldDoNothing() throws Exception {
-        // Given
-        Chunk<UpdatePaymentRequestResult> emptyChunk = new Chunk<>(Collections.emptyList());
+    <!-- ========================= -->
+    <!--       DEPENDENCIES        -->
+    <!-- ========================= -->
+    <dependencies>
+        <!-- Spring Boot core -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter</artifactId>
+            <version>${spring-boot.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+            <version>${spring-boot.version}</version>
+        </dependency>
 
-        // When
-        writer.write(emptyChunk);
+        <!-- JUnit4 only -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.junit.jupiter</groupId>
+                    <artifactId>junit-jupiter-engine</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.junit.vintage</groupId>
+                    <artifactId>junit-vintage-engine</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <version>4.13.2</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-core</artifactId>
+            <version>5.10.0</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-junit-jupiter</artifactId>
+            <version>5.10.0</version>
+            <scope>test</scope>
+        </dependency>
 
-        // Then
-        verifyNoInteractions(billingSpaceRepositoryJpaRepository);
-    }
+        <!-- DB -->
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+        </dependency>
 
-    @Test
-    public void write_withNonEmptyChunk_shouldMapAndSaveAll() throws Exception {
-        // Given
-        UpdatePaymentRequestResult item = mock(UpdatePaymentRequestResult.class);
-        BillingSpace billingSpace = mock(BillingSpace.class);
-        BillingSpaceEntity mappedEntity = mock(BillingSpaceEntity.class);
+        <!-- Jackson / JSON -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.datatype</groupId>
+            <artifactId>jackson-datatype-jsr310</artifactId>
+            <version>${jackson.version}</version>
+        </dependency>
+    </dependencies>
 
-        when(item.getPaymentRequestPaidList()).thenReturn(Collections.emptyList());
-        when(item.getPaymentRequestRefusedList()).thenReturn(Collections.emptyList());
-        when(item.getBillingSpace()).thenReturn(billingSpace);
+    <!-- ========================= -->
+    <!--          BUILD            -->
+    <!-- ========================= -->
+    <build>
+        <plugins>
 
-        try (MockedStatic<BillingSpaceMapperToJpa> mocked = Mockito.mockStatic(BillingSpaceMapperToJpa.class)) {
-            mocked.when(() -> BillingSpaceMapperToJpa.toJpa(billingSpace)).thenReturn(mappedEntity);
+            <!-- Jacoco Coverage -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>${jacoco-maven-plugin.version}</version>
+                <executions>
+                    <execution>
+                        <id>default-prepare-agent</id>
+                        <goals><goal>prepare-agent</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>verify</phase>
+                        <goals><goal>report</goal></goals>
+                    </execution>
+                </executions>
+            </plugin>
 
-            Chunk<UpdatePaymentRequestResult> chunk = new Chunk<>(Collections.singletonList(item));
+            <!-- Compiler -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.10.1</version>
+                <configuration>
+                    <source>17</source>
+                    <target>17</target>
+                    <compilerArgs>
+                        <arg>-parameters</arg>
+                        <arg>-Xlint:unchecked</arg>
+                    </compilerArgs>
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                            <version>${lombok.version}</version>
+                        </path>
+                    </annotationProcessorPaths>
+                </configuration>
+            </plugin>
 
-            // When
-            writer.write(chunk);
+            <!-- ✅ Corrige Jenkins: Surefire plugin -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.1.2</version>
+                <configuration>
+                    <useModulePath>false</useModulePath>
+                    <includes>
+                        <include>**/*Test.java</include>
+                    </includes>
+                    <testFailureIgnore>false</testFailureIgnore>
+                    <trimStackTrace>true</trimStackTrace>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
 
-            // Then
-            @SuppressWarnings("unchecked")
-            ArgumentCaptor<List<BillingSpaceEntity>> captor = ArgumentCaptor.forClass(List.class);
-            verify(billingSpaceRepositoryJpaRepository, times(1)).saveAll(captor.capture());
+    <!-- ========================= -->
+    <!--       DISTRIBUTION        -->
+    <!-- ========================= -->
+    <distributionManagement>
+        <repository>
+            <id>internal.releases</id>
+            <name>releases</name>
+            <url>https://api.artifactory-dogen.group.echonet/artifactory/p-1550-stream-fact-RELEASE/</url>
+        </repository>
+        <snapshotRepository>
+            <id>internal.snapshots</id>
+            <name>snapshots</name>
+            <url>https://api.artifactory-dogen.group.echonet/artifactory/p-1550-stream-fact-SNAPSHOT/</url>
+        </snapshotRepository>
+    </distributionManagement>
 
-            List<BillingSpaceEntity> savedList = captor.getValue();
-            assertEquals(1, savedList.size());
-            assertEquals(mappedEntity, savedList.get(0));
-
-            verify(item, atLeastOnce()).getPaymentRequestPaidList();
-            verify(item, atLeastOnce()).getPaymentRequestRefusedList();
-            verify(item, atLeastOnce()).getBillingSpace();
-
-            verifyNoMoreInteractions(billingSpaceRepositoryJpaRepository);
-        }
-    }
-}
+</project>
