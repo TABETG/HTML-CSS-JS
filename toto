@@ -23,39 +23,48 @@ import static org.mockito.Mockito.*;
 /**
  * Tests JUnit 4 pour SendToBMDUploadCOSTasklet.
  *
- * Objectifs:
- *  - Vérifier le comportement "mock": pas d'appel COS, terminaison FINISHED.
- *  - Vérifier le succès en mode réel: appel COS, ExitStatus.COMPLETED.
- *  - Vérifier l'échec en mode réel: exception COS, ExitStatus.FAILED.
- *  - Couvrir afterPropertiesSet() (contrat no-op).
+ * Objectifs de couverture :
+ *  - afterPropertiesSet() : pas d'effet attendu (aucune exception).
+ *  - execute() en mode mock (mock=true) : FINISHED sans appel au CosService.
+ *  - execute() en mode réel (mock=false) avec succès : appel COS et ExitStatus.COMPLETED.
+ *  - execute() en mode réel (mock=false) avec exception : ExitStatus.FAILED.
  *
- * Contraintes:
- *  - JUnit 4 uniquement (org.junit.*), pas de JUnit Jupiter.
- *  - MockitoJUnitRunner, pas d'AssertJ.
- *  - verifyNoInteractions(...) pour l'absence d'appels.
+ * Contraintes :
+ *  - JUnit 4 uniquement (org.junit.*).
+ *  - Mockito runner : @RunWith(MockitoJUnitRunner.class).
+ *  - Pas de Jupiter, pas d'AssertJ.
+ *  - verifyNoInteractions(...) au lieu de verifyZeroInteractions(...).
  */
 @RunWith(MockitoJUnitRunner.class)
 public class SendToBMDUploadCOSTaskletTest {
 
+    /** SUT : le tasklet à tester. */
     @InjectMocks
     private SendToBMDUploadCOSTasklet tasklet;
 
+    /** Dépendance externe simulée : service COS. */
     @Mock
     private CosService cosService;
 
+    /** Contexte réel Spring Batch pour valider les ExitStatus. */
     private StepExecution stepExecution;
     private StepContribution contribution;
 
+    /**
+     * Prépare un StepExecution/Contribution réels pour que le tasklet
+     * puisse poser un ExitStatus sans qu'on ait à le simuler.
+     */
     @Before
     public void setUp() {
-        // Construit un contexte Spring Batch réaliste pour vérifier ExitStatus.
         JobExecution jobExecution = new JobExecution(1L);
         stepExecution = new StepExecution("sendToBMDUpload", jobExecution);
         contribution = new StepContribution(stepExecution);
     }
 
     /**
-     * afterPropertiesSet() ne fait rien: aucune exception attendue.
+     * afterPropertiesSet() : la classe déclare "Nothing to do",
+     * l'appel ne doit produire aucune exception ni effet. 
+     * (Couverture simple de la méthode.) 
      */
     @Test
     public void afterPropertiesSet_should_do_nothing() throws Exception {
@@ -63,36 +72,41 @@ public class SendToBMDUploadCOSTaskletTest {
     }
 
     /**
-     * Branche mock=true:
-     *  - Le service COS ne doit pas être appelé.
-     *  - Le step termine en FINISHED (ExitStatus non forcé dans le code).
+     * Branche mock=true :
+     *  - Le nom de fichier est lu dans le JobExecutionContext sous "encryptedFileName".
+     *  - Aucune interaction avec CosService n'est attendue.
+     *  - Le tasklet doit renvoyer RepeatStatus.FINISHED.
      */
     @Test
     public void execute_when_mock_true_should_finish_without_cos_call() throws Exception {
+        // Injection des propriétés
         ReflectionTestUtils.setField(tasklet, "mock", true);
         ReflectionTestUtils.setField(tasklet, "pathGenerateFile", "/tmp");
         ReflectionTestUtils.setField(tasklet, "prefix", "arch-");
-        putEncryptedFileName("file.enc"); // clé "encryptedFileName" dans JobExecutionContext
+        // La classe lit "encryptedFileName" depuis le JobExecutionContext
+        putEncryptedFileNameInContext("file.enc");
 
         ChunkContext chunkContext = new ChunkContext(new StepContext(stepExecution));
 
         RepeatStatus status = tasklet.execute(contribution, chunkContext);
 
         assertEquals(RepeatStatus.FINISHED, status);
-        verifyNoInteractions(cosService);
+        verifyNoInteractions(cosService); // pas d'appel en mode mock
     }
 
     /**
-     * Branche mock=false et envoi OK:
-     *  - Appel à cosService.pushArchiveFileToNewCOS(path, file, prefix).
-     *  - ExitStatus.COMPLETED posé sur le StepExecution.
+     * Branche mock=false avec succès :
+     *  - Appel à cosService.pushArchiveFileToNewCOS(path, fileName, prefix)
+     *    tel que défini dans la classe métier.
+     *  - ExitStatus posé à COMPLETED sur le StepExecution.
+     *  - RepeatStatus reste FINISHED.
      */
     @Test
     public void execute_when_mock_false_and_push_ok_should_set_completed() throws Exception {
         ReflectionTestUtils.setField(tasklet, "mock", false);
         ReflectionTestUtils.setField(tasklet, "pathGenerateFile", "/opt/export");
         ReflectionTestUtils.setField(tasklet, "prefix", "bkp-");
-        putEncryptedFileName("daily.enc");
+        putEncryptedFileNameInContext("daily.enc");
 
         ChunkContext chunkContext = new ChunkContext(new StepContext(stepExecution));
 
@@ -100,23 +114,23 @@ public class SendToBMDUploadCOSTaskletTest {
 
         assertEquals(RepeatStatus.FINISHED, status);
         assertEquals(ExitStatus.COMPLETED, stepExecution.getExitStatus());
-        verify(cosService, times(1))
-                .pushArchiveFileToNewCOS("/opt/export", "daily.enc", "bkp-");
+        verify(cosService, times(1)).pushArchiveFileToNewCOS("/opt/export", "daily.enc", "bkp-");
         verifyNoMoreInteractions(cosService);
     }
 
     /**
-     * Branche mock=false mais le push lève une exception:
-     *  - ExitStatus.FAILED posé.
-     *  - Le RepeatStatus reste FINISHED (contrat d'un Tasklet).
+     * Branche mock=false avec exception lors du push :
+     *  - Si CosService lève une exception, le tasklet doit poser ExitStatus.FAILED.
+     *  - L'exécution du tasklet termine tout de même en FINISHED (contrat d'un Tasklet).
      */
     @Test
     public void execute_when_mock_false_and_push_throws_should_set_failed() throws Exception {
         ReflectionTestUtils.setField(tasklet, "mock", false);
         ReflectionTestUtils.setField(tasklet, "pathGenerateFile", "/data/out");
         ReflectionTestUtils.setField(tasklet, "prefix", "pref-");
-        putEncryptedFileName("broken.enc");
+        putEncryptedFileNameInContext("broken.enc");
 
+        // Simulation de panne du service COS
         doThrow(new RuntimeException("cos down"))
                 .when(cosService).pushArchiveFileToNewCOS("/data/out", "broken.enc", "pref-");
 
@@ -126,16 +140,16 @@ public class SendToBMDUploadCOSTaskletTest {
 
         assertEquals(RepeatStatus.FINISHED, status);
         assertEquals(ExitStatus.FAILED, stepExecution.getExitStatus());
-        verify(cosService, times(1))
-                .pushArchiveFileToNewCOS("/data/out", "broken.enc", "pref-");
+        verify(cosService, times(1)).pushArchiveFileToNewCOS("/data/out", "broken.enc", "pref-");
         verifyNoMoreInteractions(cosService);
     }
 
     /**
-     * Place le nom de fichier attendu dans le JobExecutionContext sous la clé "encryptedFileName".
-     * Le tasklet lit explicitement cette clé pour récupérer le nom à envoyer vers COS.
+     * Place la valeur attendue par le tasklet dans le JobExecutionContext,
+     * sous la clé "encryptedFileName".
+     * La classe sous test récupère exactement cette clé au début de execute().
      */
-    private void putEncryptedFileName(String fileName) {
+    private void putEncryptedFileNameInContext(String fileName) {
         assertNotNull(stepExecution);
         assertNotNull(stepExecution.getJobExecution());
         stepExecution.getJobExecution().getExecutionContext().put("encryptedFileName", fileName);
