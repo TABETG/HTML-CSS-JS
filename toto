@@ -1,53 +1,100 @@
-Voici les cibles à tester en priorité (elles comptent pour la couverture Sonar et je ne vois aucun test correspondant dans l’arborescence fournie) :
+package com.bnpparibas.dsibddf.ap00420.streamfact.batch.paymentrequestpaid.writer;
 
-1. com.bnpparibas.dsibddf.ap00420.streamfact.batch.paymentrequestpaid.writer.PaymentRequestPaidWriter
-→ Classe présente, pas listée côté tests. Les readers et Configuration sont exclus de Sonar, pas les writers, donc celle-ci fera monter la couverture.
+import com.bnpparibas.dsibddf.ap00420.streamfact.domain.engines.UpdatePaymentRequestResult;
+import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.billingspace.mapper.BillingSpaceMapperToJpa;
+import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.billingspace.repository.BillingSpaceJpaRepository;
+import org.junit.Before;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
+import org.mockito.ArgumentCaptor;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.MockitoJUnitRunner;
+import org.springframework.batch.item.Chunk;
 
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
 
-2. com.bnpparibas.dsibddf.ap00420.streamfact.batch.paymentrequestpaid.writer.BillingSpaceUpdatePaymentRequestItemWriter
-→ Même logique : writer non exclu, pas de test vu dans la sortie target/test-classes.
+import static org.junit.Assert.assertEquals;
+import static org.mockito.Mockito.*;
 
+/**
+ * Tests JUnit4 (pas Jupiter), compatibles Sonar/Jacoco.
+ * - @RunWith(MockitoJUnitRunner.class)
+ * - @Before au lieu de @BeforeEach
+ * - Assertions JUnit (pas AssertJ)
+ * - verifyNoInteractions(...) au lieu de verifyZeroInteractions(...)
+ */
+@RunWith(MockitoJUnitRunner.class)
+public class BillingSpaceUpdatePaymentRequestItemWriterTest {
 
-3. com.bnpparibas.dsibddf.ap00420.streamfact.batch.replay.billingspacecreation.creationerror.writer.SendBillingSpaceWriter
-→ Writer non exclu ; le reader du même job est exclu (inutile de l’uniter), donc cible idéale.
+    @Mock
+    private BillingSpaceJpaRepository billingSpaceRepositoryJpaRepository;
 
+    @InjectMocks
+    private BillingSpaceUpdatePaymentRequestItemWriter writer;
 
-4. com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.synchro.sender.writer.BillingSpaceSendSynchroItemWriter
-→ Writer non exclu, pas de test repéré (les tests existants concernent le package synchro.update.writer).
+    @Before
+    public void setUp() {
+        // rien de spécial
+    }
 
+    @Test
+    public void write_withEmptyChunk_shouldDoNothing() throws Exception {
+        // Given
+        Chunk<UpdatePaymentRequestResult> emptyChunk = new Chunk<>(Collections.emptyList());
 
+        // When
+        writer.write(emptyChunk);
 
+        // Then
+        verifyNoInteractions(billingSpaceRepositoryJpaRepository);
+    }
 
----
+    @Test
+    public void write_withNonEmptyChunk_shouldMapAndSaveAll() throws Exception {
+        // Given
+        UpdatePaymentRequestResult item = mock(UpdatePaymentRequestResult.class);
 
-À éviter (n’augmente pas la couverture Sonar)
+        // Les getters appelés par les stream().map(...) dans la classe à tester
+        // Peu importe le contenu des listes, la condition telle qu'implémentée recompte les éléments du stream,
+        // donc il suffit que le chunk ne soit pas vide pour déclencher saveAll(...).
+        when(item.getPaymentRequestPaidList()).thenReturn(Collections.emptyList());
+        when(item.getPaymentRequestRefusedList()).thenReturn(Collections.emptyList());
 
-Tous les Reader des batchs (patterns */reader/*Reader.java). 
+        // Le domaine BillingSpace (type réel non nécessaire ici)
+        Object domainBillingSpace = new Object();
+        when(item.getBillingSpace()).thenReturn(domainBillingSpace);
 
-Toutes les classes de configuration (*Config.java, *Configuration.java, JobConfiguration*.java). 
+        // Préparer le mapping statique vers l'entité JPA
+        Object mappedJpaEntity = new Object();
 
-La majeure partie des infrastructure REST (request/response/config), domain/commons, domain/engines, etc., exclus par le pom.
+        // When + Then (mock static)
+        try (MockedStatic<BillingSpaceMapperToJpa> mocked = Mockito.mockStatic(BillingSpaceMapperToJpa.class)) {
+            mocked.when(() -> BillingSpaceMapperToJpa.toJpa(domainBillingSpace)).thenReturn(mappedJpaEntity);
 
+            Chunk<UpdatePaymentRequestResult> chunk = new Chunk<>(Arrays.asList(item));
 
+            writer.write(chunk);
 
----
+            // capture l'argument passé à saveAll
+            ArgumentCaptor<List> captor = ArgumentCaptor.forClass(List.class);
+            verify(billingSpaceRepositoryJpaRepository, times(1)).saveAll(captor.capture());
 
-Indices de l’arborescence
+            List captured = captor.getValue();
+            assertEquals(1, captured.size());
+            assertEquals(mappedJpaEntity, captured.get(0));
 
-On voit bien des tests déjà présents pour synchro.update.writer (donc moins prioritaires). 
+            // Vérifie que les getters utilisés par les streams ont bien été appelés
+            verify(item, atLeastOnce()).getPaymentRequestPaidList();
+            verify(item, atLeastOnce()).getPaymentRequestRefusedList();
+            verify(item, atLeastOnce()).getBillingSpace();
 
-Je ne vois pas de test compilé pour les writers listés en (1) à (4). 
-
-
-
----
-
-Mini-plan de test (JUnit4 + Mockito, compatibles Sonar/Jenkins)
-
-Utiliser @RunWith(MockitoJUnitRunner.class), @Before, @Test, assertions JUnit (assertEquals, assertTrue, …) et verifyNoInteractions(...) si besoin. Pas d’AssertJ, pas de Jupiter.
-
-Pour les ItemWriter : préparer un Chunk<> avec des objets factices, vérifier les appels (saveAll, sendDossierBox, mise à jour repo/événements) et les branches « liste vide ».
-(Ceci respecte vos contraintes JUnit4/Sonar.)
-
-
-Si tu veux, je te génère tout de suite la classe de test JUnit4 pour PaymentRequestPaidWriter (ou l’une des autres) au format exact demandé.
+            // Aucun autre appel non attendu
+            verifyNoMoreInteractions(billingSpaceRepositoryJpaRepository);
+        }
+    }
+}
