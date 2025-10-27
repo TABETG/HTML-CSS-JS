@@ -1,70 +1,69 @@
 package com.bnpparibas.dsibddf.ap00420.streamfact.batch.sendtobmd.tasklet;
 
-import com.bnpparibas.dsibddf.ap00420.streamfact.application.cos.CosService;
+import com.bnpparibas.dsibddf.ap00420.streamfact.batch.sendtobmd.service.batch.security.openpgp.OnePassSignatureProcessor;
+import com.bnpparibas.dsibddf.ap00420.streamfact.batch.sendtobmd.service.batch.security.openpgp.PrivateKeyPair;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
+import org.mockito.*;
 import org.mockito.junit.MockitoJUnitRunner;
-import org.springframework.batch.core.ExitStatus;
 import org.springframework.batch.core.JobExecution;
 import org.springframework.batch.core.StepContribution;
 import org.springframework.batch.core.StepExecution;
+import org.springframework.batch.core.UnexpectedJobExecutionException;
 import org.springframework.batch.core.scope.context.ChunkContext;
 import org.springframework.batch.core.scope.context.StepContext;
 import org.springframework.batch.repeat.RepeatStatus;
 import org.springframework.test.util.ReflectionTestUtils;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
+import java.io.IOException;
+import java.util.List;
+
+import static org.junit.Assert.*;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 /**
- * Tests JUnit 4 pour SendToBMDUploadCOSTasklet.
+ * Tests JUnit 4 pour CypherPGPTasklet.
  *
- * Objectifs de couverture :
- *  - afterPropertiesSet() : pas d'effet attendu (aucune exception).
- *  - execute() en mode mock (mock=true) : FINISHED sans appel au CosService.
- *  - execute() en mode réel (mock=false) avec succès : appel COS et ExitStatus.COMPLETED.
- *  - execute() en mode réel (mock=false) avec exception : ExitStatus.FAILED.
- *
- * Contraintes :
- *  - JUnit 4 uniquement (org.junit.*).
- *  - Mockito runner : @RunWith(MockitoJUnitRunner.class).
- *  - Pas de Jupiter, pas d'AssertJ.
- *  - verifyNoInteractions(...) au lieu de verifyZeroInteractions(...).
+ * Objectifs:
+ *  - Couvrir 100% des branches et lignes :
+ *      * mock == true  : pas d'appel chiffrage, FINISHED.
+ *      * mock == false : succès → appel encryptOnePassSignature, FINISHED.
+ *      * mock == false : exception → UnexpectedJobExecutionException.
+ *      * checkParameters() : validations notNull (avec/ sans needSignature).
+ *      * initializeValues() : construction des chemins et sélection des secrets (keystore vs key).
+ *      * afterPropertiesSet() : no-op.
+ *  - Conformité Sonar/Jacoco/Jenkins :
+ *      * JUnit 4 uniquement (org.junit.*)
+ *      * Runner Mockito JUnit 4
+ *      * Pas d'AssertJ, pas de JUnit Jupiter
+ *      * verifyNoInteractions(...) au lieu de verifyZeroInteractions(...)
  */
 @RunWith(MockitoJUnitRunner.class)
-public class SendToBMDUploadCOSTaskletTest {
+public class CypherPGPTaskletTest {
 
-    /** SUT : le tasklet à tester. */
+    /** SUT : tasklet à tester. */
     @InjectMocks
-    private SendToBMDUploadCOSTasklet tasklet;
+    private CypherPGPTasklet tasklet;
 
-    /** Dépendance externe simulée : service COS. */
+    /** Dépendance chiffrage PGP simulée. */
     @Mock
-    private CosService cosService;
+    private OnePassSignatureProcessor onePassSignatureProcessor;
 
-    /** Contexte réel Spring Batch pour valider les ExitStatus. */
+    /** Contexte Spring Batch "réel" pour porter l'exécution. */
     private StepExecution stepExecution;
     private StepContribution contribution;
 
-    /**
-     * Prépare un StepExecution/Contribution réels pour que le tasklet
-     * puisse poser un ExitStatus sans qu'on ait à le simuler.
-     */
     @Before
     public void setUp() {
         JobExecution jobExecution = new JobExecution(1L);
-        stepExecution = new StepExecution("sendToBMDUpload", jobExecution);
+        stepExecution = new StepExecution("cypherPgp", jobExecution);
         contribution = new StepContribution(stepExecution);
     }
 
     /**
-     * afterPropertiesSet() : la classe déclare "Nothing to do",
-     * l'appel ne doit produire aucune exception ni effet. 
-     * (Couverture simple de la méthode.) 
+     * afterPropertiesSet() n'a pas d'effet: aucune exception attendue.
      */
     @Test
     public void afterPropertiesSet_should_do_nothing() throws Exception {
@@ -72,86 +71,165 @@ public class SendToBMDUploadCOSTaskletTest {
     }
 
     /**
-     * Branche mock=true :
-     *  - Le nom de fichier est lu dans le JobExecutionContext sous "encryptedFileName".
-     *  - Aucune interaction avec CosService n'est attendue.
-     *  - Le tasklet doit renvoyer RepeatStatus.FINISHED.
+     * initializeValues() : vérifie la construction des champs
+     * - privateKeyPath/préférence keystore vs clé simple
+     * - passphrase/préférence keystore vs key passphrase
+     * - originalFilePath et encryptedFilePath construits avec filePath + noms en contexte
      */
     @Test
-    public void execute_when_mock_true_should_finish_without_cos_call() throws Exception {
-        // Injection des propriétés
+    public void initializeValues_should_set_paths_and_secrets_from_context() {
+        // Prépare le contexte avec file names
+        putInContext("originalFileName", "source.txt");
+        putInContext("encryptedFileName", "source.txt.pgp");
+
+        // Prépare les propriétés (keystore non vide → priorité sur privateKeyPath)
+        ReflectionTestUtils.setField(tasklet, "filePath", "/base/");
+        ReflectionTestUtils.setField(tasklet, "privateKeyStorePath", "/keys/store.p12");
+        ReflectionTestUtils.setField(tasklet, "privateKeyPath", "/keys/pk.p12");
+        ReflectionTestUtils.setField(tasklet, "keystorePassphrase", "storePass");
+        ReflectionTestUtils.setField(tasklet, "keyPassphrase", "keyPass");
+
+        tasklet.initializeValues(new ChunkContext(new StepContext(stepExecution)));
+
+        // Vérifie la sélection keystore vs private key
+        assertEquals("/keys/store.p12", ReflectionTestUtils.getField(tasklet, "privateKeyPath"));
+        assertEquals("storePass", ReflectionTestUtils.getField(tasklet, "passphrase"));
+
+        // Vérifie la construction des chemins
+        assertEquals("/base/source.txt", ReflectionTestUtils.getField(tasklet, "originalFilePath"));
+        assertEquals("/base/source.txt.pgp", ReflectionTestUtils.getField(tasklet, "encryptedFilePath"));
+    }
+
+    /**
+     * mock == true : le tasklet loggue et termine sans appeler le service PGP.
+     */
+    @Test
+    public void execute_when_mock_true_should_finish_without_encrypt_call() throws Exception {
+        // Propriétés
         ReflectionTestUtils.setField(tasklet, "mock", true);
-        ReflectionTestUtils.setField(tasklet, "pathGenerateFile", "/tmp");
-        ReflectionTestUtils.setField(tasklet, "prefix", "arch-");
-        // La classe lit "encryptedFileName" depuis le JobExecutionContext
-        putEncryptedFileNameInContext("file.enc");
+        ReflectionTestUtils.setField(tasklet, "filePath", "/tmp/");
+        putInContext("originalFileName", "a.csv");
+        putInContext("encryptedFileName", "a.csv.pgp");
 
-        ChunkContext chunkContext = new ChunkContext(new StepContext(stepExecution));
+        // Exécution
+        RepeatStatus status = tasklet.execute(contribution, new ChunkContext(new StepContext(stepExecution)));
 
-        RepeatStatus status = tasklet.execute(contribution, chunkContext);
-
+        // Attendus
         assertEquals(RepeatStatus.FINISHED, status);
-        verifyNoInteractions(cosService); // pas d'appel en mode mock
+        verifyNoInteractions(onePassSignatureProcessor);
     }
 
     /**
-     * Branche mock=false avec succès :
-     *  - Appel à cosService.pushArchiveFileToNewCOS(path, fileName, prefix)
-     *    tel que défini dans la classe métier.
-     *  - ExitStatus posé à COMPLETED sur le StepExecution.
-     *  - RepeatStatus reste FINISHED.
+     * mock == false et needSignature == false : succès
+     * → encryptOnePassSignature est appelé avec les bons paramètres et FINISHED.
      */
     @Test
-    public void execute_when_mock_false_and_push_ok_should_set_completed() throws Exception {
+    public void execute_when_mock_false_no_signature_success_should_call_encrypt_and_finish() throws Exception {
+        // Propriétés nécessaires
         ReflectionTestUtils.setField(tasklet, "mock", false);
-        ReflectionTestUtils.setField(tasklet, "pathGenerateFile", "/opt/export");
-        ReflectionTestUtils.setField(tasklet, "prefix", "bkp-");
-        putEncryptedFileNameInContext("daily.enc");
+        ReflectionTestUtils.setField(tasklet, "needSignature", false); // pas de validation privateKey/passphrase
+        ReflectionTestUtils.setField(tasklet, "useTextMode", true);
+        ReflectionTestUtils.setField(tasklet, "amor", true);
+        ReflectionTestUtils.setField(tasklet, "filePath", "/data/");
+        ReflectionTestUtils.setField(tasklet, "partnerPublicKeyPath", "/keys/partner.pub");
+        ReflectionTestUtils.setField(tasklet, "renewedPartnerPublicKeyPath", "/keys/partner-renewed.pub");
 
-        ChunkContext chunkContext = new ChunkContext(new StepContext(stepExecution));
+        putInContext("originalFileName", "report.json");
+        putInContext("encryptedFileName", "report.json.pgp");
 
-        RepeatStatus status = tasklet.execute(contribution, chunkContext);
+        // Exécution
+        RepeatStatus status = tasklet.execute(contribution, new ChunkContext(new StepContext(stepExecution)));
 
+        // Attendus
         assertEquals(RepeatStatus.FINISHED, status);
-        assertEquals(ExitStatus.COMPLETED, stepExecution.getExitStatus());
-        verify(cosService, times(1)).pushArchiveFileToNewCOS("/opt/export", "daily.enc", "bkp-");
-        verifyNoMoreInteractions(cosService);
+
+        // Vérifie l'appel avec les bons chemins/flags
+        verify(onePassSignatureProcessor, times(1)).encryptOnePassSignature(
+                eq("/data/report.json.pgp"),
+                eq("/data/report.json"),
+                ArgumentMatchers.<List<?>>any(),                    // liste contenant un PartnerPublicKeyPair
+                any(PrivateKeyPair.class),                          // paire de clés privées créée par le tasklet
+                eq(false),                                          // needSignature
+                eq(true),                                           // useTextMode
+                eq(true)                                            // amor
+        );
+        verifyNoMoreInteractions(onePassSignatureProcessor);
     }
 
     /**
-     * Branche mock=false avec exception lors du push :
-     *  - Si CosService lève une exception, le tasklet doit poser ExitStatus.FAILED.
-     *  - L'exécution du tasklet termine tout de même en FINISHED (contrat d'un Tasklet).
+     * mock == false et needSignature == true : le chiffrage lève IOException
+     * → le tasklet doit envelopper en UnexpectedJobExecutionException.
      */
-    @Test
-    public void execute_when_mock_false_and_push_throws_should_set_failed() throws Exception {
+    @Test(expected = UnexpectedJobExecutionException.class)
+    public void execute_when_mock_false_with_signature_and_encrypt_throws_should_wrap_exception() throws Exception {
+        // Propriétés (signature requise → privateKeyPath & passphrase obligatoires)
         ReflectionTestUtils.setField(tasklet, "mock", false);
-        ReflectionTestUtils.setField(tasklet, "pathGenerateFile", "/data/out");
-        ReflectionTestUtils.setField(tasklet, "prefix", "pref-");
-        putEncryptedFileNameInContext("broken.enc");
+        ReflectionTestUtils.setField(tasklet, "needSignature", true);
+        ReflectionTestUtils.setField(tasklet, "filePath", "/secure/");
+        ReflectionTestUtils.setField(tasklet, "partnerPublicKeyPath", "/keys/partner.pub");
+        ReflectionTestUtils.setField(tasklet, "renewedPartnerPublicKeyPath", "/keys/partner-renewed.pub");
+        // Sélection keystore prioritaire
+        ReflectionTestUtils.setField(tasklet, "privateKeyStorePath", "/keys/store.p12");
+        ReflectionTestUtils.setField(tasklet, "keystorePassphrase", "storePass");
 
-        // Simulation de panne du service COS
-        doThrow(new RuntimeException("cos down"))
-                .when(cosService).pushArchiveFileToNewCOS("/data/out", "broken.enc", "pref-");
+        putInContext("originalFileName", "x.txt");
+        putInContext("encryptedFileName", "x.txt.pgp");
 
-        ChunkContext chunkContext = new ChunkContext(new StepContext(stepExecution));
+        // Le service PGP lève une IOException → doit être enveloppé
+        doThrow(new IOException("IO error")).when(onePassSignatureProcessor).encryptOnePassSignature(
+                anyString(), anyString(), anyList(), any(PrivateKeyPair.class), anyBoolean(), anyBoolean(), anyBoolean()
+        );
 
-        RepeatStatus status = tasklet.execute(contribution, chunkContext);
-
-        assertEquals(RepeatStatus.FINISHED, status);
-        assertEquals(ExitStatus.FAILED, stepExecution.getExitStatus());
-        verify(cosService, times(1)).pushArchiveFileToNewCOS("/data/out", "broken.enc", "pref-");
-        verifyNoMoreInteractions(cosService);
+        // Exécution → exception attendue
+        tasklet.execute(contribution, new ChunkContext(new StepContext(stepExecution)));
     }
 
     /**
-     * Place la valeur attendue par le tasklet dans le JobExecutionContext,
-     * sous la clé "encryptedFileName".
-     * La classe sous test récupère exactement cette clé au début de execute().
+     * mock == false : checkParameters() doit refuser un partnerPublicKeyPath manquant → IllegalArgumentException.
      */
-    private void putEncryptedFileNameInContext(String fileName) {
+    @Test(expected = IllegalArgumentException.class)
+    public void execute_when_mock_false_and_missing_partner_key_should_throw_iae() throws Exception {
+        // Propriétés minimales pour passer initializeValues, mais on supprime la clé publique partenaire
+        ReflectionTestUtils.setField(tasklet, "mock", false);
+        ReflectionTestUtils.setField(tasklet, "needSignature", false);
+        ReflectionTestUtils.setField(tasklet, "filePath", "/d/");
+        ReflectionTestUtils.setField(tasklet, "partnerPublicKeyPath", null); // invalide
+
+        putInContext("originalFileName", "a.txt");
+        putInContext("encryptedFileName", "a.txt.pgp");
+
+        tasklet.execute(contribution, new ChunkContext(new StepContext(stepExecution)));
+    }
+
+    /**
+     * Appel direct à checkParameters() pour valider les notNull spécifiques quand needSignature = true.
+     * Ici privateKeyPath/passphrase manquent → IllegalArgumentException attendue.
+     */
+    @Test(expected = IllegalArgumentException.class)
+    public void checkParameters_should_require_privateKey_and_passphrase_when_needSignature_true() {
+        // Champs requis pour passer les autres notNull
+        ReflectionTestUtils.setField(tasklet, "needSignature", true);
+        ReflectionTestUtils.setField(tasklet, "onePassSignatureProcessor", onePassSignatureProcessor);
+        ReflectionTestUtils.setField(tasklet, "encryptedFilePath", "/f.enc");
+        ReflectionTestUtils.setField(tasklet, "originalFilePath", "/f.txt");
+        ReflectionTestUtils.setField(tasklet, "partnerPublicKeyPath", "/keys/partner.pub");
+
+        // Intentionnellement manquants
+        ReflectionTestUtils.setField(tasklet, "privateKeyPath", null);
+        ReflectionTestUtils.setField(tasklet, "passphrase", null);
+
+        tasklet.checkParameters(); // doit lever IllegalArgumentException
+    }
+
+    /* ----------------------- Helper utilitaire pour le contexte ----------------------- */
+
+    /**
+     * Dépose une entrée dans le JobExecutionContext du Step en cours,
+     * par exemple "originalFileName" / "encryptedFileName".
+     */
+    private void putInContext(String key, String value) {
         assertNotNull(stepExecution);
         assertNotNull(stepExecution.getJobExecution());
-        stepExecution.getJobExecution().getExecutionContext().put("encryptedFileName", fileName);
+        stepExecution.getJobExecution().getExecutionContext().put(key, value);
     }
 }
