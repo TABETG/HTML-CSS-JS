@@ -1,258 +1,66 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<project xmlns="http://maven.apache.org/POM/4.0.0"
-         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+package com.example;
 
-    <modelVersion>4.0.0</modelVersion>
+import org.junit.Before;
+import org.junit.Test;
+import org.junit.runner.RunWith;
 
-    <groupId>com.bnpparibas.dsibddf.ap00420</groupId>
-    <artifactId>stream-fact</artifactId>
-    <version>1.1</version>
-    <packaging>pom</packaging>
-    <name>stream-fact parent POM</name>
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.Mockito;
+import org.mockito.junit.MockitoJUnitRunner;
 
-    <!-- ========================= -->
-    <!--       MODULES             -->
-    <!-- ========================= -->
-    <modules>
-        <module>stream-fact-domain</module>
-        <module>stream-fact-application</module>
-        <module>stream-fact-exposition</module>
-        <module>stream-fact-infra-sql</module>
-        <module>stream-fact-infra-rest-clients</module>
-        <module>stream-fact-infra-jms</module>
-        <module>stream-fact-batch</module>
-        <module>stream-fact-infra-smtp</module>
-        <module>stream-fact-infra-soap-clients</module>
-        <module>stream-fact-infra-static-filestore</module>
-    </modules>
+import static org.junit.Assert.*; // assertEquals, assertTrue, fail, ...
+import static org.mockito.Mockito.*; // when, verify, verifyNoInteractions
 
-    <!-- ========================= -->
-    <!--        PROPERTIES          -->
-    <!-- ========================= -->
-    <properties>
-        <java.version>17</java.version>
-        <spring-boot.version>3.1.2</spring-boot.version>
-        <spring-cloud.version>2022.0.3</spring-cloud.version>
-        <jacoco-maven-plugin.version>0.8.8</jacoco-maven-plugin.version>
-        <spring-boot-maven-plugin.version>2.6.5</spring-boot-maven-plugin.version>
-        <maven.compiler.release>${java.version}</maven.compiler.release>
-        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+@RunWith(MockitoJUnitRunner.class)
+public class MyServiceTest {
 
-        <framework-bddf.version>3.3.0</framework-bddf.version>
-        <lombok.version>1.18.30</lombok.version>
-        <jjwt.version>0.7.0</jjwt.version>
-        <commons-lang.version>3.5</commons-lang.version>
-        <httpclient.version>5.2.1</httpclient.version>
-        <spring.cloud.task.version>2.0.0.RELEASE</spring.cloud.task.version>
-        <poi.version>4.1.0</poi.version>
-        <opencsv.version>5.3</opencsv.version>
-        <postgresql.version>42.4.1</postgresql.version>
-        <logstash-logback-encoder.version>5.3</logstash-logback-encoder.version>
-        <springdoc.version>2.0.2</springdoc.version>
-        <jackson.version>2.13.4</jackson.version>
-        <xstream.version>1.4.20</xstream.version>
-        <cucumber.version>7.6.0</cucumber.version>
-        <cucumber.io.version>7.6.0</cucumber.io.version>
+    @Mock
+    private Dependency dep;
 
-        <!-- exclusions Sonar -->
-        <sonar.exclusions>
-            **/JobConfiguration*.java,
-            **/*Config.java,
-            **/*Configuration.java,
-            **/reader/*Reader.java,
-            **/domain/**/*.java,
-            **/exposition/**/*.java,
-            **/infrastructure/rest/**/*.java,
-            **/infrastructure/soap/**/*.java,
-            **/MockImpl.java
-        </sonar.exclusions>
-    </properties>
+    @InjectMocks
+    private MyService service;
 
-    <!-- ========================= -->
-    <!-- DEPENDENCY MANAGEMENT     -->
-    <!-- ========================= -->
-    <dependencyManagement>
-        <dependencies>
-            <dependency>
-                <groupId>com.bnpparibas.dsibddf.ap00420</groupId>
-                <artifactId>stream-fact-domain</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.bnpparibas.dsibddf.ap00420</groupId>
-                <artifactId>stream-fact-application</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.bnpparibas.dsibddf.ap00420</groupId>
-                <artifactId>stream-fact-batch</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.springframework.boot</groupId>
-                <artifactId>spring-boot-dependencies</artifactId>
-                <version>${spring-boot.version}</version>
-                <type>pom</type>
-                <scope>import</scope>
-            </dependency>
-            <dependency>
-                <groupId>org.springframework.cloud</groupId>
-                <artifactId>spring-cloud-dependencies</artifactId>
-                <version>${spring-cloud.version}</version>
-                <type>pom</type>
-                <scope>import</scope>
-            </dependency>
-        </dependencies>
-    </dependencyManagement>
+    @Before
+    public void setUp() {
+        // init spécifique si besoin
+    }
 
-    <!-- ========================= -->
-    <!--       DEPENDENCIES        -->
-    <!-- ========================= -->
-    <dependencies>
-        <!-- Spring Boot core -->
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter</artifactId>
-            <version>${spring-boot.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-web</artifactId>
-            <version>${spring-boot.version}</version>
-        </dependency>
+    @Test
+    public void should_return_value_from_dependency() {
+        when(dep.compute("in")).thenReturn("out");
 
-        <!-- JUnit4 only -->
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-test</artifactId>
-            <scope>test</scope>
-            <exclusions>
-                <exclusion>
-                    <groupId>org.junit.jupiter</groupId>
-                    <artifactId>junit-jupiter-engine</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.junit.vintage</groupId>
-                    <artifactId>junit-vintage-engine</artifactId>
-                </exclusion>
-            </exclusions>
-        </dependency>
-        <dependency>
-            <groupId>junit</groupId>
-            <artifactId>junit</artifactId>
-            <version>4.13.2</version>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.mockito</groupId>
-            <artifactId>mockito-core</artifactId>
-            <version>5.10.0</version>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.mockito</groupId>
-            <artifactId>mockito-junit-jupiter</artifactId>
-            <version>5.10.0</version>
-            <scope>test</scope>
-        </dependency>
+        String result = service.doWork("in");
 
-        <!-- DB -->
-        <dependency>
-            <groupId>com.h2database</groupId>
-            <artifactId>h2</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.postgresql</groupId>
-            <artifactId>postgresql</artifactId>
-        </dependency>
+        assertEquals("out", result);
+        verify(dep).compute("in");
+        verifyNoMoreInteractions(dep);
+    }
 
-        <!-- Jackson / JSON -->
-        <dependency>
-            <groupId>com.fasterxml.jackson.datatype</groupId>
-            <artifactId>jackson-datatype-jsr310</artifactId>
-            <version>${jackson.version}</version>
-        </dependency>
-    </dependencies>
+    @Test
+    public void should_not_call_dependency_when_input_invalid() {
+        String result = service.doWork(null);
 
-    <!-- ========================= -->
-    <!--          BUILD            -->
-    <!-- ========================= -->
-    <build>
-        <plugins>
+        assertNull(result);
+        verifyNoInteractions(dep);
+    }
 
-            <!-- Jacoco Coverage -->
-            <plugin>
-                <groupId>org.jacoco</groupId>
-                <artifactId>jacoco-maven-plugin</artifactId>
-                <version>${jacoco-maven-plugin.version}</version>
-                <executions>
-                    <execution>
-                        <id>default-prepare-agent</id>
-                        <goals><goal>prepare-agent</goal></goals>
-                    </execution>
-                    <execution>
-                        <id>report</id>
-                        <phase>verify</phase>
-                        <goals><goal>report</goal></goals>
-                    </execution>
-                </executions>
-            </plugin>
+    @Test(expected = IllegalStateException.class)
+    public void should_throw_when_state_is_invalid() {
+        when(dep.isReady()).thenReturn(false);
 
-            <!-- Compiler -->
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-compiler-plugin</artifactId>
-                <version>3.10.1</version>
-                <configuration>
-                    <source>17</source>
-                    <target>17</target>
-                    <compilerArgs>
-                        <arg>-parameters</arg>
-                        <arg>-Xlint:unchecked</arg>
-                    </compilerArgs>
-                    <annotationProcessorPaths>
-                        <path>
-                            <groupId>org.projectlombok</groupId>
-                            <artifactId>lombok</artifactId>
-                            <version>${lombok.version}</version>
-                        </path>
-                    </annotationProcessorPaths>
-                </configuration>
-            </plugin>
+        service.process(); // doit lever IllegalStateException
+    }
 
-            <!-- ✅ Corrige Jenkins: Surefire plugin -->
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-surefire-plugin</artifactId>
-                <version>3.1.2</version>
-                <configuration>
-                    <useModulePath>false</useModulePath>
-                    <includes>
-                        <include>**/*Test.java</include>
-                    </includes>
-                    <testFailureIgnore>false</testFailureIgnore>
-                    <trimStackTrace>true</trimStackTrace>
-                </configuration>
-            </plugin>
-        </plugins>
-    </build>
+    @Test
+    public void should_throw_using_try_catch_style() {
+        when(dep.isReady()).thenReturn(false);
 
-    <!-- ========================= -->
-    <!--       DISTRIBUTION        -->
-    <!-- ========================= -->
-    <distributionManagement>
-        <repository>
-            <id>internal.releases</id>
-            <name>releases</name>
-            <url>https://api.artifactory-dogen.group.echonet/artifactory/p-1550-stream-fact-RELEASE/</url>
-        </repository>
-        <snapshotRepository>
-            <id>internal.snapshots</id>
-            <name>snapshots</name>
-            <url>https://api.artifactory-dogen.group.echonet/artifactory/p-1550-stream-fact-SNAPSHOT/</url>
-        </snapshotRepository>
-    </distributionManagement>
-
-</project>
+        try {
+            service.process();
+            fail("IllegalStateException attendue");
+        } catch (IllegalStateException ex) {
+            assertTrue(ex.getMessage() == null || ex.getMessage().contains("invalid"));
+        }
+    }
+}
