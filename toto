@@ -1,570 +1,87 @@
-<?xml version="1.0" encoding="UTF-8" standalone="no"?> 
-<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd"> 
-    <modelVersion>4.0.0</modelVersion> 
-    <groupId>com.bnpparibas.dsibddf.ap00420</groupId> 
-    <artifactId>stream-fact</artifactId> 
-    <version>1.1</version> 
-    <packaging>pom</packaging> 
+Parfait — j’applique ce qu’on a décidé :
 
-    <name>stream-fact parent POM</name> 
+sonar.exclusions : minimal, uniquement le build et le généré (on ne scanne pas, on ne teste pas).
 
-    <modules> 
-        <module>stream-fact-domain</module> 
-        <module>stream-fact-application</module> 
-        <module>stream-fact-exposition</module> 
-        <module>stream-fact-infra-sql</module> 
-        <module>stream-fact-infra-rest-clients</module> 
-        <module>stream-fact-infra-jms</module> 
-        <module>stream-fact-batch</module> 
-        <module>stream-fact-infra-smtp</module> 
-        <module>stream-fact-infra-soap-clients</module> 
-        <module>stream-fact-infra-static-filestore</module> 
-    </modules> 
+sonar.coverage.exclusions : tout ce qu’on veut garder dans l’analyse mais retirer du calcul de couverture (wiring/config, callbacks décoratifs, DTO/Enums/Mappers/Repos, listeners purement log).
 
-    <properties> 
-        <java.version>17</java.version> 
-        <spring-boot.version>3.1.2</spring-boot.version> 
-        <spring-cloud.version>2022.0.3</spring-cloud.version> 
-        <logstash-logback-encoder.version>5.3</logstash-logback-encoder.version> 
-        <xstream.version>1.4.20</xstream.version> 
-        <cucumber.io.version>7.6.0</cucumber.io.version> 
-        <cucumber.version>7.6.0</cucumber.version> 
-        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding> 
-        <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding> 
-        <maven.compiler.release>${java.version}</maven.compiler.release> 
-        <jacoco-maven-plugin.version>0.8.8</jacoco-maven-plugin.version> 
-        <spring-boot-maven-plugin.version>2.6.5</spring-boot-maven-plugin.version> 
-        <m2e.apt.activation>jdt_apt</m2e.apt.activation> 
-        <resource.delimiter>@</resource.delimiter> 
-        <framework-bddf.version>3.3.0</framework-bddf.version> 
-        <lombok.version>1.18.30</lombok.version> 
-        <jjwt.version>0.7.0</jjwt.version> 
-        <commons-lang.version>3.5</commons-lang.version> 
-        <httpclient.version>5.2.1</httpclient.version> 
-        <spring.cloud.task.version>2.0.0.RELEASE</spring.cloud.task.version> 
-        <poi.version>4.1.0</poi.version> 
-        <opencsv.version>5.3</opencsv.version> 
-        <postgresql.version>42.4.1</postgresql.version> 
-        <cos.version>1.0.3</cos.version> 
-        <springdoc.version>2.0.2</springdoc.version> 
-        <jackson.version>2.13.4</jackson.version> 
 
-        <!-- Seule propriété modifiée : exclusions Sonar -->
-        <sonar.exclusions>
-          **/target/**,
-          **/generated-sources/**,
-          **/generated-test-sources/**,
-          **/com/bnp/schema/**/**,
-          **/xsd/**/**
-        </sonar.exclusions>
+Tu peux copier-coller le bloc ci-dessous dans la section <properties> de ton pom.xml parent. Je ne touche à rien d’autre.
 
-        <bcprov-jdk15on.version>1.70</bcprov-jdk15on.version> 
-        <bcpg-jdk15on.version>1.70</bcpg-jdk15on.version> 
-    </properties> 
+<!-- À insérer/mettre à jour dans <properties> de ton POM parent -->
 
-    <dependencyManagement> 
-        <dependencies> 
-            <!-- streamFact dependencies --> 
-            <dependency> 
-                <groupId>com.bnpparibas.dsibddf.ap00420</groupId> 
-                <artifactId>stream-fact-domain</artifactId> 
-                <version>${project.version}</version> 
-            </dependency> 
-            <dependency> 
-                <groupId>com.bnpparibas.dsibddf.ap00420</groupId> 
-                <artifactId>stream-fact-application</artifactId> 
-                <version>${project.version}</version> 
-            </dependency> 
-            <dependency> 
-                <groupId>com.bnpparibas.dsibddf.ap00420</groupId> 
-                <artifactId>stream-fact-exposition</artifactId> 
-                <version>${project.version}</version> 
-            </dependency> 
-            <dependency> 
-                <groupId>com.bnpparibas.dsibddf.ap00420</groupId> 
-                <artifactId>stream-fact-infra-jms</artifactId> 
-                <version>${project.version}</version> 
-            </dependency> 
-            <dependency> 
-                <groupId>com.bnpparibas.dsibddf.ap00420</groupId> 
-                <artifactId>stream-fact-infra-rest-clients</artifactId> 
-                <version>${project.version}</version> 
-            </dependency> 
-            <dependency> 
-                <groupId>com.bnpparibas.dsibddf.ap00420</groupId> 
-                <artifactId>stream-fact-infra-soap-clients</artifactId> 
-                <version>${project.version}</version> 
-            </dependency> 
-            <dependency> 
-                <groupId>com.bnpparibas.dsibddf.ap00420</groupId> 
-                <artifactId>stream-fact-infra-sql</artifactId> 
-                <version>${project.version}</version> 
-            </dependency> 
-            <dependency> 
-                <groupId>com.bnpparibas.dsibddf.ap00420</groupId> 
-                <artifactId>stream-fact-infra-smtp</artifactId> 
-                <version>${project.version}</version> 
-            </dependency> 
-            <dependency> 
-                <groupId>com.bnpparibas.dsibddf.ap00420</groupId> 
-                <artifactId>stream-fact-batch</artifactId> 
-                <version>${project.version}</version> 
-            </dependency> 
-            <dependency> 
-                <groupId>com.bnpparibas.dsibddf.ap00420</groupId> 
-                <artifactId>stream-fact-infra-static-filestore</artifactId> 
-                <version>${project.version}</version> 
-            </dependency> 
-            <dependency> 
-                <groupId>org.springframework.boot</groupId> 
-                <artifactId>spring-boot-dependencies</artifactId> 
-                <version>${spring-boot.version}</version> 
-                <type>pom</type> 
-                <scope>import</scope> 
-            </dependency> 
-            <dependency> 
-                <groupId>org.springframework.ws</groupId> 
-                <artifactId>spring-ws-core</artifactId> 
-                <version>${spring-boot.version}</version> 
-            </dependency> 
-            <dependency> 
-                <groupId>org.springframework.boot</groupId> 
-                <artifactId>spring-boot-starter</artifactId> 
-                <version>${spring-boot.version}</version> 
-                <exclusions> 
-                    <exclusion> 
-                        <groupId>org.apache.logging.log4j</groupId> 
-                        <artifactId>log4j-to-slf4j</artifactId> 
-                    </exclusion> 
-                </exclusions> 
-            </dependency> 
-            <dependency> 
-                <groupId>org.springframework.boot</groupId> 
-                <artifactId>spring-boot-starter-web</artifactId> 
-                <version>${spring-boot.version}</version> 
-                <exclusions> 
-                    <exclusion> 
-                        <groupId>org.apache.logging.log4j</groupId> 
-                        <artifactId>log4j-to-slf4j</artifactId> 
-                    </exclusion> 
-                </exclusions> 
-            </dependency> 
-            <dependency> 
-                <groupId>org.springframework.boot</groupId> 
-                <artifactId>spring-boot-starter-validation</artifactId> 
-                <version>${spring-boot.version}</version> 
-            </dependency> 
+<!-- 1) Ce qu'on NE SCANNE PAS du tout (build/généré/artefacts techniques) -->
+<sonar.exclusions>
+  **/target/**,
+  **/build/**,
+  **/out/**,
+  **/generated-sources/**,
+  **/generated-test-sources/**,
+  **/com/bnp/schema/**/**,
+  **/xsd/**/**,
+  **/wsdl/**/**,
+  **/openapi/**/**,
+  **/swagger/**/**,
+  **/proto/**/**,
+  **/jooq/**/**
+</sonar.exclusions>
 
-            <!-- Spring Batch And Task --> 
-            <dependency> 
-                <groupId>org.springframework.boot</groupId> 
-                <artifactId>spring-boot-starter-batch</artifactId> 
-                <version>${spring-boot.version}</version> 
-                <exclusions> 
-                    <exclusion> 
-                        <groupId>org.apache.logging.log4j</groupId> 
-                        <artifactId>log4j-to-slf4j</artifactId> 
-                    </exclusion> 
-                </exclusions> 
-            </dependency> 
-            <dependency> 
-                <groupId>org.springframework.cloud</groupId> 
-                <artifactId>spring-cloud-starter-task</artifactId> 
-                <version>${spring-boot.version}</version> 
-            </dependency> 
-            <dependency> 
-                <groupId>io.micrometer</groupId> 
-                <artifactId>micrometer-tracing</artifactId> 
-            </dependency> 
-            <dependency> 
-                <groupId>io.micrometer</groupId> 
-                <artifactId>micrometer-tracing-bridge-brave</artifactId> 
-            </dependency> 
+<!-- 2) Ce qu'on GARDE dans l'analyse, mais qu'on RETIRE du calcul de couverture -->
+<sonar.coverage.exclusions>
+  <!-- Bootstraps / wiring sans logique -->
+  **/*Application.java,
+  **/*Configuration.java,
+  **/*Config.java,
 
-            <!-- Spring-cloud dependencies --> 
-            <dependency> 
-                <groupId>org.springframework.cloud</groupId> 
-                <artifactId>spring-cloud-dependencies</artifactId> 
-                <version>${spring-cloud.version}</version> 
-                <type>pom</type> 
-                <scope>import</scope> 
-            </dependency> 
+  <!-- Spring Batch: déclaration Job/Step et config (DSL) -->
+  **/batch/**/job/**.java,
+  **/batch/**/config/**.java,
 
-            <dependency> 
-                <groupId>net.logstash.logback</groupId> 
-                <artifactId>logstash-logback-encoder</artifactId> 
-                <version>${logstash-logback-encoder.version}</version> 
-            </dependency> 
+  <!-- Callbacks décoratifs (en-tête/pied fixes) -->
+  **/batch/**/writer/*HeaderCallback*.java,
+  **/batch/**/writer/*FooterCallback*.java,
 
-            <!-- SpringDoc swagger dependencies --> 
-            <dependency> 
-                <groupId>org.springdoc</groupId> 
-                <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId> 
-                <version>${springdoc.version}</version> 
-            </dependency> 
+  <!-- Artéfacts structurels peu testables -->
+  **/exposition/**/dto/**.java,
+  **/domain/commons/**.java,        <!-- enums/constantes -->
+  **/domain/**/model/**.java,       <!-- POJO/DTO domaine -->
+  **/domain/mapper/**/**.java,      <!-- mappers purs -->
+  **/domain/**/repository/**/**.java,  <!-- interfaces repo -->
 
-            <dependency> 
-                <groupId>org.springdoc</groupId> 
-                <artifactId>springdoc-openapi-security</artifactId> 
-                <version>${springdoc.version}</version> 
-            </dependency> 
+  <!-- Listeners purement log/no-op (au cas par cas) -->
+  **/*Logging*Listener.java,
+  **/*NoOp*Listener.java
+</sonar.coverage.exclusions>
 
-            <!-- Cucumber dependencies --> 
-            <dependency> 
-                <groupId>io.cucumber</groupId> 
-                <artifactId>cucumber-java</artifactId> 
-                <version>${cucumber.version}</version> 
-                <scope>test</scope> 
-            </dependency> 
-            <dependency> 
-                <groupId>io.cucumber</groupId> 
-                <artifactId>cucumber-java8</artifactId> 
-                <version>${cucumber.version}</version> 
-                <scope>test</scope> 
-            </dependency> 
-            <dependency> 
-                <groupId>io.cucumber</groupId> 
-                <artifactId>cucumber-junit</artifactId> 
-                <version>${cucumber.io.version}</version> 
-                <scope>test</scope> 
-            </dependency> 
-            <dependency> 
-                <groupId>io.cucumber</groupId> 
-                <artifactId>cucumber-spring</artifactId> 
-                <version>${cucumber.io.version}</version> 
-                <scope>test</scope> 
-            </dependency> 
+Ce que ça donne dans sonar.exclusions
 
-            <!-- XStream dependencies --> 
-            <dependency> 
-                <groupId>com.thoughtworks.xstream</groupId> 
-                <artifactId>xstream</artifactId> 
-                <version>${xstream.version}</version> 
-                <scope>test</scope> 
-            </dependency> 
+Uniquement ceci (rien d’autre) :
 
-            <!-- IBM MQ --> 
-            <dependency> 
-                <groupId>com.ibm.mq</groupId> 
-                <artifactId>mq-jms-spring-boot-starter</artifactId> 
-                <version>3.0.2</version> 
-            </dependency> 
+<sonar.exclusions>
+  **/target/**,
+  **/build/**,
+  **/out/**,
+  **/generated-sources/**,
+  **/generated-test-sources/**,
+  **/com/bnp/schema/**/**,
+  **/xsd/**/**,
+  **/wsdl/**/**,
+  **/openapi/**/**,
+  **/swagger/**/**,
+  **/proto/**/**,
+  **/jooq/**/**
+</sonar.exclusions>
 
-            <dependency> 
-                <groupId>org.glassfish</groupId> 
-                <artifactId>jakarta.el</artifactId> 
-                <version>4.0.2</version> 
-            </dependency> 
+Ce que j’ai fait
 
-            <dependency> 
-                <groupId>jakarta.inject</groupId> 
-                <artifactId>jakarta.inject-api</artifactId> 
-                <version>2.0.1</version> 
-            </dependency> 
+Ajout des exclusions de couverture pour le wiring/config Spring & Spring Batch, callbacks décoratifs, DTO/Enums/Mappers/Repos et listeners de log.
 
-            <dependency> 
-                <groupId>org.togglz</groupId> 
-                <artifactId>togglz-spring-boot-starter</artifactId> 
-                <version>4.4.0</version> 
-            </dependency> 
+Aucune autre modification du POM (pas d’ajout/suppression de dépendance ou plugin).
 
-            <!-- Framework dependencies --> 
-            <dependency> 
-                <groupId>com.bnpparibas.dsibddf.PJ76280</groupId> 
-                <artifactId>bddf-framework-cqrs</artifactId> 
-                <version>${framework-bddf.version}</version> 
-            </dependency> 
+sonar.exclusions reste minimal (build/généré uniquement), conformément aux bonnes pratiques.
 
-            <dependency> 
-                <groupId>com.bnpparibas.dsibddf.PJ76280</groupId> 
-                <artifactId>bddf-framework-core</artifactId> 
-                <version>${framework-bddf.version}</version> 
-            </dependency> 
 
-            <dependency> 
-                <groupId>com.bnpparibas.dsibddf.PJ76280</groupId> 
-                <artifactId>bddf-framework-jms-core</artifactId> 
-                <version>${framework-bddf.version}</version> 
-            </dependency> 
+Ce que je n’ai pas fait
 
-            <dependency> 
-                <groupId>com.bnpparibas.dsibddf.PJ76280</groupId> 
-                <artifactId>bddf-framework-smtp</artifactId> 
-                <version>${framework-bddf.version}</version> 
-            </dependency> 
+Je n’ai pas exclu de la couverture les readers/processors/writers/tasklets ni les listeners avec logique : ils doivent rester testés et comptés dans la couverture.
 
-            <!-- Json Web Token --> 
-            <dependency> 
-                <groupId>io.jsonwebtoken</groupId> 
-                <artifactId>jjwt</artifactId> 
-                <version>${jjwt.version}</version> 
-            </dependency> 
-
-            <dependency> 
-                <groupId>org.apache.commons</groupId> 
-                <artifactId>commons-lang3</artifactId> 
-                <version>${commons-lang.version}</version> 
-            </dependency> 
-
-            <dependency> 
-                <groupId>org.apache.httpcomponents.client5</groupId> 
-                <artifactId>httpclient5</artifactId> 
-                <version>${httpclient.version}</version> 
-                <exclusions> 
-                    <exclusion> 
-                        <artifactId>commons-logging</artifactId> 
-                        <groupId>commons-logging</groupId> 
-                    </exclusion> 
-                </exclusions> 
-            </dependency> 
-
-            <!-- POI Dependencies --> 
-            <dependency> 
-                <groupId>org.apache.poi</groupId> 
-                <artifactId>poi-ooxml</artifactId> 
-                <version>${poi.version}</version> 
-            </dependency> 
-            <dependency> 
-                <groupId>org.apache.poi</groupId> 
-                <artifactId>poi-ooxml-schemas</artifactId> 
-                <version>${poi.version}</version> 
-            </dependency> 
-            <dependency> 
-                <groupId>org.apache.poi</groupId> 
-                <artifactId>poi</artifactId> 
-                <version>${poi.version}</version> 
-            </dependency> 
-
-            <!-- Open CSV --> 
-            <dependency> 
-                <groupId>com.opencsv</groupId> 
-                <artifactId>opencsv</artifactId> 
-                <version>${opencsv.version}</version> 
-            </dependency> 
-
-            <!-- Cos dependencies --> 
-            <dependency> 
-                <groupId>com.ibm.cos</groupId> 
-                <artifactId>ibm-cos-java-sdk</artifactId> 
-                <version>2.14.1</version> 
-            </dependency> 
-
-            <!-- Pgp dependencies --> 
-            <dependency> 
-                <groupId>org.bouncycastle</groupId> 
-                <artifactId>bcprov-jdk15on</artifactId> 
-                <version>${bcprov-jdk15on.version}</version> 
-            </dependency> 
-            <dependency> 
-                <groupId>org.bouncycastle</groupId> 
-                <artifactId>bcpg-jdk15on</artifactId> 
-                <version>${bcpg-jdk15on.version}</version> 
-            </dependency> 
-        </dependencies> 
-    </dependencyManagement> 
-
-    <dependencies> 
-        <dependency> 
-            <groupId>org.springframework.boot</groupId> 
-            <artifactId>spring-boot-starter-test</artifactId> 
-            <scope>test</scope> 
-            <exclusions> 
-                <exclusion> 
-                    <groupId>org.junit.jupiter</groupId> 
-                    <artifactId>junit-jupiter-engine</artifactId> 
-                </exclusion> 
-                <exclusion> 
-                    <groupId>org.junit.vintage</groupId> 
-                    <artifactId>junit-vintage-engine</artifactId> 
-                </exclusion> 
-            </exclusions> 
-        </dependency> 
-        <dependency> 
-            <groupId>junit</groupId> 
-            <artifactId>junit</artifactId> 
-            <scope>test</scope> 
-        </dependency> 
-        <dependency> 
-            <groupId>com.h2database</groupId> 
-            <artifactId>h2</artifactId> 
-        </dependency> 
-        <dependency> 
-            <groupId>org.postgresql</groupId> 
-            <artifactId>postgresql</artifactId> 
-        </dependency> 
-
-        <!-- Jackson --> 
-        <dependency> 
-            <groupId>com.fasterxml.jackson.datatype</groupId> 
-            <artifactId>jackson-datatype-jsr310</artifactId> 
-            <version>${jackson.version}</version> 
-        </dependency> 
-    </dependencies> 
-
-    <build> 
-        <plugins> 
-            <plugin> 
-                <groupId>org.jacoco</groupId> 
-                <artifactId>jacoco-maven-plugin</artifactId> 
-                <version>${jacoco-maven-plugin.version}</version> 
-                <executions> 
-                    <execution> 
-                        <id>default-prepare-agent</id> 
-                        <goals> 
-                            <goal>prepare-agent</goal> 
-                        </goals> 
-                    </execution> 
-                    <execution> 
-                        <id>default-report</id> 
-                        <goals> 
-                            <goal>report</goal> 
-                        </goals> 
-                    </execution> 
-                    <execution> 
-                        <id>default-check</id> 
-                        <goals> 
-                            <goal>check</goal> 
-                        </goals> 
-                        <configuration> 
-                            <rules> 
-                                <rule implementation="org.jacoco.maven.RuleConfiguration"> 
-                                    <element>BUNDLE</element> 
-                                    <limits> 
-                                        <limit implementation="org.jacoco.report.check.Limit"> 
-                                            <counter>COMPLEXITY</counter> 
-                                            <value>COVEREDRATIO</value> 
-                                            <minimum>0.00</minimum> 
-                                        </limit> 
-                                    </limits> 
-                                </rule> 
-                            </rules> 
-                        </configuration> 
-                    </execution> 
-                    <execution> 
-                        <id>merge</id> 
-                        <goals> 
-                            <goal>merge</goal> 
-                        </goals> 
-                        <configuration> 
-                            <fileSets> 
-                                <fileSet implementation="org.apache.maven.shared.model.fileset.FileSet"> 
-                                    <directory>${project.basedir}</directory> 
-                                    <includes> 
-                                        <include>**/*.exec</include> 
-                                    </includes> 
-                                </fileSet> 
-                            </fileSets> 
-                        </configuration> 
-                    </execution> 
-                </executions> 
-            </plugin> 
-            <plugin> 
-                <groupId>org.apache.maven.plugins</groupId> 
-                <artifactId>maven-compiler-plugin</artifactId> 
-                <version>3.10.1</version> 
-                <configuration> 
-                    <source>17</source> 
-                    <target>17</target> 
-                    <compilerArgs><arg>-parameters</arg></compilerArgs> 
-                    <annotationProcessorPaths> 
-                        <path> 
-                            <groupId>org.projectlombok</groupId> 
-                            <artifactId>lombok</artifactId> 
-                            <version>${lombok.version}</version> 
-                        </path> 
-                    </annotationProcessorPaths> 
-                </configuration> 
-            </plugin> 
-            <plugin> 
-                <groupId>org.openrewrite.maven</groupId> 
-                <artifactId>rewrite-maven-plugin</artifactId> 
-                <version>5.17.1</version> 
-                <configuration> 
-                    <activeRecipes> 
-                        <recipe>org.openrewrite.java.apache.httpclient5.UpgradeApacheHttpClient_5</recipe> 
-                    </activeRecipes> 
-                </configuration> 
-                <dependencies> 
-                    <dependency> 
-                        <groupId>org.openrewrite.recipe</groupId> 
-                        <artifactId>rewrite-spring</artifactId> 
-                        <version>5.1.7</version> 
-                    </dependency> 
-                </dependencies> 
-            </plugin> 
-        </plugins> 
-    </build> 
-
-    <reporting> 
-        <plugins> 
-            <plugin> 
-                <groupId>org.apache.maven.plugins</groupId> 
-                <artifactId>maven-surefire-report-plugin</artifactId> 
-                <configuration> 
-                    <aggregate>true</aggregate> 
-                    <linkXRef>true</linkXRef> 
-                </configuration> 
-            </plugin> 
-            <plugin> 
-                <groupId>org.jacoco</groupId> 
-                <artifactId>jacoco-maven-plugin</artifactId> 
-                <reportSets> 
-                    <reportSet> 
-                        <reports> 
-                            <report>report</report> 
-                        </reports> 
-                    </reportSet> 
-                </reportSets> 
-            </plugin> 
-        </plugins> 
-    </reporting> 
-
-    <distributionManagement> 
-        <repository> 
-            <id>internal.releases</id> 
-            <name>releases</name> 
-            <url>https://api.artifactory-dogen.group.echonet/artifactory/p-1550-stream-fact-RELEASE/</url> 
-        </repository> 
-        <snapshotRepository> 
-            <id>internal.snapshots</id> 
-            <name>snapshots</name> 
-            <url>https://api.artifactory-dogen.group.echonet/artifactory/p-1550-stream-fact-SNAPSHOT/</url> 
-        </snapshotRepository> 
-    </distributionManagement> 
-
-    <scm> 
-        <connection/> 
-        <developerConnection/> 
-    </scm> 
-
-    <profiles> 
-        <profile> 
-            <id>local</id> 
-            <properties> 
-                <spring.profiles.active>local</spring.profiles.active> 
-            </properties> 
-        </profile> 
-        <profile> 
-            <id>dev</id> 
-            <properties> 
-                <spring.profiles.active>dev</spring.profiles.active> 
-            </properties> 
-        </profile> 
-        <profile> 
-            <id>qual</id> 
-            <properties> 
-                <spring.profiles.active>qual</spring.profiles.active> 
-            </properties> 
-        </profile> 
-        <profile> 
-            <id>release</id> 
-            <properties> 
-                <spring.profiles.active>prod</spring.profiles.active> 
-            </properties> 
-            <activation> 
-                <activeByDefault>true</activeByDefault> 
-            </activation> 
-        </profile> 
-    </profiles> 
-</project>
+Je n’ai pas modifié de profils, de versions, ni la configuration Jacoco/Surefire.
