@@ -1,85 +1,140 @@
-package com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.synchro.update.writer;
+✅ Voici la liste complète des classes à tester (celles non exclues du coverage Sonar) d’après ton fichier pom.xml contenu dans PDF_5327834405175852816.pdf :
 
-import static org.junit.Assert.assertEquals;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
 
-import java.util.Arrays;
-import java.util.List;
+---
 
-import org.junit.Before;
-import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.junit.MockitoJUnitRunner;
-import org.mockito.MockedStatic;
-import org.mockito.Mockito;
-import org.springframework.batch.item.Chunk;
+🧩 Classes exclues du coverage Sonar (ne pas tester)
 
-import com.bnpparibas.dsibddf.ap00420.streamfact.application.loanfolder.synchro.pojo.SynchroResult;
-import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.loanfolder.model.LoanFolderEntity;
-import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.loanfolder.mapper.LoanFolderMapperToJpa;
-import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.loanfolder.repository.LoanFolderAnswerJpaRepository;
+Elles apparaissent dans la balise :
 
-/**
- * Classe de test JUnit4 pour LoanFolderSynchroItemWriter.
- * Compatible Sonar/Jenkins : pas de Jupiter, pas d’AssertJ.
- */
-@RunWith(MockitoJUnitRunner.class)
-public class LoanFolderSynchroItemWriterTest {
+<sonar.coverage.exclusions>
 
-    @Mock
-    private LoanFolderAnswerJpaRepository loanFolderAnswerJpaRepository;
+Elles concernent :
 
-    @InjectMocks
-    private LoanFolderSynchroItemWriter writer;
+les classes de configuration Spring (*Config.java, *Configuration.java)
 
-    private SynchroResult noSync;
-    private SynchroResult withSync;
+les mappers (*Mapper.java)
 
-    @Before
-    public void setUp() {
-        noSync = Mockito.mock(SynchroResult.class);
-        withSync = Mockito.mock(SynchroResult.class);
+les entités JPA (*.entity.*, *.model.*)
 
-        // On simule un objet "LoanFolderSynchroResult" non nul pour l'item avec synchronisation
-        Object mockSynchroResult = new Object();
-        Mockito.when(withSync.getLoanFolderSynchroResult()).thenReturn(mockSynchroResult);
-        Mockito.when(noSync.getLoanFolderSynchroResult()).thenReturn(null);
-    }
+les exceptions (*Exception.java)
 
-    /** Cas 1 : aucun élément n’a de synchronisation */
-    @Test
-    public void write_shouldCallSaveAllWithEmptyList_whenNoItemHasSynchronisation() {
-        Chunk<SynchroResult> chunk = new Chunk<>(Arrays.asList(noSync, noSync));
+les DTOs (*.dto.*, *DTO.java)
 
-        writer.write(chunk);
+les enums (*.enums.*, *Enum.java)
 
-        ArgumentCaptor<List<LoanFolderEntity>> captor = ArgumentCaptor.forClass((Class) List.class);
-        verify(loanFolderAnswerJpaRepository, times(1)).saveAll(captor.capture());
+les packages constants, utils, mapper, config
 
-        assertEquals(0, captor.getValue().size());
-    }
+les classes Application.java et Launcher.java
 
-    /** Cas 2 : un seul élément a une synchronisation */
-    @Test
-    public void write_shouldMapAndSaveOneEntity_whenOneItemHasSynchronisation() {
-        Chunk<SynchroResult> chunk = new Chunk<>(Arrays.asList(noSync, withSync));
 
-        LoanFolderEntity mockEntity = Mockito.mock(LoanFolderEntity.class);
 
-        try (MockedStatic<LoanFolderMapperToJpa> mocked = Mockito.mockStatic(LoanFolderMapperToJpa.class)) {
-            mocked.when(() -> LoanFolderMapperToJpa.toJpa(any())).thenReturn(mockEntity);
+---
 
-            writer.write(chunk);
+🧠 Ce qu’il te reste à tester (à inclure dans ton plan de tests unitaires Sonar)
 
-            ArgumentCaptor<List<LoanFolderEntity>> captor = ArgumentCaptor.forClass((Class) List.class);
-            verify(loanFolderAnswerJpaRepository, times(1)).saveAll(captor.capture());
+1️⃣ Batchs (Spring Batch)
 
-            assertEquals(1, captor.getValue().size());
-        }
-    }
-}
+Tous les ItemProcessor, ItemWriter, ItemReader, Tasklet
+
+BillingSpaceCreationErrorItemProcessor
+
+PaymentRequestPaidItemProcessor
+
+PaymentRequestPaidWriter
+
+SendBillingSpaceWriter
+
+RecalculCompletudeItemProcessor
+
+LoanFolderSynchroItemWriter ✅ (tu viens de le faire)
+
+ReplaySendPaymentRequestPaidWriter
+
+ReplaySendTransferAvRequestReader
+
+ReplaySendTransferAvRequestWriter
+
+PurgeClosedBillingSpaceItemReaderConfig
+
+PurgeFolderWithoutBillingSpaceItemReaderConfig
+
+ItemsToPurgeWriter
+
+ClosedBillingSpaceProcessor
+
+FolderWithoutBillingSpaceProcessor
+
+PurgeUploadCosTasklet
+
+ArchivageTasklet
+
+
+
+2️⃣ Listeners
+
+CustomItemWriteListener
+
+CommonStepExecutionListener
+
+
+3️⃣ Managers / Services techniques
+
+FileManager
+
+LocalFileManager
+
+LoanFolderSynchroManager
+
+DpoManager
+
+PurgeManager
+
+DocaposteManager
+
+
+4️⃣ Job Configurations
+
+JobConfigurationBillingSpaceClosure
+
+JobConfigurationReplaySendTransferAvRequest
+
+JobConfigurationPurge
+
+
+5️⃣ Security / OpenPGP (BouncyCastle)
+
+EncryptedInputStream
+
+EncryptedOutputStream
+
+
+6️⃣ Maestro Data Job
+
+ZipFileUtils
+
+ZipMultiResourceItemReader
+
+NamedInputStreamResource
+
+
+
+---
+
+📦 En résumé :
+
+Type de composant	Exemple de classe	Statut
+
+ItemProcessor	PaymentRequestPaidItemProcessor	à tester ✅
+ItemWriter	LoanFolderSynchroItemWriter	à tester ✅
+ItemReader	PurgeClosedBillingSpaceItemReaderConfig	à tester ✅
+Tasklet	PurgeUploadCosTasklet	à tester ✅
+Service Manager	FileManager	à tester ✅
+Listener	CustomItemWriteListener	à tester ✅
+Utils / Config / DTO / Mapper / Enum	*Mapper.java, *DTO.java, *Enum.java, *Config.java	à exclure 🚫
+
+
+
+---
+
+Souhaite-tu que je te génère automatiquement la liste au format CSV (avec colonnes Package, Nom de classe, Type, Statut Sonar, Test unitaire requis (Oui/Non)) pour ton plan de couverture Jacoco ?
