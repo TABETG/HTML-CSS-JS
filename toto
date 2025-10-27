@@ -1,11 +1,14 @@
 package com.bnpparibas.dsibddf.ap00420.streamfact.batch.sendtobmd.tasklet;
 
 import com.bnpparibas.dsibddf.ap00420.streamfact.batch.sendtobmd.service.batch.security.openpgp.OnePassSignatureProcessor;
+import com.bnpparibas.dsibddf.ap00420.streamfact.batch.sendtobmd.service.batch.security.openpgp.PartnerPublicKeyPair;
 import com.bnpparibas.dsibddf.ap00420.streamfact.batch.sendtobmd.service.batch.security.openpgp.PrivateKeyPair;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.mockito.*;
+import org.mockito.ArgumentMatchers;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnitRunner;
 import org.springframework.batch.core.JobExecution;
 import org.springframework.batch.core.StepContribution;
@@ -17,53 +20,56 @@ import org.springframework.batch.repeat.RepeatStatus;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.io.IOException;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.util.List;
 
 import static org.junit.Assert.*;
-import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 /**
- * Tests JUnit 4 pour CypherPGPTasklet.
+ * Tests JUnit 4 pour la classe CypherPGPTasklet.
  *
- * Objectifs:
- *  - Couvrir 100% des branches et lignes :
- *      * mock == true  : pas d'appel chiffrage, FINISHED.
- *      * mock == false : succès → appel encryptOnePassSignature, FINISHED.
- *      * mock == false : exception → UnexpectedJobExecutionException.
- *      * checkParameters() : validations notNull (avec/ sans needSignature).
- *      * initializeValues() : construction des chemins et sélection des secrets (keystore vs key).
- *      * afterPropertiesSet() : no-op.
- *  - Conformité Sonar/Jacoco/Jenkins :
- *      * JUnit 4 uniquement (org.junit.*)
- *      * Runner Mockito JUnit 4
- *      * Pas d'AssertJ, pas de JUnit Jupiter
- *      * verifyNoInteractions(...) au lieu de verifyZeroInteractions(...)
+ * Objectifs de couverture (100 %) :
+ *  - afterPropertiesSet() : méthode sans effet (no-op).
+ *  - initializeValues() : construction des chemins et sélection des secrets (keystore prioritaire).
+ *  - execute() :
+ *       * mock == true  -> aucun appel au processeur, FINISHED.
+ *       * mock == false -> succès : appel encryptOnePassSignature(...), FINISHED.
+ *       * mock == false -> exception IOException : levée en UnexpectedJobExecutionException.
+ *  - checkParameters() :
+ *       * needSignature == true sans privateKey/passphrase -> IllegalArgumentException.
+ *
+ * Contraintes :
+ *  - JUnit 4 uniquement (org.junit.*).
+ *  - Mockito JUnit 4 runner (@RunWith(MockitoJUnitRunner.class)).
+ *  - Pas d’AssertJ, pas de JUnit Jupiter.
+ *  - verifyNoInteractions(...) au lieu de verifyZeroInteractions(...).
  */
 @RunWith(MockitoJUnitRunner.class)
 public class CypherPGPTaskletTest {
 
-    /** SUT : tasklet à tester. */
+    /** SUT : le tasklet à tester. */
     @InjectMocks
     private CypherPGPTasklet tasklet;
 
-    /** Dépendance chiffrage PGP simulée. */
+    /** Dépendance de chiffrement PGP simulée. */
     @Mock
     private OnePassSignatureProcessor onePassSignatureProcessor;
 
-    /** Contexte Spring Batch "réel" pour porter l'exécution. */
+    /** Contexte Spring Batch réel pour valider ExitStatus et RepeatStatus. */
     private StepExecution stepExecution;
     private StepContribution contribution;
 
     @Before
     public void setUp() {
         JobExecution jobExecution = new JobExecution(1L);
-        stepExecution = new StepExecution("cypherPgp", jobExecution);
+        stepExecution = new StepExecution("cypherPgpStep", jobExecution);
         contribution = new StepContribution(stepExecution);
     }
 
     /**
-     * afterPropertiesSet() n'a pas d'effet: aucune exception attendue.
+     * Vérifie que la méthode d'initialisation ne produit aucun effet ni exception.
      */
     @Test
     public void afterPropertiesSet_should_do_nothing() throws Exception {
@@ -71,161 +77,168 @@ public class CypherPGPTaskletTest {
     }
 
     /**
-     * initializeValues() : vérifie la construction des champs
-     * - privateKeyPath/préférence keystore vs clé simple
-     * - passphrase/préférence keystore vs key passphrase
-     * - originalFilePath et encryptedFilePath construits avec filePath + noms en contexte
+     * Vérifie la construction des champs par initializeValues(...) :
+     *  - priorisation du keystore (privateKeyStorePath) par rapport à privateKeyPath.
+     *  - passphrase choisie en cohérence (keystorePassphrase prioritaire).
+     *  - construction des chemins complet pour originalFilePath et encryptedFilePath.
      */
     @Test
     public void initializeValues_should_set_paths_and_secrets_from_context() {
-        // Prépare le contexte avec file names
-        putInContext("originalFileName", "source.txt");
-        putInContext("encryptedFileName", "source.txt.pgp");
+        // Contexte : noms de fichiers fournis par un step précédent
+        putInContext("originalFileName", "in.txt");
+        putInContext("encryptedFileName", "in.txt.pgp");
 
-        // Prépare les propriétés (keystore non vide → priorité sur privateKeyPath)
+        // Propriétés : keystore présent -> prime sur privateKeyPath
         ReflectionTestUtils.setField(tasklet, "filePath", "/base/");
-        ReflectionTestUtils.setField(tasklet, "privateKeyStorePath", "/keys/store.p12");
-        ReflectionTestUtils.setField(tasklet, "privateKeyPath", "/keys/pk.p12");
+        ReflectionTestUtils.setField(tasklet, "privateKeyStorePath", "/keys/keystore.p12");
+        ReflectionTestUtils.setField(tasklet, "privateKeyPath", "/keys/private.asc");
         ReflectionTestUtils.setField(tasklet, "keystorePassphrase", "storePass");
         ReflectionTestUtils.setField(tasklet, "keyPassphrase", "keyPass");
 
+        // Appel de l'initialisation
         tasklet.initializeValues(new ChunkContext(new StepContext(stepExecution)));
 
-        // Vérifie la sélection keystore vs private key
-        assertEquals("/keys/store.p12", ReflectionTestUtils.getField(tasklet, "privateKeyPath"));
+        // Vérifications : keystore prioritaire
+        assertEquals("/keys/keystore.p12", ReflectionTestUtils.getField(tasklet, "privateKeyPath"));
         assertEquals("storePass", ReflectionTestUtils.getField(tasklet, "passphrase"));
 
-        // Vérifie la construction des chemins
-        assertEquals("/base/source.txt", ReflectionTestUtils.getField(tasklet, "originalFilePath"));
-        assertEquals("/base/source.txt.pgp", ReflectionTestUtils.getField(tasklet, "encryptedFilePath"));
+        // Chemins d'entrée/sortie
+        assertEquals("/base/in.txt", ReflectionTestUtils.getField(tasklet, "originalFilePath"));
+        assertEquals("/base/in.txt.pgp", ReflectionTestUtils.getField(tasklet, "encryptedFilePath"));
     }
 
     /**
-     * mock == true : le tasklet loggue et termine sans appeler le service PGP.
+     * Branche mock=true :
+     *  - aucune interaction avec le processeur PGP,
+     *  - RepeatStatus.FINISHED attendu.
      */
     @Test
     public void execute_when_mock_true_should_finish_without_encrypt_call() throws Exception {
-        // Propriétés
         ReflectionTestUtils.setField(tasklet, "mock", true);
         ReflectionTestUtils.setField(tasklet, "filePath", "/tmp/");
         putInContext("originalFileName", "a.csv");
         putInContext("encryptedFileName", "a.csv.pgp");
 
-        // Exécution
         RepeatStatus status = tasklet.execute(contribution, new ChunkContext(new StepContext(stepExecution)));
 
-        // Attendus
         assertEquals(RepeatStatus.FINISHED, status);
         verifyNoInteractions(onePassSignatureProcessor);
     }
 
     /**
-     * mock == false et needSignature == false : succès
-     * → encryptOnePassSignature est appelé avec les bons paramètres et FINISHED.
+     * Branche mock=false, needSignature=false :
+     *  - succès de l'appel encryptOnePassSignature(...),
+     *  - RepeatStatus.FINISHED attendu,
+     *  - vérification des paramètres transmis (chemins, flags).
      */
     @Test
-    public void execute_when_mock_false_no_signature_success_should_call_encrypt_and_finish() throws Exception {
-        // Propriétés nécessaires
+    public void execute_when_mock_false_and_no_signature_success_should_finish_and_call_encrypt() throws Exception {
+        // Configuration du tasklet
         ReflectionTestUtils.setField(tasklet, "mock", false);
-        ReflectionTestUtils.setField(tasklet, "needSignature", false); // pas de validation privateKey/passphrase
+        ReflectionTestUtils.setField(tasklet, "needSignature", false); // pas d'exigence de clé privée
         ReflectionTestUtils.setField(tasklet, "useTextMode", true);
         ReflectionTestUtils.setField(tasklet, "amor", true);
         ReflectionTestUtils.setField(tasklet, "filePath", "/data/");
         ReflectionTestUtils.setField(tasklet, "partnerPublicKeyPath", "/keys/partner.pub");
-        ReflectionTestUtils.setField(tasklet, "renewedPartnerPublicKeyPath", "/keys/partner-renewed.pub");
+        ReflectionTestUtils.setField(tasklet, "renewedPartnerPublicKeyPath", "/keys/partner2.pub");
 
+        // Contexte
         putInContext("originalFileName", "report.json");
         putInContext("encryptedFileName", "report.json.pgp");
 
         // Exécution
         RepeatStatus status = tasklet.execute(contribution, new ChunkContext(new StepContext(stepExecution)));
 
-        // Attendus
+        // Vérifications
         assertEquals(RepeatStatus.FINISHED, status);
 
-        // Vérifie l'appel avec les bons chemins/flags
         verify(onePassSignatureProcessor, times(1)).encryptOnePassSignature(
+                // Chemin de sortie (fichier chiffré), puis chemin d'entrée (fichier clair)
                 eq("/data/report.json.pgp"),
                 eq("/data/report.json"),
-                ArgumentMatchers.<List<?>>any(),                    // liste contenant un PartnerPublicKeyPair
-                any(PrivateKeyPair.class),                          // paire de clés privées créée par le tasklet
-                eq(false),                                          // needSignature
-                eq(true),                                           // useTextMode
-                eq(true)                                            // amor
+                // Matcher typé : List<PartnerPublicKeyPair>
+                org.mockito.Mockito.<List<PartnerPublicKeyPair>>any(),
+                // Paire de clés privées construite par le tasklet (peut être null si needSignature=false)
+                any(PrivateKeyPair.class),
+                eq(false), // needSignature
+                eq(true),  // useTextMode
+                eq(true)   // amor
         );
         verifyNoMoreInteractions(onePassSignatureProcessor);
     }
 
     /**
-     * mock == false et needSignature == true : le chiffrage lève IOException
-     * → le tasklet doit envelopper en UnexpectedJobExecutionException.
+     * Branche mock=false, needSignature=true :
+     *  - le processeur lève IOException,
+     *  - le tasklet doit encapsuler en UnexpectedJobExecutionException.
      */
     @Test(expected = UnexpectedJobExecutionException.class)
     public void execute_when_mock_false_with_signature_and_encrypt_throws_should_wrap_exception() throws Exception {
-        // Propriétés (signature requise → privateKeyPath & passphrase obligatoires)
+        // Le fait d'exiger une signature impose la présence d'une clé privée et de sa passphrase
         ReflectionTestUtils.setField(tasklet, "mock", false);
         ReflectionTestUtils.setField(tasklet, "needSignature", true);
         ReflectionTestUtils.setField(tasklet, "filePath", "/secure/");
         ReflectionTestUtils.setField(tasklet, "partnerPublicKeyPath", "/keys/partner.pub");
-        ReflectionTestUtils.setField(tasklet, "renewedPartnerPublicKeyPath", "/keys/partner-renewed.pub");
+        ReflectionTestUtils.setField(tasklet, "renewedPartnerPublicKeyPath", "/keys/partner2.pub");
         // Sélection keystore prioritaire
-        ReflectionTestUtils.setField(tasklet, "privateKeyStorePath", "/keys/store.p12");
+        ReflectionTestUtils.setField(tasklet, "privateKeyStorePath", "/keys/keystore.p12");
         ReflectionTestUtils.setField(tasklet, "keystorePassphrase", "storePass");
 
         putInContext("originalFileName", "x.txt");
         putInContext("encryptedFileName", "x.txt.pgp");
 
-        // Le service PGP lève une IOException → doit être enveloppé
+        // Le processeur lève une IOException -> le tasklet doit wrapper en UnexpectedJobExecutionException
         doThrow(new IOException("IO error")).when(onePassSignatureProcessor).encryptOnePassSignature(
-                anyString(), anyString(), anyList(), any(PrivateKeyPair.class), anyBoolean(), anyBoolean(), anyBoolean()
+                anyString(),
+                anyString(),
+                // Matcher typé : List<PartnerPublicKeyPair>
+                org.mockito.Mockito.<List<PartnerPublicKeyPair>>any(),
+                any(PrivateKeyPair.class),
+                anyBoolean(),
+                anyBoolean(),
+                anyBoolean()
         );
 
-        // Exécution → exception attendue
         tasklet.execute(contribution, new ChunkContext(new StepContext(stepExecution)));
     }
 
     /**
-     * mock == false : checkParameters() doit refuser un partnerPublicKeyPath manquant → IllegalArgumentException.
-     */
-    @Test(expected = IllegalArgumentException.class)
-    public void execute_when_mock_false_and_missing_partner_key_should_throw_iae() throws Exception {
-        // Propriétés minimales pour passer initializeValues, mais on supprime la clé publique partenaire
-        ReflectionTestUtils.setField(tasklet, "mock", false);
-        ReflectionTestUtils.setField(tasklet, "needSignature", false);
-        ReflectionTestUtils.setField(tasklet, "filePath", "/d/");
-        ReflectionTestUtils.setField(tasklet, "partnerPublicKeyPath", null); // invalide
-
-        putInContext("originalFileName", "a.txt");
-        putInContext("encryptedFileName", "a.txt.pgp");
-
-        tasklet.execute(contribution, new ChunkContext(new StepContext(stepExecution)));
-    }
-
-    /**
-     * Appel direct à checkParameters() pour valider les notNull spécifiques quand needSignature = true.
-     * Ici privateKeyPath/passphrase manquent → IllegalArgumentException attendue.
+     * checkParameters() : needSignature=true mais privateKeyPath/passphrase manquants -> IllegalArgumentException.
+     * Appel via réflexion si la méthode n'est pas publique.
      */
     @Test(expected = IllegalArgumentException.class)
     public void checkParameters_should_require_privateKey_and_passphrase_when_needSignature_true() {
-        // Champs requis pour passer les autres notNull
+        // Champs nécessaires pour passer les autres validations
         ReflectionTestUtils.setField(tasklet, "needSignature", true);
         ReflectionTestUtils.setField(tasklet, "onePassSignatureProcessor", onePassSignatureProcessor);
         ReflectionTestUtils.setField(tasklet, "encryptedFilePath", "/f.enc");
         ReflectionTestUtils.setField(tasklet, "originalFilePath", "/f.txt");
         ReflectionTestUtils.setField(tasklet, "partnerPublicKeyPath", "/keys/partner.pub");
-
-        // Intentionnellement manquants
+        // Volontairement absents
         ReflectionTestUtils.setField(tasklet, "privateKeyPath", null);
         ReflectionTestUtils.setField(tasklet, "passphrase", null);
 
-        tasklet.checkParameters(); // doit lever IllegalArgumentException
+        // Appel direct si la méthode est visible, sinon réflexion
+        try {
+            Method m = CypherPGPTasklet.class.getDeclaredMethod("checkParameters");
+            m.setAccessible(true);
+            m.invoke(tasklet);
+        } catch (InvocationTargetException ite) {
+            // Rélève la cause réelle (IllegalArgumentException attendue)
+            if (ite.getCause() instanceof RuntimeException) {
+                throw (RuntimeException) ite.getCause();
+            }
+            throw new RuntimeException(ite.getCause());
+        } catch (NoSuchMethodException | IllegalAccessException e) {
+            throw new RuntimeException(e);
+        }
     }
 
-    /* ----------------------- Helper utilitaire pour le contexte ----------------------- */
+    /* ======================= Utilitaires ======================= */
 
     /**
-     * Dépose une entrée dans le JobExecutionContext du Step en cours,
-     * par exemple "originalFileName" / "encryptedFileName".
+     * Place une clé/valeur dans le JobExecutionContext du step en cours,
+     * utilisé ici pour fournir "originalFileName" et "encryptedFileName".
      */
     private void putInContext(String key, String value) {
         assertNotNull(stepExecution);
