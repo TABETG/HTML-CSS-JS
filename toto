@@ -214,3 +214,119 @@ En deux phrases
 Fais des tests partout où il y a de la logique (Readers/Processors/Writers/Tasklets, listeners non triviaux, RowMappers/Converters, services/adapters avec décisions ou gestion d’erreurs) dans tous les modules cités plus haut.
 
 Ne perds pas de temps à tester le wiring (jobs/config), les DTO/Enums/Mappers purs/Repos interfaces, et les callbacks décoratifs : on les retire du calcul de couverture mais on garde leur analyse Sonar.
+
+
+
+oooooooooo
+
+Top—voici la liste précise (packages + noms de classes) de ce que tu dois cibler avec des tests pour faire monter la couverture Sonar, en te basant sur l’arbo et les sources fournis.
+
+stream-fact-batch — à tester
+
+Synchro UPDATE (BillingSpace)
+
+com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.synchro.update.reader.BillingSpaceSynchroItemReader 
+
+com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.synchro.update.processor.BillingSpaceSynchroItemProcessor 
+
+com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.synchro.update.writer.BillingSpaceSynchroItemWriter 
+
+com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.synchro.update.writer.EventHistorySynchroItemWriter (appelé par la conf) 
+
+com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.synchro.update.writer.LoanFolderSynchroItemWriter (appelé par la conf) 
+
+
+> NB : la classe ...update.job.JobConfigurationBillingSpaceSynchro est de la conf (DSL Spring Batch) → pas une cible de tests unitaires (exclue de couverture), mais les 5 classes ci-dessus oui. 
+
+
+
+Synchro SENDER (envoi)
+
+com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.synchro.sender.processor.BillingSpaceSendSynchroItemProcessor 
+
+com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.synchro.sender.writer.BillingSpaceSendSynchroItemWriter 
+(Le ...sender.reader.EventHistorySynchroItemReaderConfig est une config : pas une cible de test unitaire.) 
+
+
+Replay – Payment Request Processed
+
+com.bnpparibas.dsibddf.ap00420.streamfact.batch.replay.sendpaymentrequestprocessed.reader.SendPaymentRequestProcessedReader 
+
+com.bnpparibas.dsibddf.ap00420.streamfact.batch.replay.sendpaymentrequestprocessed.processor.SendPaymentRequestProcessedProcessor 
+
+com.bnpparibas.dsibddf.ap00420.streamfact.batch.replay.sendpaymentrequestprocessed.writer.SendPaymentRequestProcessedWriter 
+
+
+Stock integration / creation & envoi
+
+com.bnpparibas.dsibddf.ap00420.streamfact.batch.stockintegration.writer.CompleteLoanFoldersAndCreateBillingSpacesItemWriter 
+
+com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.creation.writer.SendBillingSpaceWriter 
+
+
+Tasklets / Sécurité / Flux
+
+com.bnpparibas.dsibddf.ap00420.streamfact.batch.sendtobmd.tasklet.CypherPGPTasklet (la classe métier visée par le test présent ; écrire des TU directs sur le tasklet pour couvrir la logique happy-path / erreurs). 
+
+
+File management (Daily Meteor)
+
+com.bnpparibas.dsibddf.ap00420.streamfact.batch.dailymeteorintegration.manager.LocalFileManager (contient de la logique : validation @Value, scan de fichiers, cas bord → à tester). 
+
+
+
+---
+
+stream-fact-infra-sql — à tester (si logique au-delà des interfaces)
+
+RowMappers/Converters personnalisés et implémentations (quand présentes).
+
+Exemple d’éléments du module pour repérage (là, JPAConfig et BillingSpaceEntity/*Mapper* existent, mais les mappers purs sont plutôt exclus de la couverture) :
+
+com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.config.JPAConfig (configuration → pas cible de tests unitaires)
+
+com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.billingspace.mapper.BillingSpaceMapperToDomain (mapper pur → généralement retiré de la couverture)
+
+com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.billingspace.mapper.BillingSpaceMapperToJpa (mapper pur → idem) 
+
+
+
+
+---
+
+Rappel — à ne pas cibler par des tests unitaires (mais gardés à l’analyse Sonar)
+
+Configurations / DSL Spring Batch : ...job.*, ...config.* (ex. JobConfiguration*).
+
+Readers “Config” (fabrique de ItemReader par @Bean), ex. EventHistorySynchroItemReaderConfig. 
+
+DTO/POJO, Enums, Mappers purs, Repositories (interfaces) (déjà retirés de couverture via POM parent corrigé). 
+
+
+
+---
+
+Si tu veux un plan d’attaque (ordre de priorité)
+
+1. BillingSpaceSynchroItemProcessor, BillingSpaceSynchroItemReader, BillingSpaceSynchroItemWriter. 
+
+
+2. BillingSpaceSendSynchroItemProcessor, BillingSpaceSendSynchroItemWriter. 
+
+
+3. SendPaymentRequestProcessedReader/Processor/Writer. 
+
+
+4. CompleteLoanFoldersAndCreateBillingSpacesItemWriter, SendBillingSpaceWriter.
+
+
+5. CypherPGPTasklet (tests unitaires ciblés + cas d’erreur). 
+
+
+6. LocalFileManager (paths manquants, préfixe, dossier vide…). 
+
+
+
+Si tu me donnes le dump complet des sources (ou si je dois extraire d’autres noms précis par module), je peux te générer la checklist exhaustive en CSV (classe ; package ; type ; priorité de test).
+
+ooppppppppppppp
