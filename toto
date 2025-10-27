@@ -1,32 +1,23 @@
 package com.bnpparibas.dsibddf.ap00420.streamfact.batch.paymentrequestpaid.writer;
 
 import com.bnpparibas.dsibddf.ap00420.streamfact.domain.engines.UpdatePaymentRequestResult;
+import com.bnpparibas.dsibddf.ap00420.streamfact.domain.entity.billingspace.model.BillingSpace;
 import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.billingspace.mapper.BillingSpaceMapperToJpa;
 import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.billingspace.repository.BillingSpaceJpaRepository;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.mockito.MockedStatic;
-import org.mockito.Mockito;
-import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
+import org.mockito.*;
 import org.mockito.junit.MockitoJUnitRunner;
 import org.springframework.batch.item.Chunk;
 
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
 
 import static org.junit.Assert.assertEquals;
 import static org.mockito.Mockito.*;
 
 /**
- * Tests JUnit4 (pas Jupiter), compatibles Sonar/Jacoco.
- * - @RunWith(MockitoJUnitRunner.class)
- * - @Before au lieu de @BeforeEach
- * - Assertions JUnit (pas AssertJ)
- * - verifyNoInteractions(...) au lieu de verifyZeroInteractions(...)
+ * Classe de test 100% JUnit4 compatible Sonar/Jenkins.
  */
 @RunWith(MockitoJUnitRunner.class)
 public class BillingSpaceUpdatePaymentRequestItemWriterTest {
@@ -39,61 +30,48 @@ public class BillingSpaceUpdatePaymentRequestItemWriterTest {
 
     @Before
     public void setUp() {
-        // rien de spécial
+        // rien à initialiser
     }
 
     @Test
     public void write_withEmptyChunk_shouldDoNothing() throws Exception {
-        // Given
         Chunk<UpdatePaymentRequestResult> emptyChunk = new Chunk<>(Collections.emptyList());
 
-        // When
         writer.write(emptyChunk);
 
-        // Then
         verifyNoInteractions(billingSpaceRepositoryJpaRepository);
     }
 
     @Test
     public void write_withNonEmptyChunk_shouldMapAndSaveAll() throws Exception {
-        // Given
+        // Mocks
         UpdatePaymentRequestResult item = mock(UpdatePaymentRequestResult.class);
+        BillingSpace billingSpace = mock(BillingSpace.class);
 
-        // Les getters appelés par les stream().map(...) dans la classe à tester
-        // Peu importe le contenu des listes, la condition telle qu'implémentée recompte les éléments du stream,
-        // donc il suffit que le chunk ne soit pas vide pour déclencher saveAll(...).
         when(item.getPaymentRequestPaidList()).thenReturn(Collections.emptyList());
         when(item.getPaymentRequestRefusedList()).thenReturn(Collections.emptyList());
+        when(item.getBillingSpace()).thenReturn(billingSpace);
 
-        // Le domaine BillingSpace (type réel non nécessaire ici)
-        Object domainBillingSpace = new Object();
-        when(item.getBillingSpace()).thenReturn(domainBillingSpace);
-
-        // Préparer le mapping statique vers l'entité JPA
         Object mappedJpaEntity = new Object();
 
-        // When + Then (mock static)
         try (MockedStatic<BillingSpaceMapperToJpa> mocked = Mockito.mockStatic(BillingSpaceMapperToJpa.class)) {
-            mocked.when(() -> BillingSpaceMapperToJpa.toJpa(domainBillingSpace)).thenReturn(mappedJpaEntity);
+            mocked.when(() -> BillingSpaceMapperToJpa.toJpa(billingSpace)).thenReturn(mappedJpaEntity);
 
-            Chunk<UpdatePaymentRequestResult> chunk = new Chunk<>(Arrays.asList(item));
-
+            Chunk<UpdatePaymentRequestResult> chunk = new Chunk<>(Collections.singletonList(item));
             writer.write(chunk);
 
-            // capture l'argument passé à saveAll
+            @SuppressWarnings("rawtypes")
             ArgumentCaptor<List> captor = ArgumentCaptor.forClass(List.class);
             verify(billingSpaceRepositoryJpaRepository, times(1)).saveAll(captor.capture());
 
-            List captured = captor.getValue();
-            assertEquals(1, captured.size());
-            assertEquals(mappedJpaEntity, captured.get(0));
+            List<?> savedList = captor.getValue();
+            assertEquals(1, savedList.size());
+            assertEquals(mappedJpaEntity, savedList.get(0));
 
-            // Vérifie que les getters utilisés par les streams ont bien été appelés
             verify(item, atLeastOnce()).getPaymentRequestPaidList();
             verify(item, atLeastOnce()).getPaymentRequestRefusedList();
             verify(item, atLeastOnce()).getBillingSpace();
 
-            // Aucun autre appel non attendu
             verifyNoMoreInteractions(billingSpaceRepositoryJpaRepository);
         }
     }
