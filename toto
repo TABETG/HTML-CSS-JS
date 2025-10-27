@@ -1,622 +1,120 @@
-<?xml version="1.0" encoding="UTF-8" standalone="no"?> 
-<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd"> 
-    <modelVersion>4.0.0</modelVersion> 
-    <groupId>com.bnpparibas.dsibddf.ap00420</groupId> 
-    <artifactId>stream-fact</artifactId> 
-    <version>1.1</version> 
-    <packaging>pom</packaging> 
- 
-    <name>stream-fact parent POM</name> 
- 
-    <modules> 
-        <module>stream-fact-domain</module> 
-        <module>stream-fact-application</module> 
-        <module>stream-fact-exposition</module> 
-        <module>stream-fact-infra-sql</module> 
-        <module>stream-fact-infra-rest-clients</module> 
-        <module>stream-fact-infra-jms</module> 
-        <module>stream-fact-batch</module> 
-        <module>stream-fact-infra-smtp</module> 
-        <module>stream-fact-infra-soap-clients</module> 
-        <module>stream-fact-infra-static-filestore</module> 
-    </modules> 
- 
-    <properties> 
-        <java.version>17</java.version> 
-        <spring-boot.version>3.1.2</spring-boot.version> 
-        <spring-cloud.version>2022.0.3</spring-cloud.version> 
-        <logstash-logback-encoder.version>5.3</logstash-logback-encoder.version> 
-        <xstream.version>1.4.20</xstream.version> 
-        <cucumber.io.version>7.6.0</cucumber.io.version> 
-        <cucumber.version>7.6.0</cucumber.version> 
-        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding> 
-        <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding> 
-        <maven.compiler.release>${java.version}</maven.compiler.release> 
-        <jacoco-maven-plugin.version>0.8.8</jacoco-maven-plugin.version> 
-        <spring-boot-maven-plugin.version>2.6.5</spring-boot-maven-plugin.version> 
-        <m2e.apt.activation>jdt_apt</m2e.apt.activation> 
-        <resource.delimiter>@</resource.delimiter> 
-        <framework-bddf.version>3.3.0</framework-bddf.version> 
-        <lombok.version>1.18.30</lombok.version> 
-        <jjwt.version>0.7.0</jjwt.version> 
-        <commons-lang.version>3.5</commons-lang.version> 
-        <httpclient.version>5.2.1</httpclient.version> 
-        <spring.cloud.task.version>2.0.0.RELEASE</spring.cloud.task.version> 
-        <poi.version>4.1.0</poi.version> 
-        <opencsv.version>5.3</opencsv.version> 
-        <postgresql.version>42.4.1</postgresql.version> 
-        <cos.version>1.0.3</cos.version> 
-        <springdoc.version>2.0.2</springdoc.version> 
-        <jackson.version>2.13.4</jackson.version> 
+package com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.synchro.update.writer;
 
-        <!-- Exclusions SONAR techniques : build / généré / schémas -->
-        <sonar.exclusions>
-          **/target/**,
-          **/build/**,
-          **/out/**,
-          **/generated-sources/**,
-          **/generated-test-sources/**,
-          **/com/bnp/schema/**/**,
-          **/xsd/**/**,
-          **/wsdl/**/**,
-          **/openapi/**/**,
-          **/swagger/**/**,
-          **/proto/**/**,
-          **/jooq/**/**
-        </sonar.exclusions>
+import java.util.Arrays;
+import java.util.Collections;
 
-        <!-- Exclusions de COUVERTURE TEMPORAIRES (à retirer au fur et à mesure des TU) -->
-        <sonar.coverage.exclusions>
-          **/batch/billingspace/synchro/update/reader/BillingSpaceSynchroItemReader.java,
-          **/batch/billingspace/synchro/update/processor/BillingSpaceSynchroItemProcessor.java,
-          **/batch/billingspace/synchro/update/writer/BillingSpaceSynchroItemWriter.java,
-          **/batch/billingspace/synchro/update/writer/EventHistorySynchroItemWriter.java,
-          **/batch/billingspace/synchro/update/writer/LoanFolderSynchroItemWriter.java,
-          **/batch/billingspace/synchro/sender/processor/BillingSpaceSendSynchroItemProcessor.java,
-          **/batch/billingspace/synchro/sender/writer/BillingSpaceSendSynchroItemWriter.java,
-          **/batch/replay/sendpaymentrequestprocessed/reader/SendPaymentRequestProcessedReader.java,
-          **/batch/replay/sendpaymentrequestprocessed/processor/SendPaymentRequestProcessedProcessor.java,
-          **/batch/replay/sendpaymentrequestprocessed/writer/SendPaymentRequestProcessedWriter.java,
-          **/batch/paymentrequestpaid/processor/PaymentRequestPaidItemProcessor.java,
-          **/batch/paymentrequestpaid/writer/PaymentRequestPaidWriter.java,
-          **/batch/purge/processor/FolderWithoutBillingSpaceProcessor.java,
-          **/batch/purge/writer/ItemsToPurgeWriter.java,
-          **/batch/stockintegration/reader/EligibleLoanFoldersIteamReader.java,
-          **/batch/stockintegration/processor/EligibleLoanFolderProcessor.java,
-          **/batch/stockintegration/writer/CompleteLoanFoldersAndCreateBillingSpacesItemWriter.java,
-          **/batch/sendtobmd/tasklet/CypherPGPTasklet.java,
-          **/batch/sendtobmd/tasklet/SendToBMDArchiveCOSTasklet.java,
-          **/batch/sendtobmd/tasklet/SendToBMDSendCFTTasklet.java,
-          **/batch/sendtobmd/tasklet/SendToBMDUploadCOSTasklet.java,
-          **/batch/sendtobmd/listener/SendToBmdStepExecutionListener.java,
-          **/batch/sendtobmd/reader/StockBillingSpaceRowMapper.java,
-          **/batch/maestrodatajob/MaestroDataProcessor.java,
-          **/batch/dailymeteorintegration/manager/LocalFileManager.java,
-          **/domain/engines/EligibleLoanFoldersCalculator.java,
-          **/domain/engines/LoanFoldersCalculator.java,
-          **/domain/engines/RiskIndicatorCalculator.java,
-          **/domain/engines/UpdatePaymentRequestResult.java,
-          **/domain/service/paymentrequest/validator/PaymentRequestDocumentValidator.java,
-          **/domain/service/transferrequest/validator/TransferRequestDocumentValidator.java,
-          **/domain/utils/BigDecimalUtils.java,
-          **/domain/utils/ExcelGenerator.java,
-          **/domain/utils/ContentDispositionUtils.java,
-          **/domain/utils/DpoAnalysis.java
-        </sonar.coverage.exclusions>
+import org.junit.Before;
+import org.junit.Test;
+import org.junit.runner.RunWith;
 
-        <bcprov-jdk15on.version>1.70</bcprov-jdk15on.version> 
-        <bcpg-jdk15on.version>1.70</bcpg-jdk15on.version> 
-    </properties> 
- 
-    <dependencyManagement> 
-        <dependencies> 
-            <!-- streamFact dependencies --> 
-            <dependency> 
-                <groupId>com.bnpparibas.dsibddf.ap00420</groupId> 
-                <artifactId>stream-fact-domain</artifactId> 
-                <version>${project.version}</version> 
-            </dependency> 
-            <dependency> 
-                <groupId>com.bnpparibas.dsibddf.ap00420</groupId> 
-                <artifactId>stream-fact-application</artifactId> 
-                <version>${project.version}</version> 
-            </dependency> 
-            <dependency> 
-                <groupId>com.bnpparibas.dsibddf.ap00420</groupId> 
-                <artifactId>stream-fact-exposition</artifactId> 
-                <version>${project.version}</version> 
-            </dependency> 
-            <dependency> 
-                <groupId>com.bnpparibas.dsibddf.ap00420</groupId> 
-                <artifactId>stream-fact-infra-jms</artifactId> 
-                <version>${project.version}</version> 
-            </dependency> 
-            <dependency> 
-                <groupId>com.bnpparibas.dsibddf.ap00420</groupId> 
-                <artifactId>stream-fact-infra-rest-clients</artifactId> 
-                <version>${project.version}</version> 
-            </dependency> 
-            <dependency> 
-                <groupId>com.bnpparibas.dsibddf.ap00420</groupId> 
-                <artifactId>stream-fact-infra-soap-clients</artifactId> 
-                <version>${project.version}</version> 
-            </dependency> 
-            <dependency> 
-                <groupId>com.bnpparibas.dsibddf.ap00420</groupId> 
-                <artifactId>stream-fact-infra-sql</artifactId> 
-                <version>${project.version}</version> 
-            </dependency> 
-            <dependency> 
-                <groupId>com.bnpparibas.dsibddf.ap00420</groupId> 
-                <artifactId>stream-fact-infra-smtp</artifactId> 
-                <version>${project.version}</version> 
-            </dependency> 
-            <dependency> 
-                <groupId>com.bnpparibas.dsibddf.ap00420</groupId> 
-                <artifactId>stream-fact-batch</artifactId> 
-                <version>${project.version}</version> 
-            </dependency> 
-            <dependency> 
-                <groupId>com.bnpparibas.dsibddf.ap00420</groupId> 
-                <artifactId>stream-fact-infra-static-filestore</artifactId> 
-                <version>${project.version}</version> 
-            </dependency> 
-            <dependency> 
-                <groupId>org.springframework.boot</groupId> 
-                <artifactId>spring-boot-dependencies</artifactId> 
-                <version>${spring-boot.version}</version> 
-                <type>pom</type> 
-                <scope>import</scope> 
-            </dependency> 
-            <dependency> 
-                <groupId>org.springframework.ws</groupId> 
-                <artifactId>spring-ws-core</artifactId> 
-                <version>${spring-boot.version}</version> 
-            </dependency> 
-            <dependency> 
-                <groupId>org.springframework.boot</groupId> 
-                <artifactId>spring-boot-starter</artifactId> 
-                <version>${spring-boot.version}</version> 
-                <exclusions> 
-                    <exclusion> 
-                        <groupId>org.apache.logging.log4j</groupId> 
-                        <artifactId>log4j-to-slf4j</artifactId> 
-                    </exclusion> 
-                </exclusions> 
-            </dependency> 
-            <dependency> 
-                <groupId>org.springframework.boot</groupId> 
-                <artifactId>spring-boot-starter-web</artifactId> 
-                <version>${spring-boot.version}</version> 
-                <exclusions> 
-                    <exclusion> 
-                        <groupId>org.apache.logging.log4j</groupId> 
-                        <artifactId>log4j-to-slf4j</artifactId> 
-                    </exclusion> 
-                </exclusions> 
-            </dependency> 
-            <dependency> 
-                <groupId>org.springframework.boot</groupId> 
-                <artifactId>spring-boot-starter-validation</artifactId> 
-                <version>${spring-boot.version}</version> 
-            </dependency> 
- 
-            <!-- Spring Batch And Task --> 
-            <dependency> 
-                <groupId>org.springframework.boot</groupId> 
-                <artifactId>spring-boot-starter-batch</artifactId> 
-                <version>${spring-boot.version}</version> 
-                <exclusions> 
-                    <exclusion> 
-                        <groupId>org.apache.logging.log4j</groupId> 
-                        <artifactId>log4j-to-slf4j</artifactId> 
-                    </exclusion> 
-                </exclusions> 
-            </dependency> 
-            <dependency> 
-                <groupId>org.springframework.cloud</groupId> 
-                <artifactId>spring-cloud-starter-task</artifactId> 
-                <version>${spring-boot.version}</version> 
-            </dependency> 
-            <dependency> 
-                <groupId>io.micrometer</groupId> 
-                <artifactId>micrometer-tracing</artifactId> 
-            </dependency> 
-            <dependency> 
-                <groupId>io.micrometer</groupId> 
-                <artifactId>micrometer-tracing-bridge-brave</artifactId> 
-            </dependency> 
- 
-            <!-- Spring-cloud dependencies --> 
-            <dependency> 
-                <groupId>org.springframework.cloud</groupId> 
-                <artifactId>spring-cloud-dependencies</artifactId> 
-                <version>${spring-cloud.version}</version> 
-                <type>pom</type> 
-                <scope>import</scope> 
-            </dependency> 
- 
-            <dependency> 
-                <groupId>net.logstash.logback</groupId> 
-                <artifactId>logstash-logback-encoder</artifactId> 
-                <version>${logstash-logback-encoder.version}</version> 
-            </dependency> 
- 
-            <!-- SpringDoc swagger dependencies (avec exclusion android-json) --> 
-            <dependency> 
-                <groupId>org.springdoc</groupId> 
-                <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId> 
-                <version>${springdoc.version}</version> 
-                <exclusions>
-                    <exclusion>
-                        <groupId>com.vaadin.external.google</groupId>
-                        <artifactId>android-json</artifactId>
-                    </exclusion>
-                </exclusions>
-            </dependency> 
- 
-            <dependency> 
-                <groupId>org.springdoc</groupId> 
-                <artifactId>springdoc-openapi-security</artifactId> 
-                <version>${springdoc.version}</version> 
-            </dependency> 
- 
-            <!-- Cucumber dependencies --> 
-            <dependency> 
-                <groupId>io.cucumber</groupId> 
-                <artifactId>cucumber-java</artifactId> 
-                <version>${cucumber.version}</version> 
-                <scope>test</scope> 
-            </dependency> 
-            <dependency> 
-                <groupId>io.cucumber</groupId> 
-                <artifactId>cucumber-java8</artifactId> 
-                <version>${cucumber.version}</version> 
-                <scope>test</scope> 
-            </dependency> 
-            <dependency> 
-                <groupId>io.cucumber</groupId> 
-                <artifactId>cucumber-junit</artifactId> 
-                <version>${cucumber.io.version}</version> 
-                <scope>test</scope> 
-            </dependency> 
-            <dependency> 
-                <groupId>io.cucumber</groupId> 
-                <artifactId>cucumber-spring</artifactId> 
-                <version>${cucumber.io.version}</version> 
-                <scope>test</scope> 
-            </dependency> 
- 
-            <!-- XStream dependencies --> 
-            <dependency> 
-                <groupId>com.thoughtworks.xstream</groupId> 
-                <artifactId>xstream</artifactId> 
-                <version>${xstream.version}</version> 
-                <scope>test</scope> 
-            </dependency> 
- 
-            <!-- IBM MQ --> 
-            <dependency> 
-                <groupId>com.ibm.mq</groupId> 
-                <artifactId>mq-jms-spring-boot-starter</artifactId> 
-                <version>3.0.2</version> 
-            </dependency> 
- 
-            <dependency> 
-                <groupId>org.glassfish</groupId> 
-                <artifactId>jakarta.el</artifactId> 
-                <version>4.0.2</version> 
-            </dependency> 
- 
-            <dependency> 
-                <groupId>jakarta.inject</groupId> 
-                <artifactId>jakarta.inject-api</artifactId> 
-                <version>2.0.1</version> 
-            </dependency> 
- 
-            <dependency> 
-                <groupId>org.togglz</groupId> 
-                <artifactId>togglz-spring-boot-starter</artifactId> 
-                <version>4.4.0</version> 
-            </dependency> 
- 
-            <!-- Framework dependencies --> 
-            <dependency> 
-                <groupId>com.bnpparibas.dsibddf.PJ76280</groupId> 
-                <artifactId>bddf-framework-cqrs</artifactId> 
-                <version>${framework-bddf.version}</version> 
-            </dependency> 
- 
-            <dependency> 
-                <groupId>com.bnpparibas.dsibddf.PJ76280</groupId> 
-                <artifactId>bddf-framework-core</artifactId> 
-                <version>${framework-bddf.version}</version> 
-            </dependency> 
- 
-            <dependency> 
-                <groupId>com.bnpparibas.dsibddf.PJ76280</groupId> 
-                <artifactId>bddf-framework-jms-core</artifactId> 
-                <version>${framework-bddf.version}</version> 
-            </dependency> 
- 
-            <dependency> 
-                <groupId>com.bnpparibas.dsibddf.PJ76280</groupId> 
-                <artifactId>bddf-framework-smtp</artifactId> 
-                <version>${framework-bddf.version}</version> 
-            </dependency> 
- 
-            <!-- Json Web Token --> 
-            <dependency> 
-                <groupId>io.jsonwebtoken</groupId> 
-                <artifactId>jjwt</artifactId> 
-                <version>${jjwt.version}</version> 
-            </dependency> 
- 
-            <dependency> 
-                <groupId>org.apache.commons</groupId> 
-                <artifactId>commons-lang3</artifactId> 
-                <version>${commons-lang.version}</version> 
-            </dependency> 
- 
-            <dependency> 
-                <groupId>org.apache.httpcomponents.client5</groupId> 
-                <artifactId>httpclient5</artifactId> 
-                <version>${httpclient.version}</version> 
-                <exclusions> 
-                    <exclusion> 
-                        <artifactId>commons-logging</artifactId> 
-                        <groupId>commons-logging</groupId> 
-                    </exclusion> 
-                </exclusions> 
-            </dependency> 
- 
-            <!-- POI Dependencies --> 
-            <dependency> 
-                <groupId>org.apache.poi</groupId> 
-                <artifactId>poi-ooxml</artifactId> 
-                <version>${poi.version}</version> 
-            </dependency> 
-            <dependency> 
-                <groupId>org.apache.poi</groupId> 
-                <artifactId>poi-ooxml-schemas</artifactId> 
-                <version>${poi.version}</version> 
-            </dependency> 
-            <dependency> 
-                <groupId>org.apache.poi</groupId> 
-                <artifactId>poi</artifactId> 
-                <version>${poi.version}</version> 
-            </dependency> 
- 
-            <!-- Open CSV --> 
-            <dependency> 
-                <groupId>com.opencsv</groupId> 
-                <artifactId>opencsv</artifactId> 
-                <version>${opencsv.version}</version> 
-            </dependency> 
- 
-            <!-- Cos dependencies --> 
-            <dependency> 
-                <groupId>com.ibm.cos</groupId> 
-                <artifactId>ibm-cos-java-sdk</artifactId> 
-                <version>2.14.1</version> 
-            </dependency> 
- 
-            <!-- Pgp dependencies --> 
-            <dependency> 
-                <groupId>org.bouncycastle</groupId> 
-                <artifactId>bcprov-jdk15on</artifactId> 
-                <version>${bcprov-jdk15on.version}</version> 
-            </dependency> 
-            <dependency> 
-                <groupId>org.bouncycastle</groupId> 
-                <artifactId>bcpg-jdk15on</artifactId> 
-                <version>${bcpg-jdk15on.version}</version> 
-            </dependency> 
-        </dependencies> 
-    </dependencyManagement> 
- 
-    <dependencies> 
-        <dependency> 
-            <groupId>org.springframework.boot</groupId> 
-            <artifactId>spring-boot-starter-test</artifactId> 
-            <scope>test</scope> 
-            <exclusions> 
-                <exclusion> 
-                    <groupId>org.junit.jupiter</groupId> 
-                    <artifactId>junit-jupiter-engine</artifactId> 
-                </exclusion> 
-                <exclusion> 
-                    <groupId>org.junit.vintage</groupId> 
-                    <artifactId>junit-vintage-engine</artifactId> 
-                </exclusion> 
-            </exclusions> 
-        </dependency> 
-        <dependency> 
-            <groupId>junit</groupId> 
-            <artifactId>junit</artifactId> 
-            <scope>test</scope> 
-        </dependency> 
-        <dependency> 
-            <groupId>com.h2database</groupId> 
-            <artifactId>h2</artifactId> 
-        </dependency> 
-        <dependency> 
-            <groupId>org.postgresql</groupId> 
-            <artifactId>postgresql</artifactId> 
-        </dependency> 
- 
-        <!-- Jackson --> 
-        <dependency> 
-            <groupId>com.fasterxml.jackson.datatype</groupId> 
-            <artifactId>jackson-datatype-jsr310</artifactId> 
-            <version>${jackson.version}</version> 
-        </dependency> 
-    </dependencies> 
- 
-    <build> 
-        <plugins> 
-            <plugin> 
-                <groupId>org.jacoco</groupId> 
-                <artifactId>jacoco-maven-plugin</artifactId> 
-                <version>${jacoco-maven-plugin.version}</version> 
-                <executions> 
-                    <execution> 
-                        <id>default-prepare-agent</id> 
-                        <goals> 
-                            <goal>prepare-agent</goal> 
-                        </goals> 
-                    </execution> 
-                    <execution> 
-                        <id>default-report</id> 
-                        <goals> 
-                            <goal>report</goal> 
-                        </goals> 
-                    </execution> 
-                    <execution> 
-                        <id>default-check</id> 
-                        <goals> 
-                            <goal>check</goal> 
-                        </goals> 
-                        <configuration> 
-                            <rules> 
-                                <rule implementation="org.jacoco.maven.RuleConfiguration"> 
-                                    <element>BUNDLE</element> 
-                                    <limits> 
-                                        <limit implementation="org.jacoco.report.check.Limit"> 
-                                            <counter>COMPLEXITY</counter> 
-                                            <value>COVEREDRATIO</value> 
-                                            <minimum>0.00</minimum> 
-                                        </limit> 
-                                    </limits> 
-                                </rule> 
-                            </rules> 
-                        </configuration> 
-                    </execution> 
-                    <execution> 
-                        <id>merge</id> 
-                        <goals> 
-                            <goal>merge</goal> 
-                        </goals> 
-                        <configuration> 
-                            <fileSets> 
-                                <fileSet implementation="org.apache.maven.shared.model.fileset.FileSet"> 
-                                    <directory>${project.basedir}</directory> 
-                                    <includes> 
-                                        <include>**/*.exec</include> 
-                                    </includes> 
-                                </fileSet> 
-                            </fileSets> 
-                        </configuration> 
-                    </execution> 
-                </executions> 
-            </plugin> 
-            <plugin> 
-                <groupId>org.apache.maven.plugins</groupId> 
-                <artifactId>maven-compiler-plugin</artifactId> 
-                <version>3.10.1</version> 
-                <configuration> 
-                    <source>17</source> 
-                    <target>17</target> 
-                    <compilerArgs><arg>-parameters</arg></compilerArgs> 
-                    <annotationProcessorPaths> 
-                        <path> 
-                            <groupId>org.projectlombok</groupId> 
-                            <artifactId>lombok</artifactId> 
-                            <version>${lombok.version}</version> 
-                        </path> 
-                    </annotationProcessorPaths> 
-                </configuration> 
-            </plugin> 
-            <plugin> 
-                <groupId>org.openrewrite.maven</groupId> 
-                <artifactId>rewrite-maven-plugin</artifactId> 
-                <version>5.17.1</version> 
-                <configuration> 
-                    <activeRecipes> 
-                        <recipe>org.openrewrite.java.apache.httpclient5.UpgradeApacheHttpClient_5</recipe> 
-                    </activeRecipes> 
-                </configuration> 
-                <dependencies> 
-                    <dependency> 
-                        <groupId>org.openrewrite.recipe</groupId> 
-                        <artifactId>rewrite-spring</artifactId> 
-                        <version>5.1.7</version> 
-                    </dependency> 
-                </dependencies> 
-            </plugin> 
-        </plugins> 
-    </build> 
- 
-    <reporting> 
-        <plugins> 
-            <plugin> 
-                <groupId>org.apache.maven.plugins</groupId> 
-                <artifactId>maven-surefire-report-plugin</artifactId> 
-                <configuration> 
-                    <aggregate>true</aggregate> 
-                    <linkXRef>true</linkXRef> 
-                </configuration> 
-            </plugin> 
-            <plugin> 
-                <groupId>org.jacoco</groupId> 
-                <artifactId>jacoco-maven-plugin</artifactId> 
-                <reportSets> 
-                    <reportSet> 
-                        <reports> 
-                            <report>report</report> 
-                        </reports> 
-                    </reportSet> 
-                </reportSets> 
-            </plugin> 
-        </plugins> 
-    </reporting> 
- 
-    <distributionManagement> 
-        <repository> 
-            <id>internal.releases</id> 
-            <name>releases</name> 
-            <url>https://api.artifactory-dogen.group.echonet/artifactory/p-1550-stream-fact-RELEASE/</url> 
-        </repository> 
-        <snapshotRepository> 
-            <id>internal.snapshots</id> 
-            <name>snapshots</name> 
-            <url>https://api.artifactory-dogen.group.echonet/artifactory/p-1550-stream-fact-SNAPSHOT/</url> 
-        </snapshotRepository> 
-    </distributionManagement> 
- 
-    <scm> 
-        <connection/> 
-        <developerConnection/> 
-    </scm> 
- 
-    <profiles> 
-        <profile> 
-            <id>local</id> 
-            <properties> 
-                <spring.profiles.active>local</spring.profiles.active> 
-            </properties> 
-        </profile> 
-        <profile> 
-            <id>dev</id> 
-            <properties> 
-                <spring.profiles.active>dev</spring.profiles.active> 
-            </properties> 
-        </profile> 
-        <profile> 
-            <id>qual</id> 
-            <properties> 
-                <spring.profiles.active>qual</spring.profiles.active> 
-            </properties> 
-        </profile> 
-        <profile> 
-            <id>release</id> 
-            <properties> 
-                <spring.profiles.active>prod</spring.profiles.active> 
-            </properties> 
-            <activation> 
-                <activeByDefault>true</activeByDefault> 
-            </activation> 
-        </profile> 
-    </profiles> 
-</project>
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.Mockito;
+import org.mockito.junit.MockitoJUnitRunner;
+
+import org.springframework.batch.item.Chunk;
+
+// Imports du code métier (adapte uniquement si ton package exact diffère)
+import com.bnpparibas.dsibddf.ap00420.streamfact.application.loanfolder.synchro.pojo.SynchroResult;
+import com.bnpparibas.dsibddf.ap00420.streamfact.application.loanfolder.synchro.pojo.LoanFolderSynchroResult;
+import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.loanfolder.mapper.LoanFolderMapperToJpa;
+import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.loanfolder.repository.LoanFolderAnswerJpaRepository;
+
+import static org.junit.Assert.assertTrue;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+
+/**
+ * Tests unitaires JUnit 4 pour LoanFolderSynchroItemWriter.
+ *
+ * Objectif : couvrir la logique de filtrage (présence/absence de synchronisation)
+ * et la persistance via le repository. Les commentaires indiquent les intentions
+ * et ce qu'on cherche à valider pour Sonar/Jacoco.
+ */
+@RunWith(MockitoJUnitRunner.class)
+public class LoanFolderSynchroItemWriterTest {
+
+    @Mock
+    private LoanFolderMapperToJpa loanFolderMapperToJpa;
+
+    @Mock
+    private LoanFolderAnswerJpaRepository loanFolderAnswerJpaRepository;
+
+    @InjectMocks
+    private LoanFolderSynchroItemWriter writer;
+
+    @Before
+    public void setUp() {
+        // Pas de configuration spécifique : @InjectMocks injecte les @Mock dans le writer.
+        assertTrue(true);
+    }
+
+    /**
+     * Cas 1 : au moins un SynchroResult contient une synchronisation (getLoanFolderSynchroResult() != null).
+     * Attendu : la liste filtrée n'est pas vide → le repository est appelé (saveAll).
+     */
+    @Test
+    public void write_shouldPersist_whenAtLeastOneItemHasSynchronisation() throws Exception {
+        // GIVEN
+        SynchroResult withSync = Mockito.mock(SynchroResult.class);
+        SynchroResult withoutSync = Mockito.mock(SynchroResult.class);
+        LoanFolderSynchroResult syncResult = Mockito.mock(LoanFolderSynchroResult.class);
+
+        // Simule un item "avec synchronisation" et un item "sans synchronisation"
+        Mockito.when(withSync.getLoanFolderSynchroResult()).thenReturn(syncResult);
+        Mockito.when(withoutSync.getLoanFolderSynchroResult()).thenReturn(null);
+
+        Chunk<SynchroResult> chunk = new Chunk<>(Arrays.asList(withSync, withoutSync));
+
+        // WHEN
+        writer.write(chunk);
+
+        // THEN
+        // On ne vérifie pas ici le contenu précis mappé (il dépend du mapper),
+        // mais bien que la persistance est déclenchée si au moins un item a une synchro.
+        verify(loanFolderAnswerJpaRepository).saveAll(anyList());
+        // Le mapper peut être invoqué ; on ne fait pas d'assertion sur son nombre d'appels exact.
+    }
+
+    /**
+     * Cas 2 : aucun SynchroResult n’a de synchronisation (tous renvoient null).
+     * Attendu : aucun appel au mapper ni au repository.
+     */
+    @Test
+    public void write_shouldDoNothing_whenNoItemHasSynchronisation() throws Exception {
+        // GIVEN
+        SynchroResult noSync1 = Mockito.mock(SynchroResult.class);
+        SynchroResult noSync2 = Mockito.mock(SynchroResult.class);
+
+        Mockito.when(noSync1.getLoanFolderSynchroResult()).thenReturn(null);
+        Mockito.when(noSync2.getLoanFolderSynchroResult()).thenReturn(null);
+
+        Chunk<SynchroResult> chunk = new Chunk<>(Arrays.asList(noSync1, noSync2));
+
+        // WHEN
+        writer.write(chunk);
+
+        // THEN
+        // S'il n'y a rien à synchroniser, l'ItemWriter ne doit rien persister ni mapper.
+        verifyNoInteractions(loanFolderAnswerJpaRepository);
+        verifyNoInteractions(loanFolderMapperToJpa);
+    }
+
+    /**
+     * Cas 3 : chunk vide (aucun item).
+     * Attendu : aucun appel au mapper ni au repository (chemin "pas d’items" bien géré).
+     */
+    @Test
+    public void write_shouldHandleEmptyChunk() throws Exception {
+        // GIVEN
+        Chunk<SynchroResult> emptyChunk = new Chunk<>(Collections.emptyList());
+
+        // WHEN
+        writer.write(emptyChunk);
+
+        // THEN
+        verifyNoInteractions(loanFolderAnswerJpaRepository);
+        verifyNoInteractions(loanFolderMapperToJpa);
+    }
+}
