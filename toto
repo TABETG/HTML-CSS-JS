@@ -26,21 +26,20 @@ import static org.mockito.Mockito.*;
 /**
  * Tests JUnit 4 pour PrepareAndSendDocaposteNotifWriter.
  *
- * Couverture visée (100%) :
- *  - write() en chemin succès : envoi Docaposte OK, création du rapport, push vers COS.
- *  - write() en chemin erreur : exception Docaposte, création du rapport quand même, push vers COS.
+ * Couverture :
+ *  - write() succès : envoi Docaposte, génération CSV, push COS.
+ *  - write() erreur : exception Docaposte, génération CSV quand même, push COS.
  *
- * Conformité :
- *  - JUnit 4 uniquement (org.junit.*), pas de Jupiter/AssertJ.
- *  - @RunWith(MockitoJUnitRunner.class).
+ * Contraintes :
+ *  - JUnit 4 uniquement, MockitoJUnitRunner, pas d'AssertJ/Jupiter.
  */
 @RunWith(MockitoJUnitRunner.class)
 public class PrepareAndSendDocaposteNotifWriterTest {
 
-    /** SUT créé manuellement (pas un bean Spring dans ce test). */
+    /** SUT instancié manuellement. */
     private PrepareAndSendDocaposteNotifWriter writer;
 
-    /** Dépendances externes mockées. */
+    /** Dépendances mockées. */
     @Mock private DocaposteRepository docaposteRepository;
     @Mock private DocaposteEventHistoryJpaRepository docaposteEventHistoryJpaRepository;
     @Mock private CosService cosService;
@@ -48,17 +47,17 @@ public class PrepareAndSendDocaposteNotifWriterTest {
     /** Données d’entrée et entités liées. */
     @Mock private PaymentRequestInfosForDocaposte info;
     @Mock private PaymentRequestEntity paymentRequestEntity;
-    @Mock private MaestroPaymentRequestEntity maestroPaymentRequestEntity; // <- évite le NPE (mpr)
+    @Mock private MaestroPaymentRequestEntity maestroPaymentRequestEntity;
     @Mock private DocaposteEventHistoryEntity docaposteEventHistoryEntity;
 
-    /** Dossier temporaire pour générer le rapport. */
+    /** Répertoire temporaire utilisé pour le rapport. */
     private File tempDir;
 
     @Before
     public void setUp() throws Exception {
         writer = new PrepareAndSendDocaposteNotifWriter();
 
-        // Répertoire temporaire d'écriture (vérifié plus bas)
+        // Répertoire temporaire pour la génération du CSV
         tempDir = Files.createTempDirectory("docaposte-test-").toFile();
         assertTrue(tempDir.isDirectory());
 
@@ -66,7 +65,7 @@ public class PrepareAndSendDocaposteNotifWriterTest {
         ReflectionTestUtils.setField(writer, "serialNumber", "SERIAL-001");
         ReflectionTestUtils.setField(writer, "docaposteRepository", docaposteRepository);
         ReflectionTestUtils.setField(writer, "docaposteEventHistoryJpaRepository", docaposteEventHistoryJpaRepository);
-        ReflectionTestUtils.setField(writer, "cosService", cosService); // <- injection nécessaire
+        ReflectionTestUtils.setField(writer, "cosService", cosService);
         ReflectionTestUtils.setField(writer, "pathGenerateFile", tempDir.getAbsolutePath() + File.separator);
         ReflectionTestUtils.setField(writer, "fileName", "StreamfactMaestroPaymentRequestsReport.%s.csv");
         ReflectionTestUtils.setField(writer, "prefix", "cos/prefix");
@@ -75,52 +74,48 @@ public class PrepareAndSendDocaposteNotifWriterTest {
         when(info.getDocaposteEventHistory()).thenReturn(docaposteEventHistoryEntity);
         when(info.getPaymentRequest()).thenReturn(paymentRequestEntity);
 
-        // Identifiants de la demande
+        // IMPORTANT : le MaestroPaymentRequestEntity (mpr) vient de "info", pas de PaymentRequestEntity
+        when(info.getMaestroPaymentRequest()).thenReturn(maestroPaymentRequestEntity);
+        // Si ta méthode s'appelle getMaestroPaymentRequestEntity(), remplace la ligne ci-dessus par :
+        // when(info.getMaestroPaymentRequestEntity()).thenReturn(maestroPaymentRequestEntity);
+
+        // Champs utilisés dans createReport(...)
+        when(maestroPaymentRequestEntity.getNumCptCont()).thenReturn("CPT-001");
+
+        // Identifiants de la demande (utiles pour le rapport)
         when(paymentRequestEntity.getPaymentRequestId()).thenReturn("PR-1");
         when(paymentRequestEntity.getIdDn()).thenReturn("DN-1");
 
-        // Correction du NPE : la classe lit un MaestroPaymentRequestEntity (mpr) depuis la PaymentRequest
-        // on fournit donc un mock non-null et un getter minimal.
-        when(paymentRequestEntity.getMaestroPaymentRequest()).thenReturn(maestroPaymentRequestEntity);
-        when(maestroPaymentRequestEntity.getNumCptCont()).thenReturn("CPT-001");
-
-        // Sauvegardes JPA renvoient l'entity en retour
+        // La sauvegarde renvoie l’entité fournie
         when(docaposteEventHistoryJpaRepository.save(any(DocaposteEventHistoryEntity.class)))
                 .thenAnswer(inv -> inv.getArgument(0));
     }
 
     /**
      * Chemin succès :
-     *  - docaposteRepository.sendDossierBox(...) renvoie une liste non vide (avec groupId).
-     *  - La méthode write() met à jour l'historique, génère le CSV, puis déclenche le push COS.
+     *  - Docaposte renvoie une liste non vide,
+     *  - Historique mis à jour, CSV généré, et push COS déclenché.
      */
     @Test
     public void write_should_send_to_docaposte_and_push_report_to_cos_on_success() throws Exception {
-        // Réponse Docaposte simulée
         DocaposteResponse response = mock(DocaposteResponse.class);
         when(response.getGroupId()).thenReturn("G-12345");
         when(docaposteRepository.sendDossierBox(anyList()))
                 .thenReturn(Collections.singletonList(response));
 
-        // Un chunk d’un seul élément suffit à couvrir la boucle interne
         Chunk<PaymentRequestInfosForDocaposte> chunk = new Chunk<>(Collections.singletonList(info));
 
-        // Act
         writer.write(chunk);
 
-        // Assert principaux
         verify(docaposteRepository, times(1)).sendDossierBox(anyList());
         verify(docaposteEventHistoryJpaRepository, atLeastOnce()).save(any(DocaposteEventHistoryEntity.class));
 
-        // Vérifie le push COS : prefix + filename calculé
         ArgumentCaptor<String> fileNameCaptor = ArgumentCaptor.forClass(String.class);
         verify(cosService, times(1))
                 .pushArchiveFileToCOS(eq("cos/prefix"), fileNameCaptor.capture(), isNull());
 
         String producedFileName = fileNameCaptor.getValue();
         assertNotNull(producedFileName);
-
-        // Le fichier doit exister dans le dossier temporaire
         File generated = new File(tempDir, producedFileName);
         assertTrue("Le rapport CSV doit exister", generated.exists());
         assertTrue("Le rapport CSV doit être un fichier", generated.isFile());
@@ -128,25 +123,20 @@ public class PrepareAndSendDocaposteNotifWriterTest {
 
     /**
      * Chemin erreur :
-     *  - docaposteRepository.sendDossierBox(...) lève une exception.
-     *  - Le writer trace l’erreur, persiste l’historique, crée malgré tout le rapport et effectue le push COS.
-     *  - Le test vérifie l’absence d’exception et la présence du fichier.
+     *  - Docaposte lève une exception,
+     *  - Le writer persiste l’historique, génère tout de même le CSV et appelle le push COS.
      */
     @Test
     public void write_should_handle_exception_from_docaposte_and_still_generate_and_push_report() throws Exception {
-        // Simule une erreur côté Docaposte
         when(docaposteRepository.sendDossierBox(anyList()))
                 .thenThrow(new RuntimeException("Docaposte indisponible"));
 
         Chunk<PaymentRequestInfosForDocaposte> chunk = new Chunk<>(Collections.singletonList(info));
 
-        // Act (ne doit pas lever)
         writer.write(chunk);
 
-        // La persistance d'historique est au moins appelée
         verify(docaposteEventHistoryJpaRepository, atLeastOnce()).save(any(DocaposteEventHistoryEntity.class));
 
-        // Le push COS a lieu même en cas d'erreur d'envoi
         ArgumentCaptor<String> fileNameCaptor = ArgumentCaptor.forClass(String.class);
         verify(cosService, times(1))
                 .pushArchiveFileToCOS(eq("cos/prefix"), fileNameCaptor.capture(), isNull());
