@@ -1,150 +1,131 @@
 package com.bnpparibas.dsibddf.ap00420.streamfact.batch.maestrostatuspaymentrequest.writer;
 
-import com.bnpparibas.dsibddf.ap00420.streamfact.application.cos.CosService;
-import com.bnpparibas.dsibddf.ap00420.streamfact.batch.maestrostatuspaymentrequest.dto.PaymentRequestInfosForDocaposte;
-import com.bnpparibas.dsibddf.ap00420.streamfact.domain.repository.docaposte.DocaposteRepository;
-import com.bnpparibas.dsibddf.ap00420.streamfact.domain.repository.docaposte.model.DocaposteResponse;
+import com.bnpparibas.dsibddf.ap00420.streamfact.batch.maestrostatuspaymentrequest.MaestroStatusPaymentRequestConfiguration;
+import com.bnpparibas.dsibddf.ap00420.streamfact.domain.commons.MaestroPaymentRequestStatusEnum;
 import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.billingspace.model.MaestroPaymentRequestEntity;
-import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.billingspace.model.PaymentRequestEntity;
-import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.history.model.DocaposteEventHistoryEntity;
-import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.history.repository.DocaposteEventHistoryJpaRepository;
+import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.billingspace.repository.MaestroPaymentRequestJpaRepository;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.mockito.*;
+import org.mockito.ArgumentCaptor;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnitRunner;
 import org.springframework.batch.item.Chunk;
-import org.springframework.test.util.ReflectionTestUtils;
 
-import java.io.File;
-import java.nio.file.Files;
+import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.*;
 
 /**
- * Tests JUnit 4 pour PrepareAndSendDocaposteNotifWriter.
+ * Tests JUnit 4 pour MaestroPaymentNonConformeWriter.
  *
- * Couverture :
- *  - Succès : envoi Docaposte OK, création du CSV, push vers COS.
- *  - Erreur : exception Docaposte, création du CSV quand même, push vers COS.
+ * Contraintes respectées :
+ * - JUnit 4 uniquement (org.junit.*), pas de JUnit Jupiter.
+ * - Mockito JUnit 4 runner (@RunWith(MockitoJUnitRunner.class)).
+ * - Pas d’AssertJ ; assertions JUnit (assertEquals, assertTrue).
+ * - verifyNoInteractions(...) utilisé si besoin ; jamais verifyZeroInteractions(...).
  *
- * Contraintes :
- *  - JUnit 4 uniquement (org.junit.*), pas de JUnit Jupiter / AssertJ.
- *  - @RunWith(MockitoJUnitRunner.class).
+ * Ce writer :
+ * - parcourt les items du Chunk,
+ * - positionne le statut PAYMENT_REQUEST_UPDATED et la date d’update courante,
+ * - sauvegarde la liste via maestroPaymentRequestJpaRepository.saveAll(...),
+ * - incrémente MaestroStatusPaymentRequestConfiguration.count.
  */
 @RunWith(MockitoJUnitRunner.class)
-public class PrepareAndSendDocaposteNotifWriterTest {
+public class MaestroPaymentNonConformeWriterTest {
 
-    /** SUT instancié manuellement. */
-    private PrepareAndSendDocaposteNotifWriter writer;
+    @InjectMocks
+    private MaestroPaymentNonConformeWriter writer;
 
-    /** Dépendances mockées. */
-    @Mock private DocaposteRepository docaposteRepository;
-    @Mock private DocaposteEventHistoryJpaRepository docaposteEventHistoryJpaRepository;
-    @Mock private CosService cosService;
-
-    /** Données d’entrée. */
-    @Mock private PaymentRequestInfosForDocaposte info;
-    @Mock private PaymentRequestEntity paymentRequestEntity;
-    @Mock private MaestroPaymentRequestEntity maestroPaymentRequestEntity;
-    @Mock private DocaposteEventHistoryEntity docaposteEventHistoryEntity;
-
-    /** Répertoire temporaire pour la génération du rapport CSV. */
-    private File tempDir;
+    @Mock
+    private MaestroPaymentRequestJpaRepository maestroPaymentRequestJpaRepository;
 
     @Before
-    public void setUp() throws Exception {
-        writer = new PrepareAndSendDocaposteNotifWriter();
-
-        // Dossier réel de sortie : permet de vérifier l'existence du rapport
-        tempDir = Files.createTempDirectory("docaposte-test-").toFile();
-        assertTrue(tempDir.isDirectory());
-
-        // Injection des @Value / @Autowired
-        ReflectionTestUtils.setField(writer, "serialNumber", "SERIAL-001");
-        ReflectionTestUtils.setField(writer, "docaposteRepository", docaposteRepository);
-        ReflectionTestUtils.setField(writer, "docaposteEventHistoryJpaRepository", docaposteEventHistoryJpaRepository);
-        ReflectionTestUtils.setField(writer, "cosService", cosService);
-        ReflectionTestUtils.setField(writer, "pathGenerateFile", tempDir.getAbsolutePath() + File.separator);
-        ReflectionTestUtils.setField(writer, "fileName", "StreamfactMaestroPaymentRequestsReport.%s.csv");
-        ReflectionTestUtils.setField(writer, "prefix", "cos/prefix");
-
-        // Item d'entrée
-        when(info.getDocaposteEventHistory()).thenReturn(docaposteEventHistoryEntity);
-        when(info.getPaymentRequest()).thenReturn(paymentRequestEntity);
-
-        // IMPORTANT : le MPR vient de 'info'. On ne stubbe QUE le nécessaire pour éviter le NPE.
-        when(info.getMaestroPaymentRequest()).thenReturn(maestroPaymentRequestEntity);
-        when(maestroPaymentRequestEntity.getIdDossOutiMont()).thenReturn("DOSS-001");
-
-        // Champs de PaymentRequest utilisés dans le rapport
-        when(paymentRequestEntity.getPaymentRequestId()).thenReturn("PR-1");
-        when(paymentRequestEntity.getIdDn()).thenReturn("DN-1");
-
-        // Les sauvegardes renvoient l'entité
-        when(docaposteEventHistoryJpaRepository.save(any(DocaposteEventHistoryEntity.class)))
-                .thenAnswer(inv -> inv.getArgument(0));
+    public void resetCounter() {
+        // Sécurise les tests en repartant d’une base connue
+        MaestroStatusPaymentRequestConfiguration.count = 0;
     }
 
     /**
-     * Cas succès :
-     *  - sendDossierBox(...) renvoie une liste non vide,
-     *  - historique mis à jour, CSV généré et poussé vers COS.
+     * Scénario principal : deux entités dans le chunk.
+     * On vérifie :
+     *  - setStatus appelé avec le bon label sur chaque entité,
+     *  - setUpdateDate appelé avec la même valeur temporelle pour chaque entité,
+     *  - saveAll appelé avec la liste telle quelle,
+     *  - le compteur a été incrémenté d'une unité.
      */
     @Test
-    public void write_should_send_to_docaposte_and_push_report_to_cos_on_success() throws Exception {
-        DocaposteResponse response = mock(DocaposteResponse.class);
-        when(response.getGroupId()).thenReturn("G-12345");
-        when(docaposteRepository.sendDossierBox(anyList()))
-                .thenReturn(Collections.singletonList(response));
+    public void write_should_update_status_and_date_then_save_and_increment_counter() throws Exception {
+        // Arrange
+        MaestroPaymentRequestEntity e1 = mock(MaestroPaymentRequestEntity.class);
+        MaestroPaymentRequestEntity e2 = mock(MaestroPaymentRequestEntity.class);
+        List<MaestroPaymentRequestEntity> items = Arrays.asList(e1, e2);
+        Chunk<MaestroPaymentRequestEntity> chunk = new Chunk<MaestroPaymentRequestEntity>(items);
 
-        Chunk<PaymentRequestInfosForDocaposte> chunk =
-                new Chunk<PaymentRequestInfosForDocaposte>(Collections.singletonList(info));
+        int before = MaestroStatusPaymentRequestConfiguration.count;
 
+        // Act
         writer.write(chunk);
 
-        verify(docaposteRepository, times(1)).sendDossierBox(anyList());
-        verify(docaposteEventHistoryJpaRepository, atLeastOnce()).save(any(DocaposteEventHistoryEntity.class));
+        // Assert : statut appliqué
+        String expectedLabel = MaestroPaymentRequestStatusEnum.PAYMENT_REQUEST_UPDATED.getLabel();
+        verify(e1, times(1)).setStatus(expectedLabel);
+        verify(e2, times(1)).setStatus(expectedLabel);
 
-        ArgumentCaptor<String> fileNameCaptor = ArgumentCaptor.forClass(String.class);
-        verify(cosService, times(1)).pushArchiveFileToCOS(eq("cos/prefix"), fileNameCaptor.capture(), isNull());
+        // Assert : même timestamp pour les deux entités
+        ArgumentCaptor<LocalDateTime> t1 = ArgumentCaptor.forClass(LocalDateTime.class);
+        ArgumentCaptor<LocalDateTime> t2 = ArgumentCaptor.forClass(LocalDateTime.class);
+        verify(e1, times(1)).setUpdateDate(t1.capture());
+        verify(e2, times(1)).setUpdateDate(t2.capture());
+        assertEquals("Les deux entités doivent être marquées avec la même date", t1.getValue(), t2.getValue());
 
-        String producedFileName = fileNameCaptor.getValue();
-        assertNotNull(producedFileName);
+        // Assert : repository.saveAll appelé avec la liste d'origine
+        verify(maestroPaymentRequestJpaRepository, times(1)).saveAll(items);
+        verifyNoMoreInteractions(maestroPaymentRequestJpaRepository);
 
-        File generated = new File(tempDir, producedFileName);
-        assertTrue("Le rapport CSV doit exister", generated.exists());
-        assertTrue("Le rapport CSV doit être un fichier", generated.isFile());
-
-        verifyNoMoreInteractions(docaposteRepository, cosService);
+        // Assert : compteur incrémenté d'une unité (par exécution de write)
+        assertEquals(before + 1, MaestroStatusPaymentRequestConfiguration.count);
     }
 
     /**
-     * Cas erreur :
-     *  - sendDossierBox(...) lève une exception,
-     *  - le writer persiste l’historique, génère tout de même le CSV et le pousse vers COS.
+     * Scénario chunk vide :
+     * On vérifie :
+     *  - saveAll est appelé avec une liste vide,
+     *  - aucun setStatus/setUpdateDate n'est appelé (aucun item),
+     *  - le compteur est tout de même incrémenté d'une unité (éxécution du writer).
      */
     @Test
-    public void write_should_handle_exception_from_docaposte_and_still_generate_and_push_report() throws Exception {
-        when(docaposteRepository.sendDossierBox(anyList()))
-                .thenThrow(new RuntimeException("Docaposte indisponible"));
+    public void write_should_handle_empty_chunk_and_still_increment_counter() throws Exception {
+        // Arrange
+        Chunk<MaestroPaymentRequestEntity> emptyChunk =
+                new Chunk<MaestroPaymentRequestEntity>(Collections.<MaestroPaymentRequestEntity>emptyList());
+        int before = MaestroStatusPaymentRequestConfiguration.count;
 
-        Chunk<PaymentRequestInfosForDocaposte> chunk =
-                new Chunk<PaymentRequestInfosForDocaposte>(Collections.singletonList(info));
+        // Act
+        writer.write(emptyChunk);
 
-        writer.write(chunk);
+        // Assert : capture de la liste passée au repository et vérification qu’elle est vide
+        ArgumentCaptor<List> listCaptor = ArgumentCaptor.forClass(List.class);
+        verify(maestroPaymentRequestRequestJpaRepository(), times(1)).saveAll(listCaptor.capture());
+        assertTrue("La liste sauvegardée doit être vide", listCaptor.getValue().isEmpty());
+        verifyNoMoreInteractions(maestroPaymentRequestJpaRepository);
 
-        verify(docaposteEventHistoryJpaRepository, atLeastOnce()).save(any(DocaposteEventHistoryEntity.class));
+        // Compteur incrementé d'une unité
+        assertEquals(before + 1, MaestroStatusPaymentRequestConfiguration.count);
+    }
 
-        ArgumentCaptor<String> fileNameCaptor = ArgumentCaptor.forClass(String.class);
-        verify(cosService, times(1)).pushArchiveFileToCOS(eq("cos/prefix"), fileNameCaptor.capture(), isNull());
-
-        String producedFileName = fileNameCaptor.getValue();
-        assertNotNull(producedFileName);
-        assertTrue(new File(tempDir, producedFileName).exists());
-
-        verifyNoMoreInteractions(cosService);
+    /**
+     * Petit helper pour lever précocement une faute de frappe sur le champ mocké.
+     * Permet d'éviter une NullPointerException si le mock n'est pas correctement injecté.
+     */
+    private MaestroPaymentRequestJpaRepository maestroPaymentRequestRequestJpaRepository() {
+        assertTrue("Le mock du repository doit être injecté", maestroPaymentRequestJpaRepository != null);
+        return maestroPaymentRequestJpaRepository;
     }
 }
