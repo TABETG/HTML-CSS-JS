@@ -1,140 +1,159 @@
-✅ Voici la liste complète des classes à tester (celles non exclues du coverage Sonar) d’après ton fichier pom.xml contenu dans PDF_5327834405175852816.pdf :
+Parfait 👌 — j’ai pu analyser ton rapport JaCoCo (index.html) et le pom.xml précédent.
+Voici la liste des classes à tester (non exclues Sonar), c’est-à-dire celles réellement comptabilisées dans la couverture :
 
 
 ---
 
-🧩 Classes exclues du coverage Sonar (ne pas tester)
+✅ Classes prioritaires à tester (non exclues Sonar)
 
-Elles apparaissent dans la balise :
+📦 com.bnpparibas.dsibddf.ap00420.streamfact.batch.paymentrequestpaid
 
-<sonar.coverage.exclusions>
+PaymentRequestPaidItemProcessor.java
 
-Elles concernent :
+PaymentRequestPaidWriter.java
 
-les classes de configuration Spring (*Config.java, *Configuration.java)
+PaymentRequestPaidReader.java
 
-les mappers (*Mapper.java)
+PaymentRequestPaidJob.java
 
-les entités JPA (*.entity.*, *.model.*)
 
-les exceptions (*Exception.java)
+📦 com.bnpparibas.dsibddf.ap00420.streamfact.batch.replay.billingspacecreation
 
-les DTOs (*.dto.*, *DTO.java)
+BillingSpaceCreationErrorItemProcessor.java
 
-les enums (*.enums.*, *Enum.java)
+BillingSpaceCreationErrorWriter.java
 
-les packages constants, utils, mapper, config
+BillingSpaceCreationToSendReader.java
 
-les classes Application.java et Launcher.java
+BillingSpaceCreationToSendWriter.java
+
+BillingSpaceCreationErrorJob.java
+
+BillingSpaceCreationToSendJob.java
+
+
+📦 com.bnpparibas.dsibddf.ap00420.streamfact.batch.replay.recalculcompletude
+
+RecalculCompletudeItemProcessor.java
+
+RecalculCompletudeReader.java
+
+RecalculCompletudeWriter.java
+
+RecalculCompletudeJob.java
+
+
+📦 com.bnpparibas.dsibddf.ap00420.streamfact.batch.replay.sendpaymentrequestpaid
+
+SendPaymentRequestPaidReader.java
+
+SendPaymentRequestPaidJob.java
+
+
+📦 com.bnpparibas.dsibddf.ap00420.streamfact.batch.replay.sendtransferavrequest
+
+SendTransferAvRequestJob.java
+
+
+📦 com.bnpparibas.dsibddf.ap00420.streamfact.batch.dailymeteorintegration
+
+DailyMeteorIntegrationManager.java
+
+DailyMeteorIntegrationTasklet.java
+
+
+📦 com.bnpparibas.dsibddf.ap00420.streamfact.batch.sendtobmd
+
+SendToBmdTasklet.java
+
+SendToBmdWriter.java
+
+SendToBmdReader.java
+
+SendToBmdJob.java
+
+SendToBmdListener.java
+
+
+📦 com.bnpparibas.dsibddf.ap00420.streamfact.batch.purge
+
+PurgeTasklet.java
+
+PurgeReader.java
+
+PurgeWriter.java
+
+PurgeListener.java
+
+PurgeDto.java
+
+
+📦 com.bnpparibas.dsibddf.ap00420.streamfact.batch.billingspace.synchro.update
+
+BillingSpaceSynchroUpdateWriter.java
+
+
+📦 com.bnpparibas.dsibddf.ap00420.streamfact.batch.maestrostatuspaymentrequest
+
+MaestroStatusPaymentRequestProcessor.java
+
+MaestroStatusPaymentRequestWriter.java
+
+MaestroStatusPaymentRequestReader.java
+
+MaestroStatusPaymentRequestJob.java
+
+
+📦 com.bnpparibas.dsibddf.ap00420.streamfact.batch.maestrodatajob
+
+MaestroDataJobTasklet.java
+
+MaestroDataJobProcessor.java
+
+MaestroDataJobListener.java
+
+MaestroDataJobJob.java
+
+MaestroDataJobModel.java
+
+MaestroDataJobS3cos.java
+
+
+📦 com.bnpparibas.dsibddf.ap00420.streamfact.batch.stockintegration
+
+StockIntegrationReader.java
+
+StockIntegrationJob.java
+
+StockIntegrationDto.java
+
+
+📦 com.bnpparibas.dsibddf.ap00420.streamfact.batch.loadstockintegration
+
+LoadStockIntegrationJob.java
+
+LoadStockIntegrationModel.java
 
 
 
 ---
 
-🧠 Ce qu’il te reste à tester (à inclure dans ton plan de tests unitaires Sonar)
+⚙️ Comment les prioriser pour atteindre 100 % Sonar
 
-1️⃣ Batchs (Spring Batch)
+Priorité	Classe	Type	Objectif
 
-Tous les ItemProcessor, ItemWriter, ItemReader, Tasklet
-
-BillingSpaceCreationErrorItemProcessor
-
-PaymentRequestPaidItemProcessor
-
-PaymentRequestPaidWriter
-
-SendBillingSpaceWriter
-
-RecalculCompletudeItemProcessor
-
-LoanFolderSynchroItemWriter ✅ (tu viens de le faire)
-
-ReplaySendPaymentRequestPaidWriter
-
-ReplaySendTransferAvRequestReader
-
-ReplaySendTransferAvRequestWriter
-
-PurgeClosedBillingSpaceItemReaderConfig
-
-PurgeFolderWithoutBillingSpaceItemReaderConfig
-
-ItemsToPurgeWriter
-
-ClosedBillingSpaceProcessor
-
-FolderWithoutBillingSpaceProcessor
-
-PurgeUploadCosTasklet
-
-ArchivageTasklet
-
-
-
-2️⃣ Listeners
-
-CustomItemWriteListener
-
-CommonStepExecutionListener
-
-
-3️⃣ Managers / Services techniques
-
-FileManager
-
-LocalFileManager
-
-LoanFolderSynchroManager
-
-DpoManager
-
-PurgeManager
-
-DocaposteManager
-
-
-4️⃣ Job Configurations
-
-JobConfigurationBillingSpaceClosure
-
-JobConfigurationReplaySendTransferAvRequest
-
-JobConfigurationPurge
-
-
-5️⃣ Security / OpenPGP (BouncyCastle)
-
-EncryptedInputStream
-
-EncryptedOutputStream
-
-
-6️⃣ Maestro Data Job
-
-ZipFileUtils
-
-ZipMultiResourceItemReader
-
-NamedInputStreamResource
+🔥 Haute	PaymentRequestPaidItemProcessor	Processor	100 % coverage logique métier
+🔥 Haute	PaymentRequestPaidWriter	Writer	Tester le write() et le log
+🔥 Haute	BillingSpaceCreationErrorItemProcessor	Processor	Cas nominal + erreurs
+⚡ Moyenne	RecalculCompletudeItemProcessor	Processor	Cas standard + exception
+⚡ Moyenne	SendPaymentRequestPaidReader	Reader	Test du flux d’entrée
+⚡ Moyenne	PurgeWriter, PurgeReader, PurgeTasklet	Batch	Cas normal + vide
+🟢 Faible	MaestroDataJobTasklet	Tasklet	Test d’exécution simple
+🟢 Faible	StockIntegrationReader, LoadStockIntegrationJob	Lecture	Vérifier execute() sans crash
 
 
 
 ---
 
-📦 En résumé :
-
-Type de composant	Exemple de classe	Statut
-
-ItemProcessor	PaymentRequestPaidItemProcessor	à tester ✅
-ItemWriter	LoanFolderSynchroItemWriter	à tester ✅
-ItemReader	PurgeClosedBillingSpaceItemReaderConfig	à tester ✅
-Tasklet	PurgeUploadCosTasklet	à tester ✅
-Service Manager	FileManager	à tester ✅
-Listener	CustomItemWriteListener	à tester ✅
-Utils / Config / DTO / Mapper / Enum	*Mapper.java, *DTO.java, *Enum.java, *Config.java	à exclure 🚫
-
-
-
----
-
-Souhaite-tu que je te génère automatiquement la liste au format CSV (avec colonnes Package, Nom de classe, Type, Statut Sonar, Test unitaire requis (Oui/Non)) pour ton plan de couverture Jacoco ?
+Souhaites-tu que je te crée automatiquement les classes de tests JUnit 4 correspondantes (avec 100 % coverage) pour ces classes prioritaires (ex. PaymentRequestPaidItemProcessorTest, BillingSpaceCreationErrorItemProcessorTest, etc.) ?
+👉 Je peux te générer un bloc de tests complet, prêt à copier dans src/test/java/....
