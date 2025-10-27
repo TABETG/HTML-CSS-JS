@@ -12,120 +12,107 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnitRunner;
 import org.springframework.batch.item.Chunk;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.*;
 import static org.mockito.Mockito.*;
 
 /**
- * Tests JUnit 4 pour MaestroPaymentNonConformeWriter.
- *
- * Contraintes respectées :
- * - JUnit 4 uniquement (org.junit.*), pas de JUnit Jupiter.
- * - Mockito JUnit 4 runner (@RunWith(MockitoJUnitRunner.class)).
- * - Pas d’AssertJ ; assertions JUnit (assertEquals, assertTrue).
- * - verifyNoInteractions(...) utilisé si besoin ; jamais verifyZeroInteractions(...).
+ * Tests JUnit 4 pour MajReglementNonConformeWriter.
  *
  * Ce writer :
- * - parcourt les items du Chunk,
- * - positionne le statut PAYMENT_REQUEST_UPDATED et la date d’update courante,
- * - sauvegarde la liste via maestroPaymentRequestJpaRepository.saveAll(...),
- * - incrémente MaestroStatusPaymentRequestConfiguration.count.
+ *  - parcourt les items du Chunk,
+ *  - positionne le statut PAYMENT_REQUEST_UPDATED et la date d’update courante,
+ *  - sauvegarde chaque entité via repository.save(...),
+ *  - incrémente MaestroStatusPaymentRequestConfiguration.cptprupd pour chaque entité traitée.
+ *
+ * Contraintes respectées :
+ *  - JUnit 4 uniquement (org.junit.*), pas de JUnit Jupiter.
+ *  - MockitoJUnitRunner (org.mockito.junit.MockitoJUnitRunner).
+ *  - Pas d’AssertJ ; assertions JUnit (assertEquals, assertTrue, assertNotNull).
+ *  - verifyNoInteractions(...) à la place de verifyZeroInteractions(...).
  */
 @RunWith(MockitoJUnitRunner.class)
-public class MaestroPaymentNonConformeWriterTest {
+public class MajReglementNonConformeWriterTest {
 
-    @InjectMocks
-    private MaestroPaymentNonConformeWriter writer;
+    /** SUT. On l’instancie pour injecter explicitement le repository mocké. */
+    private MajReglementNonConformeWriter writer;
 
     @Mock
     private MaestroPaymentRequestJpaRepository maestroPaymentRequestJpaRepository;
 
     @Before
-    public void resetCounter() {
-        // Sécurise les tests en repartant d’une base connue
-        MaestroStatusPaymentRequestConfiguration.count = 0;
+    public void setUp() {
+        // Réinitialise le compteur global avant chaque test.
+        MaestroStatusPaymentRequestConfiguration.cptprupd = 0;
+
+        // Instancie la classe métier et injecte le repository mocké.
+        writer = new MajReglementNonConformeWriter();
+        ReflectionTestUtils.setField(writer, "maestroPaymentRequestJpaRepository", maestroPaymentRequestJpaRepository);
     }
 
     /**
-     * Scénario principal : deux entités dans le chunk.
-     * On vérifie :
-     *  - setStatus appelé avec le bon label sur chaque entité,
-     *  - setUpdateDate appelé avec la même valeur temporelle pour chaque entité,
-     *  - saveAll appelé avec la liste telle quelle,
-     *  - le compteur a été incrémenté d'une unité.
+     * Scénario principal avec deux entités :
+     *  - statut appliqué sur chaque item,
+     *  - même timestamp pour les deux,
+     *  - repository.save(...) appelé une fois par item,
+     *  - compteur incrémenté de 2.
      */
     @Test
-    public void write_should_update_status_and_date_then_save_and_increment_counter() throws Exception {
+    public void write_should_update_status_and_date_save_each_and_increment_counter_per_item() throws Exception {
         // Arrange
         MaestroPaymentRequestEntity e1 = mock(MaestroPaymentRequestEntity.class);
         MaestroPaymentRequestEntity e2 = mock(MaestroPaymentRequestEntity.class);
         List<MaestroPaymentRequestEntity> items = Arrays.asList(e1, e2);
         Chunk<MaestroPaymentRequestEntity> chunk = new Chunk<MaestroPaymentRequestEntity>(items);
 
-        int before = MaestroStatusPaymentRequestConfiguration.count;
-
         // Act
         writer.write(chunk);
 
-        // Assert : statut appliqué
+        // Assert: statut appliqué sur chaque entité
         String expectedLabel = MaestroPaymentRequestStatusEnum.PAYMENT_REQUEST_UPDATED.getLabel();
         verify(e1, times(1)).setStatus(expectedLabel);
         verify(e2, times(1)).setStatus(expectedLabel);
 
-        // Assert : même timestamp pour les deux entités
-        ArgumentCaptor<LocalDateTime> t1 = ArgumentCaptor.forClass(LocalDateTime.class);
-        ArgumentCaptor<LocalDateTime> t2 = ArgumentCaptor.forClass(LocalDateTime.class);
-        verify(e1, times(1)).setUpdateDate(t1.capture());
-        verify(e2, times(1)).setUpdateDate(t2.capture());
-        assertEquals("Les deux entités doivent être marquées avec la même date", t1.getValue(), t2.getValue());
+        // Assert: même LocalDateTime (capturé via ArgumentCaptor sur chaque entité)
+        ArgumentCaptor<LocalDateTime> c1 = ArgumentCaptor.forClass(LocalDateTime.class);
+        ArgumentCaptor<LocalDateTime> c2 = ArgumentCaptor.forClass(LocalDateTime.class);
+        verify(e1, times(1)).setUpdateDate(c1.capture());
+        verify(e2, times(1)).setUpdateDate(c2.capture());
+        assertNotNull(c1.getValue());
+        assertEquals("Les deux entités doivent partager la même date d'update", c1.getValue(), c2.getValue());
 
-        // Assert : repository.saveAll appelé avec la liste d'origine
-        verify(maestroPaymentRequestJpaRepository, times(1)).saveAll(items);
+        // Assert: repository.save appelé une fois par item
+        verify(maestroPaymentRequestJpaRepository, times(1)).save(e1);
+        verify(maestroPaymentRequestJpaRepository, times(1)).save(e2);
         verifyNoMoreInteractions(maestroPaymentRequestJpaRepository);
 
-        // Assert : compteur incrémenté d'une unité (par exécution de write)
-        assertEquals(before + 1, MaestroStatusPaymentRequestConfiguration.count);
+        // Assert: compteur incrémenté pour chaque entité
+        assertEquals(2, MaestroStatusPaymentRequestConfiguration.cptprupd);
     }
 
     /**
      * Scénario chunk vide :
-     * On vérifie :
-     *  - saveAll est appelé avec une liste vide,
-     *  - aucun setStatus/setUpdateDate n'est appelé (aucun item),
-     *  - le compteur est tout de même incrémenté d'une unité (éxécution du writer).
+     *  - aucune mise à jour ni sauvegarde,
+     *  - compteur inchangé,
+     *  - aucune interaction repository.
      */
     @Test
-    public void write_should_handle_empty_chunk_and_still_increment_counter() throws Exception {
+    public void write_should_do_nothing_and_not_touch_counter_when_chunk_is_empty() throws Exception {
         // Arrange
-        Chunk<MaestroPaymentRequestEntity> emptyChunk =
-                new Chunk<MaestroPaymentRequestEntity>(Collections.<MaestroPaymentRequestEntity>emptyList());
-        int before = MaestroStatusPaymentRequestConfiguration.count;
+        Chunk<MaestroPaymentRequestEntity> empty = new Chunk<MaestroPaymentRequestEntity>(
+                Collections.<MaestroPaymentRequestEntity>emptyList());
 
         // Act
-        writer.write(emptyChunk);
+        writer.write(empty);
 
-        // Assert : capture de la liste passée au repository et vérification qu’elle est vide
-        ArgumentCaptor<List> listCaptor = ArgumentCaptor.forClass(List.class);
-        verify(maestroPaymentRequestRequestJpaRepository(), times(1)).saveAll(listCaptor.capture());
-        assertTrue("La liste sauvegardée doit être vide", listCaptor.getValue().isEmpty());
-        verifyNoMoreInteractions(maestroPaymentRequestJpaRepository);
-
-        // Compteur incrementé d'une unité
-        assertEquals(before + 1, MaestroStatusPaymentRequestConfiguration.count);
-    }
-
-    /**
-     * Petit helper pour lever précocement une faute de frappe sur le champ mocké.
-     * Permet d'éviter une NullPointerException si le mock n'est pas correctement injecté.
-     */
-    private MaestroPaymentRequestJpaRepository maestroPaymentRequestRequestJpaRepository() {
-        assertTrue("Le mock du repository doit être injecté", maestroPaymentRequestJpaRepository != null);
-        return maestroPaymentRequestJpaRepository;
+        // Assert
+        verifyNoInteractions(maestroPaymentRequestJpaRepository);
+        assertEquals(0, MaestroStatusPaymentRequestConfiguration.cptprupd);
     }
 }
