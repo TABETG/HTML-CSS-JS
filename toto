@@ -25,8 +25,8 @@ import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.loa
 import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.loanfolder.repository.LoanFolderAnswerJpaRepository;
 
 /**
- * Test JUnit 4 pour LoanFolderSynchroItemWriter.
- * Compatible Jenkins/Sonar/Jacoco (pas de JUnit Jupiter, pas d'AssertJ).
+ * Classe de test JUnit4 pour LoanFolderSynchroItemWriter.
+ * Compatible Sonar/Jenkins : pas de Jupiter, pas d’AssertJ.
  */
 @RunWith(MockitoJUnitRunner.class)
 public class LoanFolderSynchroItemWriterTest {
@@ -37,60 +37,48 @@ public class LoanFolderSynchroItemWriterTest {
     @InjectMocks
     private LoanFolderSynchroItemWriter writer;
 
+    private SynchroResult noSync;
+    private SynchroResult withSync;
+
     @Before
     public void setUp() {
-        // Initialisation éventuelle avant chaque test
+        noSync = Mockito.mock(SynchroResult.class);
+        withSync = Mockito.mock(SynchroResult.class);
+
+        // On simule un objet "LoanFolderSynchroResult" non nul pour l'item avec synchronisation
+        Object mockSynchroResult = new Object();
+        Mockito.when(withSync.getLoanFolderSynchroResult()).thenReturn(mockSynchroResult);
+        Mockito.when(noSync.getLoanFolderSynchroResult()).thenReturn(null);
     }
 
-    /**
-     * Cas 1 : Aucun élément ne possède de synchronisation.
-     * Le repository doit recevoir une liste vide.
-     */
+    /** Cas 1 : aucun élément n’a de synchronisation */
     @Test
     public void write_shouldCallSaveAllWithEmptyList_whenNoItemHasSynchronisation() {
-        SynchroResult res1 = Mockito.mock(SynchroResult.class);
-        SynchroResult res2 = Mockito.mock(SynchroResult.class);
-
-        Chunk<SynchroResult> chunk = new Chunk<>(Arrays.asList(res1, res2));
+        Chunk<SynchroResult> chunk = new Chunk<>(Arrays.asList(noSync, noSync));
 
         writer.write(chunk);
 
-        // Capture correcte : typée LoanFolderEntity pour correspondre au repository
         ArgumentCaptor<List<LoanFolderEntity>> captor = ArgumentCaptor.forClass((Class) List.class);
         verify(loanFolderAnswerJpaRepository, times(1)).saveAll(captor.capture());
 
-        // Vérifie que la liste passée est vide
         assertEquals(0, captor.getValue().size());
     }
 
-    /**
-     * Cas 2 : Un seul élément possède une synchronisation.
-     * On vérifie que seul celui-ci est mappé et sauvegardé.
-     */
+    /** Cas 2 : un seul élément a une synchronisation */
     @Test
     public void write_shouldMapAndSaveOneEntity_whenOneItemHasSynchronisation() {
-        SynchroResult noSync = Mockito.mock(SynchroResult.class);
-        SynchroResult withSync = Mockito.mock(SynchroResult.class, Mockito.RETURNS_DEEP_STUBS);
-        Mockito.when(withSync.getLoanFolderSynchroResult()).thenReturn(
-                withSync.getLoanFolderSynchroResult()
-        );
-
         Chunk<SynchroResult> chunk = new Chunk<>(Arrays.asList(noSync, withSync));
 
-        // Création d'un mock d'entité à renvoyer depuis le mapper
         LoanFolderEntity mockEntity = Mockito.mock(LoanFolderEntity.class);
 
-        // Mock statique de LoanFolderMapperToJpa
         try (MockedStatic<LoanFolderMapperToJpa> mocked = Mockito.mockStatic(LoanFolderMapperToJpa.class)) {
             mocked.when(() -> LoanFolderMapperToJpa.toJpa(any())).thenReturn(mockEntity);
 
             writer.write(chunk);
 
-            // Capture du bon type
             ArgumentCaptor<List<LoanFolderEntity>> captor = ArgumentCaptor.forClass((Class) List.class);
             verify(loanFolderAnswerJpaRepository, times(1)).saveAll(captor.capture());
 
-            // Vérifie qu’un seul élément est sauvegardé
             assertEquals(1, captor.getValue().size());
         }
     }
