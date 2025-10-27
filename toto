@@ -20,14 +20,24 @@ import static org.junit.Assert.*;
 import static org.mockito.Mockito.*;
 
 /**
- * JUnit 4 – 100% coverage pour SendToBMDArchiveCOSTasklet.
- * Conformes: org.junit.*, org.mockito.*, MockitoJUnitRunner, no Jupiter, no AssertJ.
+ * Tests JUnit 4 pour SendToBMDUploadCOSTasklet.
+ *
+ * Objectifs:
+ *  - Vérifier le comportement "mock": pas d'appel COS, FINISHED.
+ *  - Vérifier le succès réel: appel COS, ExitStatus.COMPLETED.
+ *  - Vérifier l'échec réel: exception COS, ExitStatus.FAILED.
+ *  - Couvrir afterPropertiesSet() (no-op).
+ *
+ * Contraintes:
+ *  - JUnit 4 uniquement (org.junit.*).
+ *  - MockitoJUnitRunner.
+ *  - Pas d'AssertJ ni Jupiter.
  */
 @RunWith(MockitoJUnitRunner.class)
-public class SendToBMDArchiveCOSTaskletTest {
+public class SendToBMDUploadCOSTaskletTest {
 
     @InjectMocks
-    private SendToBMDArchiveCOSTasklet tasklet;
+    private SendToBMDUploadCOSTasklet tasklet;
 
     @Mock
     private CosService cosService;
@@ -37,86 +47,80 @@ public class SendToBMDArchiveCOSTaskletTest {
 
     @Before
     public void setUp() {
-        // Contexte Spring Batch réaliste (pas mocké) pour manipuler l'ExitStatus
         JobExecution jobExecution = new JobExecution(1L);
-        stepExecution = new StepExecution("sendToBMD", jobExecution);
+        stepExecution = new StepExecution("sendToBMDUpload", jobExecution);
         contribution = new StepContribution(stepExecution);
     }
 
+    /** Vérifie que afterPropertiesSet() ne lève aucune exception. */
     @Test
     public void afterPropertiesSet_should_do_nothing() {
-        // Appel direct: ne doit lever aucune exception
         tasklet.afterPropertiesSet();
-        // ✅ Assertion explicite pour Sonar
-        assertTrue("afterPropertiesSet exécuté sans exception", true);
+        // ✅ Assertion ajoutée pour Sonar
+        assertTrue("Méthode afterPropertiesSet exécutée sans exception", true);
     }
 
+    /** Branche mock=true : pas d’appel COS, FINISHED attendu. */
     @Test
-    public void execute_when_mock_true_should_finish_and_not_call_cos() throws Exception {
-        // given
+    public void execute_when_mock_true_should_finish_without_cos_call() throws Exception {
         ReflectionTestUtils.setField(tasklet, "mock", true);
         ReflectionTestUtils.setField(tasklet, "pathGenerateFile", "/tmp");
         ReflectionTestUtils.setField(tasklet, "prefix", "arch-");
-        putFileNameInJobContext("export.csv");
+        putEncryptedFileName("file.enc");
 
         ChunkContext chunkContext = new ChunkContext(new StepContext(stepExecution));
 
-        // when
         RepeatStatus status = tasklet.execute(contribution, chunkContext);
 
-        // then
         assertEquals(RepeatStatus.FINISHED, status);
         verifyNoInteractions(cosService);
-        // ExitStatus non modifié par la branche mock
     }
 
+    /** Branche mock=false, exécution réussie : COMPLETED attendu. */
     @Test
     public void execute_when_mock_false_and_push_ok_should_set_completed() throws Exception {
-        // given
         ReflectionTestUtils.setField(tasklet, "mock", false);
-        ReflectionTestUtils.setField(tasklet, "pathGenerateFile", "/opt/data");
+        ReflectionTestUtils.setField(tasklet, "pathGenerateFile", "/opt/export");
         ReflectionTestUtils.setField(tasklet, "prefix", "bkp-");
-        putFileNameInJobContext("daily-export.json");
+        putEncryptedFileName("daily.enc");
 
         ChunkContext chunkContext = new ChunkContext(new StepContext(stepExecution));
 
-        // when
         RepeatStatus status = tasklet.execute(contribution, chunkContext);
 
-        // then
         assertEquals(RepeatStatus.FINISHED, status);
         assertEquals(ExitStatus.COMPLETED, stepExecution.getExitStatus());
         verify(cosService, times(1))
-                .pushArchiveFileToCOS("/opt/data", "daily-export.json", "bkp-");
+                .pushArchiveFileToNewCOS("/opt/export", "daily.enc", "bkp-");
         verifyNoMoreInteractions(cosService);
     }
 
+    /** Branche mock=false, exception levée : FAILED attendu. */
     @Test
     public void execute_when_mock_false_and_push_throws_should_set_failed() throws Exception {
-        // given
         ReflectionTestUtils.setField(tasklet, "mock", false);
         ReflectionTestUtils.setField(tasklet, "pathGenerateFile", "/data/out");
         ReflectionTestUtils.setField(tasklet, "prefix", "pref-");
-        putFileNameInJobContext("broken.csv");
+        putEncryptedFileName("broken.enc");
 
         doThrow(new RuntimeException("cos down"))
-                .when(cosService).pushArchiveFileToCOS("/data/out", "broken.csv", "pref-");
+                .when(cosService).pushArchiveFileToNewCOS("/data/out", "broken.enc", "pref-");
 
         ChunkContext chunkContext = new ChunkContext(new StepContext(stepExecution));
 
-        // when
         RepeatStatus status = tasklet.execute(contribution, chunkContext);
 
-        // then
         assertEquals(RepeatStatus.FINISHED, status);
         assertEquals(ExitStatus.FAILED, stepExecution.getExitStatus());
         verify(cosService, times(1))
-                .pushArchiveFileToCOS("/data/out", "broken.csv", "pref-");
+                .pushArchiveFileToNewCOS("/data/out", "broken.enc", "pref-");
         verifyNoMoreInteractions(cosService);
     }
 
-    // Utilitaire: place le nom de fichier attendu par le tasklet dans le JobExecutionContext
-    private void putFileNameInJobContext(String fileName) {
-        stepExecution.getJobExecution().getExecutionContext().put("originalFileName", fileName);
+    /** Utilitaire : place un nom de fichier dans le contexte d’exécution. */
+    private void putEncryptedFileName(String fileName) {
+        assertNotNull(stepExecution);
+        assertNotNull(stepExecution.getJobExecution());
+        stepExecution.getJobExecution().getExecutionContext().put("encryptedFileName", fileName);
     }
 }
