@@ -3,6 +3,7 @@ package com.bnpparibas.dsibddf.ap00420.streamfact.batch.sendtobmd.tasklet;
 import com.bnpparibas.dsibddf.ap00420.streamfact.application.cft.TransfertManager;
 import com.bnpparibas.dsibddf.ap00420.streamfact.domain.cft.TransferDetails;
 import com.bnpparibas.dsibddf.ap00420.streamfact.domain.cft.TransferRequestResult;
+import com.bnpparibas.dsibddf.ap00420.streamfact.domain.cft.TransferRequestResultLinks;
 import com.bnpparibas.dsibddf.ap00420.streamfact.domain.cft.TransferRequestSendFileBody;
 import org.junit.Before;
 import org.junit.Test;
@@ -13,14 +14,14 @@ import org.springframework.batch.core.ExitStatus;
 import org.springframework.batch.core.JobExecution;
 import org.springframework.batch.core.StepContribution;
 import org.springframework.batch.core.StepExecution;
+import org.springframework.batch.core.UnexpectedJobExecutionException;
 import org.springframework.batch.core.scope.context.ChunkContext;
 import org.springframework.batch.core.scope.context.StepContext;
-import org.springframework.batch.core.UnexpectedJobExecutionException;
 import org.springframework.batch.repeat.RepeatStatus;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.web.client.HttpClientErrorException;
 
 import java.net.URI;
 
@@ -30,21 +31,17 @@ import static org.mockito.Mockito.*;
 /**
  * Tests JUnit 4 pour SendToBMDSendCFTTasklet.
  *
- * Objectifs de couverture (100 %) :
- *  - execute() :
- *      * mock == true → FINISHED, aucun appel CFT.
- *      * mock == false, 1er passage (create) OK → CONTINUABLE + 'transfertURI' placé en contexte.
- *      * mock == false, 1er passage KO (HTTP non 2xx) → contribution FAILED + FINISHED (exception catchée).
- *      * mock == false, 1er passage HttpClientErrorException → FINISHED (exception wrap + catch).
- *      * mock == false, 2e passage (check) diagi=0 → FINISHED.
- *      * mock == false, 2e passage (check) diagi=144 → CONTINUABLE (avec sleep).
- *      * mock == false, 2e passage (check) diagi≠{0,144} → contribution FAILED + FINISHED.
- *  - isTransferComplete() / isTransferBusy() : true/false selon diagi.
- *  - Accesseurs setPart(), setIdf(), setMock(), setApiTimeout(), setTransfertManager() exécutés.
+ * Couverture:
+ *  - mock=true : FINISHED, aucun appel CFT
+ *  - create phase : succès 2xx → CONTINUABLE et transfertURI en contexte
+ *  - create phase : HTTP non 2xx → contribution FAILED + FINISHED
+ *  - create phase : HttpClientErrorException → FINISHED
+ *  - check phase : diagi=0 → FINISHED
+ *  - check phase : diagi=144 → CONTINUABLE (pause)
+ *  - check phase : diagi autre → contribution FAILED + FINISHED
+ *  - utilitaires isTransferComplete/isTransferBusy + setters
  *
- * Contraintes :
- *  - JUnit 4 (org.junit.*), pas de Jupiter.
- *  - MockitoJUnitRunner, pas d’AssertJ.
+ * Contraintes: JUnit4 uniquement, MockitoJUnitRunner, pas d’AssertJ, verifyNoInteractions(...)
  */
 @RunWith(MockitoJUnitRunner.class)
 public class SendToBMDSendCFTTaskletTest {
@@ -55,7 +52,6 @@ public class SendToBMDSendCFTTaskletTest {
     @Mock
     private TransfertManager transfertManager;
 
-    // Contexte Spring Batch réel pour valider ExitStatus/RepeatStatus
     private StepExecution stepExecution;
     private StepContribution contribution;
 
@@ -65,74 +61,64 @@ public class SendToBMDSendCFTTaskletTest {
         stepExecution = new StepExecution("sendToBMDSendCFT", jobExecution);
         contribution = new StepContribution(stepExecution);
 
-        // Valeurs utilisées dans la phase "create"
         tasklet.setPart("PART");
         tasklet.setIdf("IDF");
         tasklet.setApiTimeout(30);
         tasklet.setTransfertManager(transfertManager);
 
-        // Clé lue par le tasklet pour récupérer le nom de fichier
         putEncryptedFileName("file.enc");
-
-        // Préfixe de l'objet stocké côté COS (utilisé pour fname)
+        // utilisé par la classe pour composer fname
         ReflectionTestUtils.setField(tasklet, "objectKeyNewToSend", "obj/new");
     }
 
-    /** Branche mock=true : ne doit pas appeler le TransfertManager et termine en FINISHED. */
+    /** Branche mock=true : pas d'appel réseau, FINISHED. */
     @Test
     public void execute_when_mock_true_should_finish_without_cft_calls() throws Exception {
         tasklet.setMock(true);
 
-        ChunkContext ctx = new ChunkContext(new StepContext(stepExecution));
-        RepeatStatus status = tasklet.execute(contribution, ctx);
+        RepeatStatus status = tasklet.execute(contribution, new ChunkContext(new StepContext(stepExecution)));
 
         assertEquals(RepeatStatus.FINISHED, status);
         verifyNoInteractions(transfertManager);
     }
 
-    /** 1er passage (create) : réponse 2xx + body -> CONTINUABLE et 'transfertURI' en contexte. */
+    /**
+     * 1er passage (create) : succès 2xx.
+     * Correction clé: getLinks() doit renvoyer un TransferRequestResultLinks, pas un Object.
+     */
     @Test
     public void execute_create_phase_success_should_be_continuable_and_set_transfer_uri() throws Exception {
         tasklet.setMock(false);
 
-        // Prépare réponse OK 200 avec TransferRequestResult + lien href
         TransferRequestResult result = mock(TransferRequestResult.class);
-        // Le domaine expose généralement un "links" avec un "href"
-        Object links = mock(Object.class);
-        // Utilisation de ReflectionTestUtils pour simuler getHref()
+        // Mock typé pour résoudre l'erreur "no suitable method found for thenReturn(java.lang.Object)"
+        TransferRequestResultLinks links = mock(TransferRequestResultLinks.class);
+
         when(result.getLinks()).thenReturn(links);
-        // Simule l'invocation "links.getHref()" via proxy Mockito -> use Answer
-        // Plus simple: on capture l'argument du manager et plaçons directement l'URI dans le contexte après l'appel.
+        // Si getHref() retourne une String :
+        when(links.getHref()).thenReturn("http://cft/transfer/123");
+        // Si dans ton modèle getHref() retourne un URI, remplace la ligne ci-dessus par :
+        // when(links.getHref()).thenReturn(URI.create("http://cft/transfer/123"));
 
-        // Utilise ArgumentCaptor pour contrôler le fname envoyé
-        ArgumentCaptor<TransferRequestSendFileBody> bodyCaptor = ArgumentCaptor.forClass(TransferRequestSendFileBody.class);
+        ArgumentCaptor<TransferRequestSendFileBody> bodyCaptor =
+                ArgumentCaptor.forClass(TransferRequestSendFileBody.class);
 
-        // On simule la réponse OK
         when(transfertManager.transfersFiles(eq("PART"), eq("IDF"), eq(30), bodyCaptor.capture()))
                 .thenReturn(new ResponseEntity<TransferRequestResult>(result, HttpStatus.OK));
 
-        // Pour placer l'URI en contexte, le tasklet lit "result.getLinks().getHref()"
-        // On va stubber via Reflection pour que getHref() existe dynamiquement :
-        // On utilise un mock avec Answer pour "getHref"
-        Mockito.doAnswer(invocation -> "http://cft/transfer/123").when(links).toString();
-        // Puis on intercepte l'écriture en contexte via une légère adaptation :
-        // On laisse la classe faire son putString(...) et on validera après.
+        RepeatStatus status = tasklet.execute(contribution, new ChunkContext(new StepContext(stepExecution)));
 
-        ChunkContext ctx = new ChunkContext(new StepContext(stepExecution));
-        RepeatStatus status = tasklet.execute(contribution, ctx);
-
-        // Vérifie le fichier envoyé (fname = objectKeyNewToSend + "/" + encryptedFileName)
+        // Le fname envoyé = objectKeyNewToSend + "/" + encryptedFileName
         assertEquals("obj/new/file.enc", bodyCaptor.getValue().getFname());
-
-        // La phase create renvoie CONTINUABLE
         assertEquals(RepeatStatus.CONTINUABLE, status);
 
-        // 'transfertURI' doit être posé en contexte par la classe métier
+        // La classe pose transfertURI dans le contexte
         String uri = stepExecution.getJobExecution().getExecutionContext().getString("transfertURI", null);
         assertNotNull(uri);
+        // Optionnel : assertEquals("http://cft/transfer/123", uri);
     }
 
-    /** 1er passage (create) : HTTP non 2xx -> contribution FAILED et execute() retourne FINISHED (exception catchée). */
+    /** 1er passage (create) : HTTP non 2xx → FAILED + FINISHED. */
     @Test
     public void execute_create_phase_non2xx_should_mark_failed_and_return_finished() throws Exception {
         tasklet.setMock(false);
@@ -141,16 +127,14 @@ public class SendToBMDSendCFTTaskletTest {
         when(transfertManager.transfersFiles(anyString(), anyString(), anyInt(), any(TransferRequestSendFileBody.class)))
                 .thenReturn(new ResponseEntity<TransferRequestResult>(result, HttpStatus.INTERNAL_SERVER_ERROR));
 
-        ChunkContext ctx = new ChunkContext(new StepContext(stepExecution));
-        RepeatStatus status = tasklet.execute(contribution, ctx);
+        RepeatStatus status = tasklet.execute(contribution, new ChunkContext(new StepContext(stepExecution)));
 
         assertEquals(RepeatStatus.FINISHED, status);
         assertEquals(ExitStatus.FAILED.getExitCode(), contribution.getExitStatus().getExitCode());
-        // 'transfertURI' ne doit pas être positionné
         assertEquals("", stepExecution.getJobExecution().getExecutionContext().getString("transfertURI", ""));
     }
 
-    /** 1er passage (create) : HttpClientErrorException -> execute() termine FINISHED (wrap + catch). */
+    /** 1er passage (create) : HttpClientErrorException → FINISHED, pas de transfertURI. */
     @Test
     public void execute_create_phase_client_error_should_be_finished_and_no_uri() throws Exception {
         tasklet.setMock(false);
@@ -158,20 +142,16 @@ public class SendToBMDSendCFTTaskletTest {
         when(transfertManager.transfersFiles(anyString(), anyString(), anyInt(), any(TransferRequestSendFileBody.class)))
                 .thenThrow(new HttpClientErrorException(HttpStatus.BAD_REQUEST, "bad"));
 
-        ChunkContext ctx = new ChunkContext(new StepContext(stepExecution));
-        RepeatStatus status = tasklet.execute(contribution, ctx);
+        RepeatStatus status = tasklet.execute(contribution, new ChunkContext(new StepContext(stepExecution)));
 
         assertEquals(RepeatStatus.FINISHED, status);
-        // ExitStatus inchangé ici (pas de set FAILED dans le catch de createPhase)
         assertEquals("", stepExecution.getJobExecution().getExecutionContext().getString("transfertURI", ""));
     }
 
-    /** 2e passage (check) : diagi = 0 -> FINISHED. */
+    /** 2e passage (check) : diagi = 0 → FINISHED. */
     @Test
     public void execute_check_phase_complete_should_finish() throws Exception {
         tasklet.setMock(false);
-
-        // Simule "2e passage" : on place déjà un transfertURI en contexte
         stepExecution.getJobExecution().getExecutionContext().putString("transfertURI", "http://cft/transfer/999");
 
         TransferDetails details = mock(TransferDetails.class);
@@ -179,17 +159,14 @@ public class SendToBMDSendCFTTaskletTest {
         when(transfertManager.transfersId(new URI("http://cft/transfer/999")))
                 .thenReturn(new ResponseEntity<TransferDetails>(details, HttpStatus.OK));
 
-        ChunkContext ctx = new ChunkContext(new StepContext(stepExecution));
-        RepeatStatus status = tasklet.execute(contribution, ctx);
-
+        RepeatStatus status = tasklet.execute(contribution, new ChunkContext(new StepContext(stepExecution)));
         assertEquals(RepeatStatus.FINISHED, status);
     }
 
-    /** 2e passage (check) : diagi = 144 -> CONTINUABLE (sleep 1s dans la classe). */
+    /** 2e passage (check) : diagi = 144 → CONTINUABLE. */
     @Test
     public void execute_check_phase_busy_should_be_continuable() throws Exception {
         tasklet.setMock(false);
-
         stepExecution.getJobExecution().getExecutionContext().putString("transfertURI", "http://cft/transfer/777");
 
         TransferDetails details = mock(TransferDetails.class);
@@ -197,21 +174,18 @@ public class SendToBMDSendCFTTaskletTest {
         when(transfertManager.transfersId(new URI("http://cft/transfer/777")))
                 .thenReturn(new ResponseEntity<TransferDetails>(details, HttpStatus.OK));
 
-        ChunkContext ctx = new ChunkContext(new StepContext(stepExecution));
         long t0 = System.currentTimeMillis();
-        RepeatStatus status = tasklet.execute(contribution, ctx);
+        RepeatStatus status = tasklet.execute(contribution, new ChunkContext(new StepContext(stepExecution)));
         long t1 = System.currentTimeMillis();
 
         assertEquals(RepeatStatus.CONTINUABLE, status);
-        // Le sleep de 1 seconde est toléré par le test
-        assertTrue((t1 - t0) >= 900L);
+        assertTrue((t1 - t0) >= 900L); // tolère le sleep ~1s
     }
 
-    /** 2e passage (check) : diagi inconnu -> contribution FAILED + FINISHED (exception catchée dans execute). */
+    /** 2e passage (check) : diagi inconnu → FAILED + FINISHED. */
     @Test
     public void execute_check_phase_other_diagi_should_mark_failed_and_finish() throws Exception {
         tasklet.setMock(false);
-
         stepExecution.getJobExecution().getExecutionContext().putString("transfertURI", "http://cft/transfer/888");
 
         TransferDetails details = mock(TransferDetails.class);
@@ -219,14 +193,12 @@ public class SendToBMDSendCFTTaskletTest {
         when(transfertManager.transfersId(new URI("http://cft/transfer/888")))
                 .thenReturn(new ResponseEntity<TransferDetails>(details, HttpStatus.OK));
 
-        ChunkContext ctx = new ChunkContext(new StepContext(stepExecution));
-        RepeatStatus status = tasklet.execute(contribution, ctx);
-
+        RepeatStatus status = tasklet.execute(contribution, new ChunkContext(new StepContext(stepExecution)));
         assertEquals(RepeatStatus.FINISHED, status);
         assertEquals(ExitStatus.FAILED.getExitCode(), contribution.getExitStatus().getExitCode());
     }
 
-    /** isTransferComplete() : true seulement pour "0". */
+    /** isTransferComplete() : true pour "0". */
     @Test
     public void isTransferComplete_should_match_zero_only() {
         assertTrue(tasklet.isTransferComplete("0"));
@@ -235,7 +207,7 @@ public class SendToBMDSendCFTTaskletTest {
         assertFalse(tasklet.isTransferComplete(""));
     }
 
-    /** isTransferBusy() : true seulement pour "144". */
+    /** isTransferBusy() : true pour "144" uniquement. */
     @Test
     public void isTransferBusy_should_match_144_only() {
         assertTrue(tasklet.isTransferBusy("144"));
@@ -244,7 +216,7 @@ public class SendToBMDSendCFTTaskletTest {
         assertFalse(tasklet.isTransferBusy(""));
     }
 
-    /** Couvre les accesseurs publics pour garantir la couverture des lignes setter. */
+    /** Couvre les setters publics. */
     @Test
     public void setters_should_update_fields() {
         tasklet.setPart("PX");
@@ -260,9 +232,7 @@ public class SendToBMDSendCFTTaskletTest {
         assertSame(transfertManager, ReflectionTestUtils.getField(tasklet, "transfertManager"));
     }
 
-    /* --------------------------------- Helpers --------------------------------- */
-
-    /** Place 'encryptedFileName' dans le JobExecutionContext (clé lue par le tasklet). */
+    /** Place 'encryptedFileName' dans le JobExecutionContext. */
     private void putEncryptedFileName(String fileName) {
         stepExecution.getJobExecution().getExecutionContext().put("encryptedFileName", fileName);
     }
