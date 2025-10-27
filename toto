@@ -1,239 +1,152 @@
-package com.bnpparibas.dsibddf.ap00420.streamfact.batch.sendtobmd.tasklet;
+package com.bnpparibas.dsibddf.ap00420.streamfact.batch.maestrostatuspaymentrequest.writer;
 
-import com.bnpparibas.dsibddf.ap00420.streamfact.application.cft.TransfertManager;
-import com.bnpparibas.dsibddf.ap00420.streamfact.domain.cft.TransferDetails;
-import com.bnpparibas.dsibddf.ap00420.streamfact.domain.cft.TransferRequestResult;
-import com.bnpparibas.dsibddf.ap00420.streamfact.domain.cft.TransferRequestResultLinks;
-import com.bnpparibas.dsibddf.ap00420.streamfact.domain.cft.TransferRequestSendFileBody;
+import com.bnpparibas.dsibddf.ap00420.streamfact.application.cos.CosService;
+import com.bnpparibas.dsibddf.ap00420.streamfact.batch.maestrostatuspaymentrequest.MaestroStatusPaymentRequestConfiguration;
+import com.bnpparibas.dsibddf.ap00420.streamfact.batch.maestrostatuspaymentrequest.dto.PaymentRequestInfosForDocaposte;
+import com.bnpparibas.dsibddf.ap00420.streamfact.domain.repository.docaposte.DocaposteRepository;
+import com.bnpparibas.dsibddf.ap00420.streamfact.domain.repository.docaposte.model.DocaposteResponse;
+import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.billingspace.model.PaymentRequestEntity;
+import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.history.model.DocaposteEventHistoryEntity;
+import com.bnpparibas.dsibddf.ap00420.streamfact.infrastructure.sql.entities.history.repository.DocaposteEventHistoryJpaRepository;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.*;
 import org.mockito.junit.MockitoJUnitRunner;
-import org.springframework.batch.core.ExitStatus;
-import org.springframework.batch.core.JobExecution;
-import org.springframework.batch.core.StepContribution;
-import org.springframework.batch.core.StepExecution;
-import org.springframework.batch.core.UnexpectedJobExecutionException;
-import org.springframework.batch.core.scope.context.ChunkContext;
-import org.springframework.batch.core.scope.context.StepContext;
-import org.springframework.batch.repeat.RepeatStatus;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
+import org.springframework.batch.item.Chunk;
 import org.springframework.test.util.ReflectionTestUtils;
-import org.springframework.web.client.HttpClientErrorException;
 
-import java.net.URI;
+import java.io.File;
+import java.nio.file.Files;
+import java.util.Collections;
 
 import static org.junit.Assert.*;
 import static org.mockito.Mockito.*;
 
 /**
- * Tests JUnit 4 pour SendToBMDSendCFTTasklet.
+ * Tests JUnit 4 pour PrepareAndSendDocaposteNotifWriter.
  *
- * Couverture:
- *  - mock=true : FINISHED, aucun appel CFT
- *  - create phase : succès 2xx → CONTINUABLE et transfertURI en contexte
- *  - create phase : HTTP non 2xx → contribution FAILED + FINISHED
- *  - create phase : HttpClientErrorException → FINISHED
- *  - check phase : diagi=0 → FINISHED
- *  - check phase : diagi=144 → CONTINUABLE (pause)
- *  - check phase : diagi autre → contribution FAILED + FINISHED
- *  - utilitaires isTransferComplete/isTransferBusy + setters
+ * Objectifs de couverture :
+ *  - write() : chemin "succès" → envoi Docaposte OK, mise à jour des entités, génération du rapport, push COS.
+ *  - write() : chemin "erreur" → exception Docaposte → sauvegardes adaptées, génération du rapport, push COS.
+ *  - Vérifier que le fichier de rapport est bien créé dans pathGenerateFile et que COS est appelé avec les bons arguments.
  *
- * Contraintes: JUnit4 uniquement, MockitoJUnitRunner, pas d’AssertJ, verifyNoInteractions(...)
+ * Contraintes :
+ *  - JUnit 4 uniquement (org.junit.*), pas de JUnit Jupiter ni AssertJ.
+ *  - Runner Mockito : @RunWith(MockitoJUnitRunner.class).
+ *  - Mocks des dépendances @Autowired et @Value via ReflectionTestUtils.
  */
 @RunWith(MockitoJUnitRunner.class)
-public class SendToBMDSendCFTTaskletTest {
+public class PrepareAndSendDocaposteNotifWriterTest {
 
-    @InjectMocks
-    private SendToBMDSendCFTTasklet tasklet;
+    /** SUT. */
+    private PrepareAndSendDocaposteNotifWriter writer;
 
-    @Mock
-    private TransfertManager transfertManager;
+    /** Dépendances externes mockées. */
+    @Mock private DocaposteRepository docaposteRepository;
+    @Mock private DocaposteEventHistoryJpaRepository docaposteEventHistoryJpaRepository;
+    @Mock private CosService cosService;
 
-    private StepExecution stepExecution;
-    private StepContribution contribution;
+    /** Données d’entrée mockées. */
+    @Mock private PaymentRequestInfosForDocaposte info;
+    @Mock private PaymentRequestEntity paymentRequestEntity;
+    @Mock private DocaposteEventHistoryEntity docaposteEventHistoryEntity;
+
+    /** Dossier temporaire pour générer les rapports de test. */
+    private File tempDir;
 
     @Before
-    public void setUp() {
-        JobExecution jobExecution = new JobExecution(1L);
-        stepExecution = new StepExecution("sendToBMDSendCFT", jobExecution);
-        contribution = new StepContribution(stepExecution);
+    public void setUp() throws Exception {
+        // Instance concrète du writer (la classe n’est pas un bean dans le test unitaire).
+        writer = new PrepareAndSendDocaposteNotifWriter();
 
-        tasklet.setPart("PART");
-        tasklet.setIdf("IDF");
-        tasklet.setApiTimeout(30);
-        tasklet.setTransfertManager(transfertManager);
+        // Prépare un répertoire temporaire d’écriture
+        tempDir = Files.createTempDirectory("docaposte-test-").toFile();
+        assertTrue(tempDir.isDirectory());
 
-        putEncryptedFileName("file.enc");
-        // utilisé par la classe pour composer fname
-        ReflectionTestUtils.setField(tasklet, "objectKeyNewToSend", "obj/new");
-    }
+        // Injection des "propriétés" @Value et des beans @Autowired par réflexion
+        ReflectionTestUtils.setField(writer, "serialNumber", "SERIAL-001");
+        ReflectionTestUtils.setField(writer, "docaposteRepository", docaposteRepository);
+        ReflectionTestUtils.setField(writer, "docaposteEventHistoryJpaRepository", docaposteEventHistoryJpaRepository);
+        // Chemin de base + nom de fichier paramétrable avec date → on le laisse tel que pour couvrir getToday()
+        ReflectionTestUtils.setField(writer, "pathGenerateFile", tempDir.getAbsolutePath() + File.separator);
+        ReflectionTestUtils.setField(writer, "fileName", "StreamfactMaestroPaymentRequestsReport.%s.csv");
+        ReflectionTestUtils.setField(writer, "prefix", "cos/prefix"); // utilisé par pushReportToCos(prefix, filename, null)
 
-    /** Branche mock=true : pas d'appel réseau, FINISHED. */
-    @Test
-    public void execute_when_mock_true_should_finish_without_cft_calls() throws Exception {
-        tasklet.setMock(true);
+        // Mock de l’item d’entrée minimal requis par write()
+        when(info.getDocaposteEventHistory()).thenReturn(docaposteEventHistoryEntity);
+        when(info.getPaymentRequest()).thenReturn(paymentRequestEntity);
+        when(paymentRequestEntity.getPaymentRequestId()).thenReturn("PR-1");
+        when(paymentRequestEntity.getIdDn()).thenReturn("DN-1");
 
-        RepeatStatus status = tasklet.execute(contribution, new ChunkContext(new StepContext(stepExecution)));
-
-        assertEquals(RepeatStatus.FINISHED, status);
-        verifyNoInteractions(transfertManager);
+        // Par défaut, les sauvegardes JPA renvoient l’entity telle quelle
+        when(docaposteEventHistoryJpaRepository.save(any(DocaposteEventHistoryEntity.class)))
+                .thenAnswer(inv -> inv.getArgument(0));
     }
 
     /**
-     * 1er passage (create) : succès 2xx.
-     * Correction clé: getLinks() doit renvoyer un TransferRequestResultLinks, pas un Object.
+     * Chemin succès :
+     *  - docaposteRepository.sendDossierBox(...) renvoie une liste avec un groupId.
+     *  - write() met à jour l’historique, génère le rapport CSV, puis pousse le rapport vers COS.
      */
     @Test
-    public void execute_create_phase_success_should_be_continuable_and_set_transfer_uri() throws Exception {
-        tasklet.setMock(false);
+    public void write_should_send_to_docaposte_and_push_report_to_cos_on_success() throws Exception {
+        // Réponse Docaposte simulée
+        DocaposteResponse response = mock(DocaposteResponse.class);
+        when(response.getGroupId()).thenReturn("G-12345");
+        when(docaposteRepository.sendDossierBox(anyList()))
+                .thenReturn(Collections.singletonList(response));
 
-        TransferRequestResult result = mock(TransferRequestResult.class);
-        // Mock typé pour résoudre l'erreur "no suitable method found for thenReturn(java.lang.Object)"
-        TransferRequestResultLinks links = mock(TransferRequestResultLinks.class);
+        // Un seul item dans le Chunk pour couvrir la boucle
+        Chunk<PaymentRequestInfosForDocaposte> chunk = new Chunk<>(Collections.singletonList(info));
 
-        when(result.getLinks()).thenReturn(links);
-        // Si getHref() retourne une String :
-        when(links.getHref()).thenReturn("http://cft/transfer/123");
-        // Si dans ton modèle getHref() retourne un URI, remplace la ligne ci-dessus par :
-        // when(links.getHref()).thenReturn(URI.create("http://cft/transfer/123"));
+        // Exécution
+        writer.write(chunk);
 
-        ArgumentCaptor<TransferRequestSendFileBody> bodyCaptor =
-                ArgumentCaptor.forClass(TransferRequestSendFileBody.class);
+        // Vérifie que l’envoi Docaposte est bien tenté
+        verify(docaposteRepository, times(1)).sendDossierBox(anyList());
 
-        when(transfertManager.transfersFiles(eq("PART"), eq("IDF"), eq(30), bodyCaptor.capture()))
-                .thenReturn(new ResponseEntity<TransferRequestResult>(result, HttpStatus.OK));
+        // Deux sauvegardes : avant envoi et après mise à jour des infos de réponse
+        verify(docaposteEventHistoryJpaRepository, atLeastOnce()).save(any(DocaposteEventHistoryEntity.class));
 
-        RepeatStatus status = tasklet.execute(contribution, new ChunkContext(new StepContext(stepExecution)));
+        // Vérifie le push COS : prefix + filename (filename contient la date calculée)
+        ArgumentCaptor<String> fileNameCaptor = ArgumentCaptor.forClass(String.class);
+        verify(cosService, times(1)).pushArchiveFileToCOS(eq("cos/prefix"), fileNameCaptor.capture(), isNull());
 
-        // Le fname envoyé = objectKeyNewToSend + "/" + encryptedFileName
-        assertEquals("obj/new/file.enc", bodyCaptor.getValue().getFname());
-        assertEquals(RepeatStatus.CONTINUABLE, status);
-
-        // La classe pose transfertURI dans le contexte
-        String uri = stepExecution.getJobExecution().getExecutionContext().getString("transfertURI", null);
-        assertNotNull(uri);
-        // Optionnel : assertEquals("http://cft/transfer/123", uri);
+        // Le fichier doit exister physiquement dans le répertoire temp
+        String producedFileName = fileNameCaptor.getValue();
+        assertNotNull(producedFileName);
+        File generated = new File(tempDir, producedFileName);
+        assertTrue("Le rapport CSV doit exister", generated.exists());
+        assertTrue("Le rapport CSV doit être un fichier", generated.isFile());
     }
 
-    /** 1er passage (create) : HTTP non 2xx → FAILED + FINISHED. */
+    /**
+     * Chemin erreur :
+     *  - docaposteRepository.sendDossierBox(...) lève une exception.
+     *  - write() trace l’erreur, sauvegarde les entités au statut d’échec, génère quand même le rapport
+     *    puis tente le push COS. Le test vérifie l’absence d’exception et la présence du fichier rapport.
+     */
     @Test
-    public void execute_create_phase_non2xx_should_mark_failed_and_return_finished() throws Exception {
-        tasklet.setMock(false);
+    public void write_should_handle_exception_from_docaposte_and_still_generate_and_push_report() throws Exception {
+        // Simule une erreur lors de l’envoi
+        when(docaposteRepository.sendDossierBox(anyList()))
+                .thenThrow(new RuntimeException("Docaposte indisponible"));
 
-        TransferRequestResult result = mock(TransferRequestResult.class);
-        when(transfertManager.transfersFiles(anyString(), anyString(), anyInt(), any(TransferRequestSendFileBody.class)))
-                .thenReturn(new ResponseEntity<TransferRequestResult>(result, HttpStatus.INTERNAL_SERVER_ERROR));
+        Chunk<PaymentRequestInfosForDocaposte> chunk = new Chunk<>(Collections.singletonList(info));
 
-        RepeatStatus status = tasklet.execute(contribution, new ChunkContext(new StepContext(stepExecution)));
+        // Exécution (ne doit pas lever)
+        writer.write(chunk);
 
-        assertEquals(RepeatStatus.FINISHED, status);
-        assertEquals(ExitStatus.FAILED.getExitCode(), contribution.getExitStatus().getExitCode());
-        assertEquals("", stepExecution.getJobExecution().getExecutionContext().getString("transfertURI", ""));
-    }
+        // L’échec provoque au moins une sauvegarde (mise à jour requestDate)
+        verify(docaposteEventHistoryJpaRepository, atLeastOnce()).save(any(DocaposteEventHistoryEntity.class));
 
-    /** 1er passage (create) : HttpClientErrorException → FINISHED, pas de transfertURI. */
-    @Test
-    public void execute_create_phase_client_error_should_be_finished_and_no_uri() throws Exception {
-        tasklet.setMock(false);
+        // Le rapport est quand même généré et poussé vers COS
+        ArgumentCaptor<String> fileNameCaptor = ArgumentCaptor.forClass(String.class);
+        verify(cosService, times(1)).pushArchiveFileToCOS(eq("cos/prefix"), fileNameCaptor.capture(), isNull());
 
-        when(transfertManager.transfersFiles(anyString(), anyString(), anyInt(), any(TransferRequestSendFileBody.class)))
-                .thenThrow(new HttpClientErrorException(HttpStatus.BAD_REQUEST, "bad"));
-
-        RepeatStatus status = tasklet.execute(contribution, new ChunkContext(new StepContext(stepExecution)));
-
-        assertEquals(RepeatStatus.FINISHED, status);
-        assertEquals("", stepExecution.getJobExecution().getExecutionContext().getString("transfertURI", ""));
-    }
-
-    /** 2e passage (check) : diagi = 0 → FINISHED. */
-    @Test
-    public void execute_check_phase_complete_should_finish() throws Exception {
-        tasklet.setMock(false);
-        stepExecution.getJobExecution().getExecutionContext().putString("transfertURI", "http://cft/transfer/999");
-
-        TransferDetails details = mock(TransferDetails.class);
-        when(details.getDiagi()).thenReturn(SendToBMDSendCFTTasklet.SUCCESSFULL_DIAG_INDICATOR);
-        when(transfertManager.transfersId(new URI("http://cft/transfer/999")))
-                .thenReturn(new ResponseEntity<TransferDetails>(details, HttpStatus.OK));
-
-        RepeatStatus status = tasklet.execute(contribution, new ChunkContext(new StepContext(stepExecution)));
-        assertEquals(RepeatStatus.FINISHED, status);
-    }
-
-    /** 2e passage (check) : diagi = 144 → CONTINUABLE. */
-    @Test
-    public void execute_check_phase_busy_should_be_continuable() throws Exception {
-        tasklet.setMock(false);
-        stepExecution.getJobExecution().getExecutionContext().putString("transfertURI", "http://cft/transfer/777");
-
-        TransferDetails details = mock(TransferDetails.class);
-        when(details.getDiagi()).thenReturn(SendToBMDSendCFTTasklet.TRANSFER_BUSY_DIAG_INDICATOR);
-        when(transfertManager.transfersId(new URI("http://cft/transfer/777")))
-                .thenReturn(new ResponseEntity<TransferDetails>(details, HttpStatus.OK));
-
-        long t0 = System.currentTimeMillis();
-        RepeatStatus status = tasklet.execute(contribution, new ChunkContext(new StepContext(stepExecution)));
-        long t1 = System.currentTimeMillis();
-
-        assertEquals(RepeatStatus.CONTINUABLE, status);
-        assertTrue((t1 - t0) >= 900L); // tolère le sleep ~1s
-    }
-
-    /** 2e passage (check) : diagi inconnu → FAILED + FINISHED. */
-    @Test
-    public void execute_check_phase_other_diagi_should_mark_failed_and_finish() throws Exception {
-        tasklet.setMock(false);
-        stepExecution.getJobExecution().getExecutionContext().putString("transfertURI", "http://cft/transfer/888");
-
-        TransferDetails details = mock(TransferDetails.class);
-        when(details.getDiagi()).thenReturn("999");
-        when(transfertManager.transfersId(new URI("http://cft/transfer/888")))
-                .thenReturn(new ResponseEntity<TransferDetails>(details, HttpStatus.OK));
-
-        RepeatStatus status = tasklet.execute(contribution, new ChunkContext(new StepContext(stepExecution)));
-        assertEquals(RepeatStatus.FINISHED, status);
-        assertEquals(ExitStatus.FAILED.getExitCode(), contribution.getExitStatus().getExitCode());
-    }
-
-    /** isTransferComplete() : true pour "0". */
-    @Test
-    public void isTransferComplete_should_match_zero_only() {
-        assertTrue(tasklet.isTransferComplete("0"));
-        assertFalse(tasklet.isTransferComplete("144"));
-        assertFalse(tasklet.isTransferComplete("999"));
-        assertFalse(tasklet.isTransferComplete(""));
-    }
-
-    /** isTransferBusy() : true pour "144" uniquement. */
-    @Test
-    public void isTransferBusy_should_match_144_only() {
-        assertTrue(tasklet.isTransferBusy("144"));
-        assertFalse(tasklet.isTransferBusy("0"));
-        assertFalse(tasklet.isTransferBusy("999"));
-        assertFalse(tasklet.isTransferBusy(""));
-    }
-
-    /** Couvre les setters publics. */
-    @Test
-    public void setters_should_update_fields() {
-        tasklet.setPart("PX");
-        tasklet.setIdf("IDX");
-        tasklet.setMock(false);
-        tasklet.setApiTimeout(12);
-        tasklet.setTransfertManager(transfertManager);
-
-        assertEquals("PX", ReflectionTestUtils.getField(tasklet, "part"));
-        assertEquals("IDX", ReflectionTestUtils.getField(tasklet, "idf"));
-        assertEquals(false, ReflectionTestUtils.getField(tasklet, "mock"));
-        assertEquals(12, ReflectionTestUtils.getField(tasklet, "apiTimeout"));
-        assertSame(transfertManager, ReflectionTestUtils.getField(tasklet, "transfertManager"));
-    }
-
-    /** Place 'encryptedFileName' dans le JobExecutionContext. */
-    private void putEncryptedFileName(String fileName) {
-        stepExecution.getJobExecution().getExecutionContext().put("encryptedFileName", fileName);
+        String producedFileName = fileNameCaptor.getValue();
+        File generated = new File(tempDir, producedFileName);
+        assertTrue(generated.exists());
     }
 }
