@@ -1,0 +1,288 @@
+Voici plusieurs diagrammes de séquence PlantUML détaillés et colorés pour ton application.
+
+Tu peux les copier/coller directement dans un rendu PlantUML.
+
+
+---
+
+1️⃣ Authentification email + mot de passe + MFA + JWT signé par HSM
+
+@startuml
+title Authentification : Email + Mot de passe + MFA + JWT signé HSM
+
+skinparam backgroundColor #0d1117
+skinparam handwritten false
+skinparam sequence {
+    ArrowColor #e5e5e5
+    LifeLineBorderColor #e5e5e5
+    LifeLineBackgroundColor #161b22
+    ParticipantBorderColor #e5e5e5
+    ParticipantBackgroundColor #161b22
+    ActorBorderColor #58a6ff
+    ActorBackgroundColor #0d1117
+    BoxBackgroundColor #161b22
+    BoxBorderColor #30363d
+}
+
+actor User as U #58a6ff
+participant "Frontend\n(SPA / React)" as FE #1f6feb
+participant "Auth API\n(DRF / Spring)" as AUTH #8957e5
+participant "UserService\n(DB / JPA)" as USVC #238636
+participant "PasswordHasher\n(bcrypt/argon2)" as HASH #8b949e
+participant "JWTService" as JWT #e3b341
+participant "HSM\n(PKCS#11)" as HSM #ff7b72
+participant "AuditLog\n(DB / SIEM)" as AUDIT #3fb950
+
+== 1. Saisie et vérification des identifiants ==
+
+U -[#58a6ff]> FE : Saisit email + mot de passe
+FE -[#1f6feb]> AUTH : POST /api/auth/login\n{email, password}
+
+AUTH -[#8957e5]> USVC : findByEmail(email)
+USVC -[#238636]-> AUTH : User {id, email, hash, roles, active}
+
+AUTH -[#8957e5]> HASH : verify(password, user.hash)
+HASH -[#8b949e]-> AUTH : ok / ko
+
+alt Mot de passe invalide
+    AUTH -[#8957e5]> AUDIT : log("LOGIN_FAILED", user/email, ip)
+    AUTH -[#8957e5]-> FE : 401 Unauthorized\n{message: "Identifiants incorrects"}
+    FE -[#1f6feb]-> U : Affiche erreur
+    return
+end
+
+alt Compte désactivé
+    AUTH -[#8957e5]> AUDIT : log("LOGIN_DISABLED", userId)
+    AUTH -[#8957e5]-> FE : 403 Forbidden\n{message: "Compte désactivé"}
+    return
+end
+
+== 2. Déclenchement MFA si politique active ==
+
+opt MFA obligatoire pour l’organisation
+    AUTH -[#8957e5]> AUDIT : log("LOGIN_MFA_REQUIRED", userId)
+    AUTH -[#8957e5]-> FE : 200 OK\n{challenge: "MFA_REQUIRED"}
+    FE -[#1f6feb]-> U : Demande code TOTP
+    U -[#58a6ff]> FE : Saisit code MFA
+    FE -[#1f6feb]> AUTH : POST /api/auth/mfa/verify\n{userId, otp}
+    ' (Ici, AUTH vérifie le TOTP, non détaillé)
+end
+
+== 3. Génération du JWT signé via HSM ==
+
+AUTH -[#8957e5]> JWT : createClaims(userId, orgId, roles, exp)
+JWT -[#e3b341]-> JWT : build payload\n(sub, iss, roles, exp)
+
+JWT -[#e3b341]> HSM : signJWT(payload)\n(alg=RS256/ES256)
+HSM -[#ff7b72]-> JWT : jwtSigned
+
+JWT -[#e3b341]-> AUTH : {access_token, refresh_token}
+
+AUTH -[#8957e5]> AUDIT : log("LOGIN_SUCCESS", userId, orgId)
+AUTH -[#8957e5]-> FE : 200 OK\n{access_token, refresh_token}
+
+FE -[#1f6feb]-> U : Redirige vers dashboard\net stocke les tokens
+
+@enduml
+
+
+---
+
+2️⃣ Association d’un certificat X.509 + Authentification mTLS
+
+@startuml
+title PKI : Association certificat X.509 et authentification mTLS
+
+skinparam backgroundColor #0d1117
+skinparam sequence {
+    ArrowColor #e5e5e5
+    LifeLineBorderColor #e5e5e5
+    LifeLineBackgroundColor #161b22
+    ParticipantBorderColor #e5e5e5
+    ParticipantBackgroundColor #161b22
+    ActorBorderColor #58a6ff
+    ActorBackgroundColor #0d1117
+}
+
+actor User as U #58a6ff
+participant "Frontend" as FE #1f6feb
+participant "PKI API\n(Backend)" as PKI #8957e5
+participant "PKIValidator\n(X.509, CRL, OCSP)" as VALID #8b949e
+participant "UserService" as USVC #238636
+participant "AuditLog" as AUDIT #3fb950
+participant "Reverse Proxy TLS\n(Nginx/Traefik)" as RP #e3b341
+participant "Backend API" as API #8957e5
+
+== 1. Association du certificat au compte ==
+
+U -[#58a6ff]> FE : Upload certificat X.509\n(userCert.pem)
+FE -[#1f6feb]> PKI : POST /api/pki/certificates\n{userId, cert}
+
+PKI -[#8957e5]> VALID : parseAndValidate(cert)
+VALID -[#8b949e]-> VALID : Vérifie chaîne de confiance\n(CA, Intermediate)
+VALID -[#8b949e]-> VALID : Vérifie révocation\n(CRL/OCSP)
+
+alt Certificat non valide ou révoqué
+    VALID -[#8b949e]-> PKI : result = INVALID
+    PKI -[#8957e5]> AUDIT : log("CERT_BINDING_FAILED", userId)
+    PKI -[#8957e5]-> FE : 400 Bad Request\n{error: "Certificat non valide"}
+    return
+else Certificat valide
+    VALID -[#8b949e]-> PKI : result = OK\n{subject, issuer, notAfter}
+    PKI -[#8957e5]> USVC : saveUserCertificate(userId, cert, metadata)
+    USVC -[#238636]-> PKI : stored
+    PKI -[#8957e5]> AUDIT : log("CERT_BOUND", userId, subject)
+    PKI -[#8957e5]-> FE : 200 OK\n{message: "Certificat associé"}
+end
+
+== 2. Authentification mTLS ==
+
+U -[#58a6ff]> RP : Ouvre https://app.crisisshield\nprésente son certificat client
+
+RP -[#e3b341]-> RP : Négociation TLS + ClientAuth\nVérif CA + CRL/OCSP
+RP -[#e3b341]> API : Forward requête\n+ en-tête cert (CN, serial, issuer)
+
+API -[#8957e5]> PKI : resolveUserFromCert(CN, serial)
+PKI -[#8957e5]> USVC : findByCert(CN, serial)
+USVC -[#238636]-> PKI : userId / orgId / roles
+
+alt Certificat inconnu
+    PKI -[#8957e5]> AUDIT : log("MTLS_AUTH_FAILED", CN)
+    API -[#8957e5]-> RP : 401 Unauthorized
+    return
+else Certificat reconnu
+    PKI -[#8957e5]> AUDIT : log("MTLS_AUTH_SUCCESS", userId)
+    API -[#8957e5]-> U : 200 OK\nAccès à l’application
+end
+
+@enduml
+
+
+---
+
+3️⃣ Signature d’un hash ou d’un document via HSM (API /sign)
+
+@startuml
+title Signature cryptographique via HSM (/api/crypto/sign)
+
+skinparam backgroundColor #0d1117
+skinparam sequence {
+    ArrowColor #e5e5e5
+    LifeLineBorderColor #e5e5e5
+    LifeLineBackgroundColor #161b22
+    ParticipantBorderColor #e5e5e5
+    ParticipantBackgroundColor #161b22
+    ActorBorderColor #58a6ff
+}
+
+actor "Client Applicatif\n(Backend ou autre service)" as C #58a6ff
+participant "Sign API\n(/api/crypto/sign)" as SIGN #8957e5
+participant "HashService" as HASH #8b949e
+participant "HSM\n(PKCS#11)" as HSM #ff7b72
+participant "AuditLog" as AUDIT #3fb950
+
+== 1. Appel de l’API de signature ==
+
+C -[#58a6ff]> SIGN : POST /api/crypto/sign\n{data || hash, alg, purpose}
+
+alt Données brutes fournies
+    SIGN -[#8957e5]> HASH : computeHash(data, alg=SHA-256)
+    HASH -[#8b949e]-> SIGN : hash
+else Hash déjà fourni
+    SIGN -[#8957e5]-> SIGN : Utilise hash fourni
+end
+
+== 2. Signature dans le HSM ==
+
+SIGN -[#8957e5]> HSM : sign(hash, keyId, alg=RS256/ES256)
+HSM -[#ff7b72]-> HSM : Opération PKCS#11\n(key in secure slot)
+HSM -[#ff7b72]-> SIGN : signature (bytes)
+
+SIGN -[#8957e5]> AUDIT : log("SIGN_SUCCESS", purpose, keyId, requester)
+
+SIGN -[#8957e5]-> C : 200 OK\n{hash, signature, alg, certChain}
+
+@enduml
+
+
+---
+
+4️⃣ Activation d’un plan de crise + War Room + Audit
+
+@startuml
+title Activation d'un plan de crise et War Room
+
+skinparam backgroundColor #0d1117
+skinparam sequence {
+    ArrowColor #e5e5e5
+    LifeLineBorderColor #e5e5e5
+    LifeLineBackgroundColor #161b22
+    ParticipantBorderColor #e5e5e5
+    ParticipantBackgroundColor #161b22
+    ActorBorderColor #58a6ff
+}
+
+actor "Crisis Manager" as CM #58a6ff
+participant "Frontend\n(Crisis UI)" as FE #1f6feb
+participant "Crisis API" as CAPI #8957e5
+participant "PlanService" as PLAN #238636
+participant "CrisisService" as CRISIS #e3b341
+participant "NotificationService" as NOTIF #8b949e
+participant "MailService" as MAIL #3fb950
+participant "WebhookService\n(Slack/Teams)" as WH #ff7b72
+participant "AuditLog" as AUDIT #3fb950
+
+== 1. Activation d’un plan ==
+
+CM -[#58a6ff]> FE : Clic "Activer ce plan"
+FE -[#1f6feb]> CAPI : POST /api/crisis/activate\n{planId, type, severity}
+
+CAPI -[#8957e5]> PLAN : getPlan(planId)
+PLAN -[#238636]-> CAPI : plan + steps
+
+CAPI -[#8957e5]> CRISIS : createCrisis(plan, type, severity)
+CRISIS -[#e3b341]-> CRISIS : Crée CrisisEvent + clone Steps en Tasks
+CRISIS -[#e3b341]-> CAPI : crisisId
+
+CAPI -[#8957e5]> AUDIT : log("CRISIS_ACTIVATED", crisisId, planId)
+CAPI -[#8957e5]-> FE : 200 OK\n{crisisId, warRoomUrl}
+
+FE -[#1f6feb]-> CM : Redirige vers War Room\n/app/crisis/:crisisId
+
+== 2. Notifications des membres ==
+
+CAPI -[#8957e5]> NOTIF : notifyCrisisActivated(crisisId)
+
+NOTIF -[#8b949e]> MAIL : sendMailToMembers(crisisId)
+MAIL -[#3fb950]-> MAIL : Envoi email d’alerte
+MAIL -[#3fb950]-> NOTIF : ok
+
+NOTIF -[#8b949e]> WH : postToChannels(crisisId)
+WH -[#ff7b72]-> NOTIF : ok
+
+NOTIF -[#8b949e]> AUDIT : log("CRISIS_NOTIFICATIONS_SENT", crisisId)
+
+== 3. Mise à jour des tâches / timeline ==
+
+CM -[#58a6ff]> FE : Change le statut d’une tâche\n(TO_DO → IN_PROGRESS)
+FE -[#1f6feb]> CAPI : PATCH /api/crisis/tasks/:id\n{status}
+
+CAPI -[#8957e5]> CRISIS : updateTaskStatus(taskId, status)
+CRISIS -[#e3b341]-> CRISIS : Ajoute TimelineEntry\n(type=ACTION, message, user)
+CRISIS -[#e3b341]-> CAPI : updatedTask
+
+CAPI -[#8957e5]> AUDIT : log("TASK_STATUS_CHANGED", taskId, status, userId)
+CAPI -[#8957e5]-> FE : 200 OK\n{updatedTask}
+
+@enduml
+
+
+---
+
+Si tu veux, au prochain message je peux :
+
+te faire le même genre de diagrammes mais centrés seulement sur Python (DRF),
+
+ou seulement sur Java / Spring Security / HSM,
+
+ou encore un gros diagramme global qui résume tout le flux de bout en bout.
