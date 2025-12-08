@@ -1,288 +1,310 @@
-Voici plusieurs diagrammes de séquence PlantUML détaillés et colorés pour ton application.
+Voici un gros diagramme de séquence PlantUML, détaillé et avec des couleurs claires, qui couvre :
 
-Tu peux les copier/coller directement dans un rendu PlantUML.
+Login email/mot de passe (+ MFA optionnelle)
+
+Login mTLS avec certificat X.509
+
+Signature de rapport via HSM (PKCS#11)
+
+Audit eIDAS des actions
 
 
----
-
-1️⃣ Authentification email + mot de passe + MFA + JWT signé par HSM
+Tu peux le copier-coller tel quel dans un rendu PlantUML.
 
 @startuml
-title Authentification : Email + Mot de passe + MFA + JWT signé HSM
+title CrisisShield – Parcours Auth • PKI • HSM • Audit
 
-skinparam backgroundColor #0d1117
-skinparam handwritten false
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+
 skinparam sequence {
-    ArrowColor #e5e5e5
-    LifeLineBorderColor #e5e5e5
-    LifeLineBackgroundColor #161b22
-    ParticipantBorderColor #e5e5e5
-    ParticipantBackgroundColor #161b22
-    ActorBorderColor #58a6ff
-    ActorBackgroundColor #0d1117
-    BoxBackgroundColor #161b22
-    BoxBorderColor #30363d
+  ArrowColor #4A90E2
+  LifeLineBorderColor #90A4AE
+  LifeLineBackgroundColor #E3F2FD
+  ParticipantBorderColor #90A4AE
+  ParticipantBackgroundColor #FAFAFA
+  ParticipantFontColor #263238
+  ActorBorderColor #1976D2
+  ActorBackgroundColor #E3F2FD
+  NoteBackgroundColor #FFFDE7
+  NoteBorderColor #FBC02D
 }
 
-actor User as U #58a6ff
-participant "Frontend\n(SPA / React)" as FE #1f6feb
-participant "Auth API\n(DRF / Spring)" as AUTH #8957e5
-participant "UserService\n(DB / JPA)" as USVC #238636
-participant "PasswordHasher\n(bcrypt/argon2)" as HASH #8b949e
-participant "JWTService" as JWT #e3b341
-participant "HSM\n(PKCS#11)" as HSM #ff7b72
-participant "AuditLog\n(DB / SIEM)" as AUDIT #3fb950
+' Couleurs par stéréotype (pastel, claires)
+skinparam participant<<Frontend>> BackgroundColor #E3F2FD
+skinparam participant<<Backend>> BackgroundColor #E8F5E9
+skinparam participant<<Service>> BackgroundColor #FFF3E0
+skinparam participant<<Crypto>> BackgroundColor #EDE7F6
+skinparam participant<<HSM>> BackgroundColor #FFEBEE
+skinparam participant<<DB>> BackgroundColor #F3E5F5
+skinparam participant<<Edge>> BackgroundColor #E0F7FA
 
-== 1. Saisie et vérification des identifiants ==
+actor "Utilisateur\n(Thomas / Sarah)" as U
 
-U -[#58a6ff]> FE : Saisit email + mot de passe
-FE -[#1f6feb]> AUTH : POST /api/auth/login\n{email, password}
+participant "Navigateur / UI\n(Frontend React)" as FE <<Frontend>>
+participant "Reverse Proxy TLS\n(Nginx / Traefik)" as RP <<Edge>>
+participant "API Gateway\n/ Backend" as API <<Backend>>
+participant "Auth Service\n(JWT / MFA)" as AUTH <<Service>>
+participant "User Service\n(IAM)" as IAM <<Service>>
+participant "PKI Service\n(X.509 / OCSP)" as PKI <<Crypto>>
+participant "Audit Service\n(eIDAS Logs)" as AUD <<Service>>
+database "DB\n(Users, Certs,\nAudit)" as DB <<DB>>
+participant "HSM\n(PKCS#11)" as HSM <<HSM>>
 
-AUTH -[#8957e5]> USVC : findByEmail(email)
-USVC -[#238636]-> AUTH : User {id, email, hash, roles, active}
+' ============================================================
+' 1) LOGIN EMAIL + MOT DE PASSE (JWT signé HSM)
+' ============================================================
+== Login email + mot de passe ==
 
-AUTH -[#8957e5]> HASH : verify(password, user.hash)
-HASH -[#8b949e]-> AUTH : ok / ko
+U -> FE: Ouvre /login
+FE -> API: GET /api/auth/config
+API -> AUTH: Demande config (MFA, mTLS, OIDC…)
+AUTH --> API: Config sécurité courante
+API --> FE: JSON config (MFA, mTLS, SSO, etc.)
 
-alt Mot de passe invalide
-    AUTH -[#8957e5]> AUDIT : log("LOGIN_FAILED", user/email, ip)
-    AUTH -[#8957e5]-> FE : 401 Unauthorized\n{message: "Identifiants incorrects"}
-    FE -[#1f6feb]-> U : Affiche erreur
-    return
+note right of FE
+  Le frontend adapte l'UI :
+  - champs login/password
+  - second facteur si nécessaire
+end note
+
+U -> FE: Saisit email + mot de passe\net clique "Se connecter"
+FE -> API: POST /api/auth/login\n{ email, password }
+API -> AUTH: Valider identifiants(email, password, contexte)
+
+AUTH -> IAM: findUserByEmail(email)
+IAM -> DB: SELECT * FROM users WHERE email = ?
+DB --> IAM: user, hash, roles, is_active, org_id, mfa_flags
+IAM --> AUTH: Données utilisateur
+
+AUTH -> AUTH: Vérifier hash mot de passe\n(bcrypt / Argon2)
+AUTH -> AUTH: Vérifier is_active
+
+alt User actif & mot de passe OK
+  note right of AUTH
+    Génération JWT :
+    - sub = userId
+    - org = organisationId
+    - roles = [ADMIN, USER...]
+    - exp = date d’expiration
+  end note
+
+  AUTH -> HSM: signJWT(header, payload)\n(demande signature PKCS#11)
+  HSM --> AUTH: signature JWT (RS256/ES256)
+  AUTH --> API: access_token + refresh_token
+  API -> AUD: logEvent("LOGIN_SUCCESS", userId, orgId, ip)
+  AUD -> DB: INSERT INTO audit_log(...)
+
+  API --> FE: 200 OK\n{ access_token, refresh_token }
+  FE --> U: Redirection vers Dashboard
+else Mauvais identifiants ou compte inactif
+  AUTH --> API: 401 Unauthorized\n{ error: "invalid_credentials" }
+  API -> AUD: logEvent("LOGIN_FAILED", email, ip)
+  AUD -> DB: INSERT audit_log(...)
+  API --> FE: 401 Unauthorized
+  FE --> U: Afficher message d'erreur
 end
 
-alt Compte désactivé
-    AUTH -[#8957e5]> AUDIT : log("LOGIN_DISABLED", userId)
-    AUTH -[#8957e5]-> FE : 403 Forbidden\n{message: "Compte désactivé"}
-    return
+' ============================================================
+' 2) MFA OPTIONNELLE (TOTP par exemple)
+' ============================================================
+== Second facteur (MFA) – si activé pour l'organisation ==
+
+alt MFA obligatoire pour l’organisation
+  API --> FE: Indique "MFA_REQUIRED=true"
+  FE --> U: Affiche écran OTP / TOTP
+
+  U -> FE: Saisit code OTP
+  FE -> API: POST /api/auth/login/mfa\n{ temp_token, otp }
+  API -> AUTH: validateOtp(userId, otp)
+
+  AUTH -> DB: SELECT mfa_secret FROM users\nWHERE id = userId
+  DB --> AUTH: mfa_secret
+  AUTH -> AUTH: Vérifier OTP(TOTP, mfa_secret)
+
+  alt OTP valide
+    AUTH -> HSM: signJWT(header, payload) (session complète)
+    HSM --> AUTH: signature JWT
+    AUTH --> API: access_token + refresh_token
+    API -> AUD: logEvent("MFA_SUCCESS", userId, ip)
+    AUD -> DB: INSERT audit_log(...)
+    API --> FE: 200 OK + tokens définitifs
+    FE --> U: Accès à l’application
+  else OTP invalide
+    AUTH --> API: 401 MFA_FAILED
+    API -> AUD: logEvent("MFA_FAILED", userId, ip)
+    AUD -> DB: INSERT audit_log(...)
+    API --> FE: 401 + message erreur
+    FE --> U: Afficher erreur OTP
+  end
+else MFA non obligatoire
+  note over FE, API
+    Si MFA désactivée pour ce tenant,
+    on reste sur le scénario "Login simple".
+  end note
 end
 
-== 2. Déclenchement MFA si politique active ==
+' ============================================================
+' 3) AUTHENTIFICATION PAR CERTIFICAT CLIENT (mTLS)
+' ============================================================
+== Connexion mTLS (certificat X.509) – optionnelle ==
 
-opt MFA obligatoire pour l’organisation
-    AUTH -[#8957e5]> AUDIT : log("LOGIN_MFA_REQUIRED", userId)
-    AUTH -[#8957e5]-> FE : 200 OK\n{challenge: "MFA_REQUIRED"}
-    FE -[#1f6feb]-> U : Demande code TOTP
-    U -[#58a6ff]> FE : Saisit code MFA
-    FE -[#1f6feb]> AUTH : POST /api/auth/mfa/verify\n{userId, otp}
-    ' (Ici, AUTH vérifie le TOTP, non détaillé)
+group Handshake TLS + Certificat client
+  U -> RP: Connexion HTTPS\n+ Présentation certificat client
+  RP -> PKI: Vérifier chaîne de confiance\net révocation (CRL / OCSP)
+  PKI -> DB: Lire CA de confiance + CRL cache
+  DB --> PKI: Données CA / CRL / OCSP endpoint
+  PKI -> PKI: Valider chaîne X.509\n+ dates + usages
+  PKI --> RP: Résultat validation (OK / KO)
+end group
+
+alt Certificat client valide
+  RP -> API: Transmet requête + info certificat\n(X-SSL-Client-Cert / subject, serial…)
+  API -> PKI: mapCertificateToUser(cert)
+  PKI -> DB: SELECT userId FROM user_certificates\nWHERE serial=... AND subject=...
+  DB --> PKI: userId, orgId
+  PKI --> API: userId + orgId + roles
+
+  API -> AUTH: Créer JWT pour userId\n(basé sur cert, sans mot de passe)
+  AUTH -> HSM: signJWT(header, payload)
+  HSM --> AUTH: signature JWT
+  AUTH --> API: access_token + refresh_token
+  API -> AUD: logEvent("MTLS_LOGIN_SUCCESS", userId, orgId, ip)
+  AUD -> DB: INSERT audit_log(...)
+  API --> FE: 200 OK + tokens
+  FE --> U: Ouverture de session via certificat
+else Certificat invalide ou non mappé
+  RP --> U: 403 Forbidden\n(erreur TLS ou application)
 end
 
-== 3. Génération du JWT signé via HSM ==
+' ============================================================
+' 4) CRÉATION / GESTION UTILISATEUR PAR ADMIN
+' ============================================================
+== Gestion des utilisateurs par un ADMIN ==
 
-AUTH -[#8957e5]> JWT : createClaims(userId, orgId, roles, exp)
-JWT -[#e3b341]-> JWT : build payload\n(sub, iss, roles, exp)
+U -> FE: Accède à /admin/users\n(avec JWT ADMIN)
+FE -> API: GET /api/admin/users\nAuthorization: Bearer <JWT>
+API -> AUTH: validateToken(JWT)
+AUTH -> HSM: verifySignature(JWT)
+HSM --> AUTH: OK / KO
 
-JWT -[#e3b341]> HSM : signJWT(payload)\n(alg=RS256/ES256)
-HSM -[#ff7b72]-> JWT : jwtSigned
+alt JWT valide & rôle ADMIN
+  AUTH --> API: userId, roles=[ADMIN,...]
+  API -> IAM: listUsersByOrg(orgId)
+  IAM -> DB: SELECT * FROM users WHERE organisation_id = ?
+  DB --> IAM: Liste des utilisateurs
+  IAM --> API: JSON users
+  API --> FE: 200 OK + users
+  FE --> U: Affiche liste des utilisateurs
 
-JWT -[#e3b341]-> AUTH : {access_token, refresh_token}
+  ' Création d’un nouvel utilisateur
+  U -> FE: Clique "Créer utilisateur"\n+ saisit email, rôle
+  FE -> API: POST /api/admin/users\n{ email, role, ... }
+  API -> AUTH: validateToken(JWT ADMIN)
+  AUTH -> HSM: verifySignature(JWT)
+  HSM --> AUTH: OK
+  AUTH --> API: Rôle ADMIN confirmé
 
-AUTH -[#8957e5]> AUDIT : log("LOGIN_SUCCESS", userId, orgId)
-AUTH -[#8957e5]-> FE : 200 OK\n{access_token, refresh_token}
+  API -> IAM: createUser(email, role, orgId)
+  IAM -> DB: INSERT INTO users(...)
+  DB --> IAM: OK
+  IAM --> API: User créé
+  API -> AUD: logEvent("USER_CREATED", adminId, newUserId, orgId)
+  AUD -> DB: INSERT audit_log(...)
+  API --> FE: 201 Created\n{ userId, email, role }
+  FE --> U: Affiche confirmation
 
-FE -[#1f6feb]-> U : Redirige vers dashboard\net stocke les tokens
+else JWT invalide ou rôle insuffisant
+  AUTH --> API: 403 FORBIDDEN
+  API -> AUD: logEvent("UNAUTHORIZED_ACCESS", userId, path="/api/admin/users")
+  AUD -> DB: INSERT audit_log(...)
+  API --> FE: 403 Forbidden
+  FE --> U: Affiche erreur d’autorisation
+end
+
+' ============================================================
+' 5) SIGNATURE D’UN RAPPORT DE CRISE VIA HSM
+' ============================================================
+== Signature d’un rapport de crise (HSM / PKCS#11) ==
+
+U -> FE: Clique "Signer le rapport de crise"
+FE -> API: POST /api/reports/{id}/sign\nAuthorization: Bearer <JWT>
+
+API -> AUTH: validateToken(JWT)
+AUTH -> HSM: verifySignature(JWT)
+HSM --> AUTH: OK / KO
+
+alt JWT valide
+  AUTH --> API: userId, roles, orgId
+
+  API -> AUD: logEvent("SIGN_REQUEST", userId, reportId)
+  AUD -> DB: INSERT audit_log(...)
+
+  API -> DB: SELECT * FROM reports WHERE id = ?\nAND organisation_id = ?
+  DB --> API: Contenu du rapport
+
+  API -> PKI: computeHash(reportContent)
+  PKI -> PKI: hash = SHA-256(report)
+  PKI --> API: hash
+
+  API -> HSM: SIGN(hash, keyRef="SIGNING_KEY")\nvia PKCS#11
+  HSM -> HSM: Opération cryptographique\nclé privée non exportable
+  HSM --> API: signature binaire
+
+  API -> PKI: buildSignatureEnvelope(signature, cert, alg)
+  PKI -> DB: SELECT signing_cert FROM keystore\n(ou HSM / méta)
+  DB --> PKI: certificat public
+  PKI --> API: { signature, cert, alg }
+
+  API -> DB: UPDATE reports SET\nsigned=true, signed_by=userId,\nsignature=..., signed_at=NOW()
+  DB --> API: OK
+
+  API -> AUD: logEvent("SIGN_SUCCESS", userId, reportId)
+  AUD -> DB: INSERT audit_log(...)
+
+  API --> FE: 200 OK\n{ signature, cert, alg, signed_at }
+  FE --> U: Affiche "Rapport signé avec succès"
+else JWT invalide ou rôle insuffisant
+  AUTH --> API: 401/403
+  API -> AUD: logEvent("SIGN_FORBIDDEN", userId, reportId)
+  AUD -> DB: INSERT audit_log(...)
+  API --> FE: 403 Forbidden
+  FE --> U: Affiche erreur d’autorisation
+end
+
+' ============================================================
+' 6) CONSULTATION DES LOGS D’AUDIT PAR UN AUDITOR/RSSI
+' ============================================================
+== Consultation des logs d’audit ==
+
+U -> FE: Ouvre /audit/logs\n(avec rôle AUDITOR / ORG_ADMIN)
+FE -> API: GET /api/audit/logs?filters...
+API -> AUTH: validateToken(JWT)
+AUTH -> HSM: verifySignature(JWT)
+HSM --> AUTH: OK
+AUTH --> API: userId, roles
+
+alt Rôle AUDITOR ou ORG_ADMIN
+  API -> AUD: searchLogs(filters, orgId)
+  AUD -> DB: SELECT * FROM audit_log\nWHERE organisation_id = ? AND filters...
+  DB --> AUD: Liste des événements
+  AUD --> API: JSON audit events
+  API --> FE: 200 OK + logs filtrés
+  FE --> U: Affiche timeline + filtres\n(export CSV possible)
+else Rôle insuffisant
+  API -> AUD: logEvent("AUDIT_ACCESS_DENIED", userId)
+  AUD -> DB: INSERT audit_log(...)
+  API --> FE: 403 Forbidden
+  FE --> U: Affiche erreur d’autorisation
+end
 
 @enduml
 
+Tu peux :
 
----
+le visualiser sur plantuml.com ou avec un plugin VS Code/IntelliJ,
 
-2️⃣ Association d’un certificat X.509 + Authentification mTLS
-
-@startuml
-title PKI : Association certificat X.509 et authentification mTLS
-
-skinparam backgroundColor #0d1117
-skinparam sequence {
-    ArrowColor #e5e5e5
-    LifeLineBorderColor #e5e5e5
-    LifeLineBackgroundColor #161b22
-    ParticipantBorderColor #e5e5e5
-    ParticipantBackgroundColor #161b22
-    ActorBorderColor #58a6ff
-    ActorBackgroundColor #0d1117
-}
-
-actor User as U #58a6ff
-participant "Frontend" as FE #1f6feb
-participant "PKI API\n(Backend)" as PKI #8957e5
-participant "PKIValidator\n(X.509, CRL, OCSP)" as VALID #8b949e
-participant "UserService" as USVC #238636
-participant "AuditLog" as AUDIT #3fb950
-participant "Reverse Proxy TLS\n(Nginx/Traefik)" as RP #e3b341
-participant "Backend API" as API #8957e5
-
-== 1. Association du certificat au compte ==
-
-U -[#58a6ff]> FE : Upload certificat X.509\n(userCert.pem)
-FE -[#1f6feb]> PKI : POST /api/pki/certificates\n{userId, cert}
-
-PKI -[#8957e5]> VALID : parseAndValidate(cert)
-VALID -[#8b949e]-> VALID : Vérifie chaîne de confiance\n(CA, Intermediate)
-VALID -[#8b949e]-> VALID : Vérifie révocation\n(CRL/OCSP)
-
-alt Certificat non valide ou révoqué
-    VALID -[#8b949e]-> PKI : result = INVALID
-    PKI -[#8957e5]> AUDIT : log("CERT_BINDING_FAILED", userId)
-    PKI -[#8957e5]-> FE : 400 Bad Request\n{error: "Certificat non valide"}
-    return
-else Certificat valide
-    VALID -[#8b949e]-> PKI : result = OK\n{subject, issuer, notAfter}
-    PKI -[#8957e5]> USVC : saveUserCertificate(userId, cert, metadata)
-    USVC -[#238636]-> PKI : stored
-    PKI -[#8957e5]> AUDIT : log("CERT_BOUND", userId, subject)
-    PKI -[#8957e5]-> FE : 200 OK\n{message: "Certificat associé"}
-end
-
-== 2. Authentification mTLS ==
-
-U -[#58a6ff]> RP : Ouvre https://app.crisisshield\nprésente son certificat client
-
-RP -[#e3b341]-> RP : Négociation TLS + ClientAuth\nVérif CA + CRL/OCSP
-RP -[#e3b341]> API : Forward requête\n+ en-tête cert (CN, serial, issuer)
-
-API -[#8957e5]> PKI : resolveUserFromCert(CN, serial)
-PKI -[#8957e5]> USVC : findByCert(CN, serial)
-USVC -[#238636]-> PKI : userId / orgId / roles
-
-alt Certificat inconnu
-    PKI -[#8957e5]> AUDIT : log("MTLS_AUTH_FAILED", CN)
-    API -[#8957e5]-> RP : 401 Unauthorized
-    return
-else Certificat reconnu
-    PKI -[#8957e5]> AUDIT : log("MTLS_AUTH_SUCCESS", userId)
-    API -[#8957e5]-> U : 200 OK\nAccès à l’application
-end
-
-@enduml
+le découper plus tard en plusieurs diagrammes (auth, mTLS, signature, audit) si tu veux plus de lisibilité.
 
 
----
-
-3️⃣ Signature d’un hash ou d’un document via HSM (API /sign)
-
-@startuml
-title Signature cryptographique via HSM (/api/crypto/sign)
-
-skinparam backgroundColor #0d1117
-skinparam sequence {
-    ArrowColor #e5e5e5
-    LifeLineBorderColor #e5e5e5
-    LifeLineBackgroundColor #161b22
-    ParticipantBorderColor #e5e5e5
-    ParticipantBackgroundColor #161b22
-    ActorBorderColor #58a6ff
-}
-
-actor "Client Applicatif\n(Backend ou autre service)" as C #58a6ff
-participant "Sign API\n(/api/crypto/sign)" as SIGN #8957e5
-participant "HashService" as HASH #8b949e
-participant "HSM\n(PKCS#11)" as HSM #ff7b72
-participant "AuditLog" as AUDIT #3fb950
-
-== 1. Appel de l’API de signature ==
-
-C -[#58a6ff]> SIGN : POST /api/crypto/sign\n{data || hash, alg, purpose}
-
-alt Données brutes fournies
-    SIGN -[#8957e5]> HASH : computeHash(data, alg=SHA-256)
-    HASH -[#8b949e]-> SIGN : hash
-else Hash déjà fourni
-    SIGN -[#8957e5]-> SIGN : Utilise hash fourni
-end
-
-== 2. Signature dans le HSM ==
-
-SIGN -[#8957e5]> HSM : sign(hash, keyId, alg=RS256/ES256)
-HSM -[#ff7b72]-> HSM : Opération PKCS#11\n(key in secure slot)
-HSM -[#ff7b72]-> SIGN : signature (bytes)
-
-SIGN -[#8957e5]> AUDIT : log("SIGN_SUCCESS", purpose, keyId, requester)
-
-SIGN -[#8957e5]-> C : 200 OK\n{hash, signature, alg, certChain}
-
-@enduml
-
-
----
-
-4️⃣ Activation d’un plan de crise + War Room + Audit
-
-@startuml
-title Activation d'un plan de crise et War Room
-
-skinparam backgroundColor #0d1117
-skinparam sequence {
-    ArrowColor #e5e5e5
-    LifeLineBorderColor #e5e5e5
-    LifeLineBackgroundColor #161b22
-    ParticipantBorderColor #e5e5e5
-    ParticipantBackgroundColor #161b22
-    ActorBorderColor #58a6ff
-}
-
-actor "Crisis Manager" as CM #58a6ff
-participant "Frontend\n(Crisis UI)" as FE #1f6feb
-participant "Crisis API" as CAPI #8957e5
-participant "PlanService" as PLAN #238636
-participant "CrisisService" as CRISIS #e3b341
-participant "NotificationService" as NOTIF #8b949e
-participant "MailService" as MAIL #3fb950
-participant "WebhookService\n(Slack/Teams)" as WH #ff7b72
-participant "AuditLog" as AUDIT #3fb950
-
-== 1. Activation d’un plan ==
-
-CM -[#58a6ff]> FE : Clic "Activer ce plan"
-FE -[#1f6feb]> CAPI : POST /api/crisis/activate\n{planId, type, severity}
-
-CAPI -[#8957e5]> PLAN : getPlan(planId)
-PLAN -[#238636]-> CAPI : plan + steps
-
-CAPI -[#8957e5]> CRISIS : createCrisis(plan, type, severity)
-CRISIS -[#e3b341]-> CRISIS : Crée CrisisEvent + clone Steps en Tasks
-CRISIS -[#e3b341]-> CAPI : crisisId
-
-CAPI -[#8957e5]> AUDIT : log("CRISIS_ACTIVATED", crisisId, planId)
-CAPI -[#8957e5]-> FE : 200 OK\n{crisisId, warRoomUrl}
-
-FE -[#1f6feb]-> CM : Redirige vers War Room\n/app/crisis/:crisisId
-
-== 2. Notifications des membres ==
-
-CAPI -[#8957e5]> NOTIF : notifyCrisisActivated(crisisId)
-
-NOTIF -[#8b949e]> MAIL : sendMailToMembers(crisisId)
-MAIL -[#3fb950]-> MAIL : Envoi email d’alerte
-MAIL -[#3fb950]-> NOTIF : ok
-
-NOTIF -[#8b949e]> WH : postToChannels(crisisId)
-WH -[#ff7b72]-> NOTIF : ok
-
-NOTIF -[#8b949e]> AUDIT : log("CRISIS_NOTIFICATIONS_SENT", crisisId)
-
-== 3. Mise à jour des tâches / timeline ==
-
-CM -[#58a6ff]> FE : Change le statut d’une tâche\n(TO_DO → IN_PROGRESS)
-FE -[#1f6feb]> CAPI : PATCH /api/crisis/tasks/:id\n{status}
-
-CAPI -[#8957e5]> CRISIS : updateTaskStatus(taskId, status)
-CRISIS -[#e3b341]-> CRISIS : Ajoute TimelineEntry\n(type=ACTION, message, user)
-CRISIS -[#e3b341]-> CAPI : updatedTask
-
-CAPI -[#8957e5]> AUDIT : log("TASK_STATUS_CHANGED", taskId, status, userId)
-CAPI -[#8957e5]-> FE : 200 OK\n{updatedTask}
-
-@enduml
-
-
----
-
-Si tu veux, au prochain message je peux :
-
-te faire le même genre de diagrammes mais centrés seulement sur Python (DRF),
-
-ou seulement sur Java / Spring Security / HSM,
-
-ou encore un gros diagramme global qui résume tout le flux de bout en bout.
+Si tu veux, ensuite, je peux te faire la version “mini” pour chaque grand scénario séparément (Login, mTLS, Signature, Audit) pour projeter dans un support de cours ou en entretien.
