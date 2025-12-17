@@ -1,310 +1,61 @@
-Voici un gros diagramme de séquence PlantUML, détaillé et avec des couleurs claires, qui couvre :
+# ===========================
+# Reset Gemini (JetBrains IntelliJ)
+# Windows / PowerShell
+# ===========================
 
-Login email/mot de passe (+ MFA optionnelle)
+$ErrorActionPreference = "SilentlyContinue"
 
-Login mTLS avec certificat X.509
+# 1) Base JetBrains (adapte si autre version)
+$BASE = Join-Path $env:LOCALAPPDATA "JetBrains\IntelliJIdea2025.3"
 
-Signature de rapport via HSM (PKCS#11)
-
-Audit eIDAS des actions
-
-
-Tu peux le copier-coller tel quel dans un rendu PlantUML.
-
-@startuml
-title CrisisShield – Parcours Auth • PKI • HSM • Audit
-
-skinparam backgroundColor #FFFFFF
-skinparam shadowing false
-
-skinparam sequence {
-  ArrowColor #4A90E2
-  LifeLineBorderColor #90A4AE
-  LifeLineBackgroundColor #E3F2FD
-  ParticipantBorderColor #90A4AE
-  ParticipantBackgroundColor #FAFAFA
-  ParticipantFontColor #263238
-  ActorBorderColor #1976D2
-  ActorBackgroundColor #E3F2FD
-  NoteBackgroundColor #FFFDE7
-  NoteBorderColor #FBC02D
+if (-not (Test-Path $BASE)) {
+  Write-Host "ERROR: Dossier introuvable: $BASE"
+  Write-Host "➡️ Vérifie la version IntelliJIdeaXXXX.X dans %LOCALAPPDATA%\JetBrains\"
+  exit 1
 }
 
-' Couleurs par stéréotype (pastel, claires)
-skinparam participant<<Frontend>> BackgroundColor #E3F2FD
-skinparam participant<<Backend>> BackgroundColor #E8F5E9
-skinparam participant<<Service>> BackgroundColor #FFF3E0
-skinparam participant<<Crypto>> BackgroundColor #EDE7F6
-skinparam participant<<HSM>> BackgroundColor #FFEBEE
-skinparam participant<<DB>> BackgroundColor #F3E5F5
-skinparam participant<<Edge>> BackgroundColor #E0F7FA
+Write-Host "BASE = $BASE"
 
-actor "Utilisateur\n(Thomas / Sarah)" as U
+# 2) Stop process JetBrains / LLM/embeddings
+$match = @("idea","jetbrains","fsnotifier","embeddings","semantic","kotlin","java")
 
-participant "Navigateur / UI\n(Frontend React)" as FE <<Frontend>>
-participant "Reverse Proxy TLS\n(Nginx / Traefik)" as RP <<Edge>>
-participant "API Gateway\n/ Backend" as API <<Backend>>
-participant "Auth Service\n(JWT / MFA)" as AUTH <<Service>>
-participant "User Service\n(IAM)" as IAM <<Service>>
-participant "PKI Service\n(X.509 / OCSP)" as PKI <<Crypto>>
-participant "Audit Service\n(eIDAS Logs)" as AUD <<Service>>
-database "DB\n(Users, Certs,\nAudit)" as DB <<DB>>
-participant "HSM\n(PKCS#11)" as HSM <<HSM>>
+Get-Process | ForEach-Object {
+  foreach ($m in $match) {
+    if ($_.Name -like "*$m*") {
+      try {
+        Stop-Process -Id $_.Id -Force
+        Write-Host ("KILLED: {0} (pid={1})" -f $_.Name, $_.Id)
+      } catch {}
+      break
+    }
+  }
+}
 
-' ============================================================
-' 1) LOGIN EMAIL + MOT DE PASSE (JWT signé HSM)
-' ============================================================
-== Login email + mot de passe ==
+# 3) Targets à supprimer (ciblé Gemini/LLM)
+$targets = @(
+  "semantic-search",
+  "llm-jcp-outbox",
+  "junie-jcp-outbox",
+  "full-line",
+  "global-model-cache"
+)
 
-U -> FE: Ouvre /login
-FE -> API: GET /api/auth/config
-API -> AUTH: Demande config (MFA, mTLS, OIDC…)
-AUTH --> API: Config sécurité courante
-API --> FE: JSON config (MFA, mTLS, SSO, etc.)
+Write-Host "`n--- DELETE TARGETS ---"
+foreach ($t in $targets) {
+  $p = Join-Path $BASE $t
+  if (Test-Path $p) {
+    # rmdir Windows (plus robuste contre certains verrous)
+    cmd /c "rmdir /s /q `"$p`""
+    if (-not (Test-Path $p)) {
+      Write-Host "DELETED: $p"
+    } else {
+      Write-Host "FAILED : $p (encore présent)"
+    }
+  } else {
+    Write-Host "SKIP  : $p"
+  }
+}
 
-note right of FE
-  Le frontend adapte l'UI :
-  - champs login/password
-  - second facteur si nécessaire
-end note
-
-U -> FE: Saisit email + mot de passe\net clique "Se connecter"
-FE -> API: POST /api/auth/login\n{ email, password }
-API -> AUTH: Valider identifiants(email, password, contexte)
-
-AUTH -> IAM: findUserByEmail(email)
-IAM -> DB: SELECT * FROM users WHERE email = ?
-DB --> IAM: user, hash, roles, is_active, org_id, mfa_flags
-IAM --> AUTH: Données utilisateur
-
-AUTH -> AUTH: Vérifier hash mot de passe\n(bcrypt / Argon2)
-AUTH -> AUTH: Vérifier is_active
-
-alt User actif & mot de passe OK
-  note right of AUTH
-    Génération JWT :
-    - sub = userId
-    - org = organisationId
-    - roles = [ADMIN, USER...]
-    - exp = date d’expiration
-  end note
-
-  AUTH -> HSM: signJWT(header, payload)\n(demande signature PKCS#11)
-  HSM --> AUTH: signature JWT (RS256/ES256)
-  AUTH --> API: access_token + refresh_token
-  API -> AUD: logEvent("LOGIN_SUCCESS", userId, orgId, ip)
-  AUD -> DB: INSERT INTO audit_log(...)
-
-  API --> FE: 200 OK\n{ access_token, refresh_token }
-  FE --> U: Redirection vers Dashboard
-else Mauvais identifiants ou compte inactif
-  AUTH --> API: 401 Unauthorized\n{ error: "invalid_credentials" }
-  API -> AUD: logEvent("LOGIN_FAILED", email, ip)
-  AUD -> DB: INSERT audit_log(...)
-  API --> FE: 401 Unauthorized
-  FE --> U: Afficher message d'erreur
-end
-
-' ============================================================
-' 2) MFA OPTIONNELLE (TOTP par exemple)
-' ============================================================
-== Second facteur (MFA) – si activé pour l'organisation ==
-
-alt MFA obligatoire pour l’organisation
-  API --> FE: Indique "MFA_REQUIRED=true"
-  FE --> U: Affiche écran OTP / TOTP
-
-  U -> FE: Saisit code OTP
-  FE -> API: POST /api/auth/login/mfa\n{ temp_token, otp }
-  API -> AUTH: validateOtp(userId, otp)
-
-  AUTH -> DB: SELECT mfa_secret FROM users\nWHERE id = userId
-  DB --> AUTH: mfa_secret
-  AUTH -> AUTH: Vérifier OTP(TOTP, mfa_secret)
-
-  alt OTP valide
-    AUTH -> HSM: signJWT(header, payload) (session complète)
-    HSM --> AUTH: signature JWT
-    AUTH --> API: access_token + refresh_token
-    API -> AUD: logEvent("MFA_SUCCESS", userId, ip)
-    AUD -> DB: INSERT audit_log(...)
-    API --> FE: 200 OK + tokens définitifs
-    FE --> U: Accès à l’application
-  else OTP invalide
-    AUTH --> API: 401 MFA_FAILED
-    API -> AUD: logEvent("MFA_FAILED", userId, ip)
-    AUD -> DB: INSERT audit_log(...)
-    API --> FE: 401 + message erreur
-    FE --> U: Afficher erreur OTP
-  end
-else MFA non obligatoire
-  note over FE, API
-    Si MFA désactivée pour ce tenant,
-    on reste sur le scénario "Login simple".
-  end note
-end
-
-' ============================================================
-' 3) AUTHENTIFICATION PAR CERTIFICAT CLIENT (mTLS)
-' ============================================================
-== Connexion mTLS (certificat X.509) – optionnelle ==
-
-group Handshake TLS + Certificat client
-  U -> RP: Connexion HTTPS\n+ Présentation certificat client
-  RP -> PKI: Vérifier chaîne de confiance\net révocation (CRL / OCSP)
-  PKI -> DB: Lire CA de confiance + CRL cache
-  DB --> PKI: Données CA / CRL / OCSP endpoint
-  PKI -> PKI: Valider chaîne X.509\n+ dates + usages
-  PKI --> RP: Résultat validation (OK / KO)
-end group
-
-alt Certificat client valide
-  RP -> API: Transmet requête + info certificat\n(X-SSL-Client-Cert / subject, serial…)
-  API -> PKI: mapCertificateToUser(cert)
-  PKI -> DB: SELECT userId FROM user_certificates\nWHERE serial=... AND subject=...
-  DB --> PKI: userId, orgId
-  PKI --> API: userId + orgId + roles
-
-  API -> AUTH: Créer JWT pour userId\n(basé sur cert, sans mot de passe)
-  AUTH -> HSM: signJWT(header, payload)
-  HSM --> AUTH: signature JWT
-  AUTH --> API: access_token + refresh_token
-  API -> AUD: logEvent("MTLS_LOGIN_SUCCESS", userId, orgId, ip)
-  AUD -> DB: INSERT audit_log(...)
-  API --> FE: 200 OK + tokens
-  FE --> U: Ouverture de session via certificat
-else Certificat invalide ou non mappé
-  RP --> U: 403 Forbidden\n(erreur TLS ou application)
-end
-
-' ============================================================
-' 4) CRÉATION / GESTION UTILISATEUR PAR ADMIN
-' ============================================================
-== Gestion des utilisateurs par un ADMIN ==
-
-U -> FE: Accède à /admin/users\n(avec JWT ADMIN)
-FE -> API: GET /api/admin/users\nAuthorization: Bearer <JWT>
-API -> AUTH: validateToken(JWT)
-AUTH -> HSM: verifySignature(JWT)
-HSM --> AUTH: OK / KO
-
-alt JWT valide & rôle ADMIN
-  AUTH --> API: userId, roles=[ADMIN,...]
-  API -> IAM: listUsersByOrg(orgId)
-  IAM -> DB: SELECT * FROM users WHERE organisation_id = ?
-  DB --> IAM: Liste des utilisateurs
-  IAM --> API: JSON users
-  API --> FE: 200 OK + users
-  FE --> U: Affiche liste des utilisateurs
-
-  ' Création d’un nouvel utilisateur
-  U -> FE: Clique "Créer utilisateur"\n+ saisit email, rôle
-  FE -> API: POST /api/admin/users\n{ email, role, ... }
-  API -> AUTH: validateToken(JWT ADMIN)
-  AUTH -> HSM: verifySignature(JWT)
-  HSM --> AUTH: OK
-  AUTH --> API: Rôle ADMIN confirmé
-
-  API -> IAM: createUser(email, role, orgId)
-  IAM -> DB: INSERT INTO users(...)
-  DB --> IAM: OK
-  IAM --> API: User créé
-  API -> AUD: logEvent("USER_CREATED", adminId, newUserId, orgId)
-  AUD -> DB: INSERT audit_log(...)
-  API --> FE: 201 Created\n{ userId, email, role }
-  FE --> U: Affiche confirmation
-
-else JWT invalide ou rôle insuffisant
-  AUTH --> API: 403 FORBIDDEN
-  API -> AUD: logEvent("UNAUTHORIZED_ACCESS", userId, path="/api/admin/users")
-  AUD -> DB: INSERT audit_log(...)
-  API --> FE: 403 Forbidden
-  FE --> U: Affiche erreur d’autorisation
-end
-
-' ============================================================
-' 5) SIGNATURE D’UN RAPPORT DE CRISE VIA HSM
-' ============================================================
-== Signature d’un rapport de crise (HSM / PKCS#11) ==
-
-U -> FE: Clique "Signer le rapport de crise"
-FE -> API: POST /api/reports/{id}/sign\nAuthorization: Bearer <JWT>
-
-API -> AUTH: validateToken(JWT)
-AUTH -> HSM: verifySignature(JWT)
-HSM --> AUTH: OK / KO
-
-alt JWT valide
-  AUTH --> API: userId, roles, orgId
-
-  API -> AUD: logEvent("SIGN_REQUEST", userId, reportId)
-  AUD -> DB: INSERT audit_log(...)
-
-  API -> DB: SELECT * FROM reports WHERE id = ?\nAND organisation_id = ?
-  DB --> API: Contenu du rapport
-
-  API -> PKI: computeHash(reportContent)
-  PKI -> PKI: hash = SHA-256(report)
-  PKI --> API: hash
-
-  API -> HSM: SIGN(hash, keyRef="SIGNING_KEY")\nvia PKCS#11
-  HSM -> HSM: Opération cryptographique\nclé privée non exportable
-  HSM --> API: signature binaire
-
-  API -> PKI: buildSignatureEnvelope(signature, cert, alg)
-  PKI -> DB: SELECT signing_cert FROM keystore\n(ou HSM / méta)
-  DB --> PKI: certificat public
-  PKI --> API: { signature, cert, alg }
-
-  API -> DB: UPDATE reports SET\nsigned=true, signed_by=userId,\nsignature=..., signed_at=NOW()
-  DB --> API: OK
-
-  API -> AUD: logEvent("SIGN_SUCCESS", userId, reportId)
-  AUD -> DB: INSERT audit_log(...)
-
-  API --> FE: 200 OK\n{ signature, cert, alg, signed_at }
-  FE --> U: Affiche "Rapport signé avec succès"
-else JWT invalide ou rôle insuffisant
-  AUTH --> API: 401/403
-  API -> AUD: logEvent("SIGN_FORBIDDEN", userId, reportId)
-  AUD -> DB: INSERT audit_log(...)
-  API --> FE: 403 Forbidden
-  FE --> U: Affiche erreur d’autorisation
-end
-
-' ============================================================
-' 6) CONSULTATION DES LOGS D’AUDIT PAR UN AUDITOR/RSSI
-' ============================================================
-== Consultation des logs d’audit ==
-
-U -> FE: Ouvre /audit/logs\n(avec rôle AUDITOR / ORG_ADMIN)
-FE -> API: GET /api/audit/logs?filters...
-API -> AUTH: validateToken(JWT)
-AUTH -> HSM: verifySignature(JWT)
-HSM --> AUTH: OK
-AUTH --> API: userId, roles
-
-alt Rôle AUDITOR ou ORG_ADMIN
-  API -> AUD: searchLogs(filters, orgId)
-  AUD -> DB: SELECT * FROM audit_log\nWHERE organisation_id = ? AND filters...
-  DB --> AUD: Liste des événements
-  AUD --> API: JSON audit events
-  API --> FE: 200 OK + logs filtrés
-  FE --> U: Affiche timeline + filtres\n(export CSV possible)
-else Rôle insuffisant
-  API -> AUD: logEvent("AUDIT_ACCESS_DENIED", userId)
-  AUD -> DB: INSERT audit_log(...)
-  API --> FE: 403 Forbidden
-  FE --> U: Affiche erreur d’autorisation
-end
-
-@enduml
-
-Tu peux :
-
-le visualiser sur plantuml.com ou avec un plugin VS Code/IntelliJ,
-
-le découper plus tard en plusieurs diagrammes (auth, mTLS, signature, audit) si tu veux plus de lisibilité.
-
-
-Si tu veux, ensuite, je peux te faire la version “mini” pour chaque grand scénario séparément (Login, mTLS, Signature, Audit) pour projeter dans un support de cours ou en entretien.
+Write-Host "`nDONE."
+Write-Host "➡️ Ensuite dans IntelliJ : Settings > Tools > Gemini > API Endpoint Overrides"
+Write-Host "   ➜ vide TOUS les champs (laisse vide), Apply, restart, puis Sign out / Sign in."
