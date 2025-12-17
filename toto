@@ -1,7 +1,7 @@
-import numpy as np
-from Tools.functions  import *
-import pathlib
-import json
+import os
+import oracledb
+from sqlalchemy import create_engine
+import pandas as pd
 import logging
 import sys
 
@@ -16,98 +16,113 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-if __name__ == '__main__':
-    logger.info("===== START main.py =====")
+def extractSQL(file_path):
+    logger.info(f"Reading SQL file: {file_path}")
+    with open(file_path, 'r',encoding='utf-8') as file:
+        select_query = file.read()
+        return select_query
 
-    path = replace_slash(pathlib.Path().resolve())
-    logger.info(f"Project path: {path}")
+def ExecSQL_cnx(query,user,password,dsn):
+    logger.info("Connecting to Oracle DB (no param)...")
+    connection = oracledb.connect(user=user, password=password, dsn=dsn)
+    engine = create_engine('oracle+oracledb://', creator=lambda: connection)
+    df = pd.read_sql(query, engine)
+    logger.info(f"Query executed. Rows: {len(df)}")
+    return df
 
-    db_cnx = open(path + 'Config/data_base_config.json')
-    logger.info("Loading DB config JSON...")
-    cnx = json.load(db_cnx)
+def ExecSQL_cnx_param(query,user,pwd,dsn,param1):
+    logger.info("Executing SQL with 1 param...")
+    oracledb.init_oracle_client()
+    engine = create_engine('oracle+oracledb://'+user+':'+pwd+dsn)
+    with engine.connect() as  conx:
+        params = { 'param1': param1 }
+        df = pd.read_sql_query(query,conx,params=params)
+    logger.info(f"Rows fetched: {len(df)}")
+    return df
 
-    conf = open(path + 'Config/struct_file.json')
-    logger.info("Loading struct_file JSON...")
-    struct = json.load(conf)
+def ExecSQL_cnx_param_2(query,user,pwd,dsn,param1,param2):
+    logger.info("Executing SQL with 2 params...")
+    oracledb.init_oracle_client()
+    engine = create_engine('oracle+oracledb://'+user+':'+pwd+dsn)
+    with engine.connect() as  conx:
+        params = { 'param1': param1, 'param2': param2 }
+        df = pd.read_sql_query(query,conx,params=params)
+    logger.info(f"Rows fetched: {len(df)}")
+    return df
 
-    conf_param = open(path + 'Config/param.json')
-    logger.info("Loading param JSON...")
-    param = json.load(conf_param)
+def ExecSQL_cnx_param_3(query,user,pwd,dsn,param1,param2,param3):
+    logger.info("Executing SQL with 3 params...")
+    oracledb.init_oracle_client()
+    engine = create_engine('oracle+oracledb://'+user+':'+pwd+dsn)
+    with engine.connect() as  conx:
+        params = { 'param1': param1, 'param2': param2, 'param3': param3 }
+        df = pd.read_sql_query(query,conx,params=params)
+    logger.info(f"Rows fetched: {len(df)}")
+    return df
 
-    head = struct.get('head', {}).get('content', [])
-    report = struct.get('body', {}).get('reports', [])
-    mpd = struct.get('body', {}).get('mpd', [])
-    codif_sysconf = struct.get('body', {}).get('codif_sysconf', [])
+def create_file_conf(emp,name_file,head,report,df,mpd,codif_sysconf):
+    file = emp + name_file
+    logger.info(f"Generating .conf file → {file}")
+    try:
+        os.remove(file)
+        logger.info("Previous file removed.")
+    except OSError:
+        logger.info("No previous file to remove.")
 
-    name_file = str(param.get('nomFichierSortie', {}))
-    emp = str(param.get('emplacementSortie', {}))
-    param_team_leader = str(param.get('teamleaderMPD', {}))
-    param_version_majeure = str(param.get('versionMajeure', {}))
-    param_version_patch_precedente = str(param.get('versionPatchPrecedente', {}))
+    f = open(file, "a")
+    logger.info(f"Writing HEAD: {len(head)} lines")
+    for p in head: f.write(p + "\n")
 
-    logger.info("Reading SQL files...")
-    query_cq_report = extractSQL(path + "Scripts/RequeteCqReport.sql")
-    query_cq_mpd = extractSQL(path + "Scripts/RequeteCqMPD.sql")
-    query_cq_cod_sys = extractSQL(path + "Scripts/RequeteCqCodifSysconf.sql")
+    logger.info(f"Writing REPORT: {len(report)} lines")
+    for p in report: f.write(p + "\n")
 
-    dsn= str(cnx.get('dsn',{}))
-    user = str(cnx.get('user',{}))
-    pwd = str(cnx.get('password',{}))
+    tcn_value = -1
+    for i in range(len(df)):
+        if (df.loc[i,'REQ_TYPE'] == "REPORTS" and tcn_value !=  df.loc[i,'TEST_CASE_NUMBER_GROUP']):
+            tcn_value = df.loc[i,'TEST_CASE_NUMBER_GROUP']
+            f.write("\n# ---------------------------------\n")
+            f.write(f"# TCN : {tcn_value}\n")
+            f.write("# ---------------------------------\n")
+        if (tcn_value == df.loc[i,'TEST_CASE_NUMBER_GROUP']):
+            if(df.loc[i,'IS_SQL'] == 1 and df.loc[i,'IS_PATCH'] == 1 and df.loc[i,'REQ_TYPE'] == "REPORTS"):
+                f.write(df.loc[i,'filename'] + "\n")
 
-    logger.info("Executing query REPORTS...")
-    df_report = ExecSQL_cnx_param_3(query_cq_report,  user, pwd, dsn,param_team_leader,'P%'+param_version_patch_precedente+'%','%'+param_version_patch_precedente+'%')
-    df_report["REQ_TYPE"] = "REPORTS"
-    logger.info(f"REPORTS shape: {df_report.shape}")
+    logger.info(f"Writing MPD: {len(mpd)} lines")
+    for p in mpd: f.write(p + "\n")
 
-    logger.info("Executing query MPD...")
-    df_mpd = ExecSQL_cnx_param_2(query_cq_mpd, user, pwd, dsn,param_team_leader, param_version_majeure+'%')
-    df_mpd["REQ_TYPE"] = "MPD"
-    logger.info(f"MPD shape: {df_mpd.shape}")
+    tcn_value = -1
+    for i in range(len(df)):
+        if (df.loc[i,'REQ_TYPE'] == "MPD" and tcn_value != df.loc[i,'TEST_CASE_NUMBER_GROUP']):
+            tcn_value = df.loc[i,'TEST_CASE_NUMBER_GROUP']
+            f.write("\n# ---------------------------------\n")
+            f.write(f"# TCN : {tcn_value}\n")
+            f.write("# ---------------------------------\n")
+        if (tcn_value == df.loc[i,'TEST_CASE_NUMBER_GROUP']):
+            if(df.loc[i,'IS_SQL'] == 1 and df.loc[i,'IS_PATCH'] == 1 and df.loc[i,'REQ_TYPE'] == "MPD"):
+                f.write(df.loc[i,'filename'] + "\n")
 
-    logger.info("Executing query SYSCONF_CODIF...")
-    df_codif = ExecSQL_cnx_param(query_cq_cod_sys, user, pwd, dsn,param_version_majeure+'%')
-    df_codif["REQ_TYPE"] = "SYSCONF_CODIF"
-    logger.info(f"SYSCONF shape: {df_codif.shape}")
+    logger.info(f"Writing SYSCONF_CODIF: {len(codif_sysconf)} lines")
+    for p in codif_sysconf: f.write(p + "\n")
 
-    frames = [df_report,df_mpd,df_codif]
-    df_union = pd.concat(frames)
+    tcn_value = -1
+    for i in range(len(df)):
+        if (df.loc[i,'REQ_TYPE'] == "SYSCONF_CODIF" and tcn_value != df.loc[i,'TEST_CASE_NUMBER_GROUP']):
+            tcn_value = df.loc[i,'TEST_CASE_NUMBER_GROUP']
+            f.write("\n# ---------------------------------\n")
+            f.write(f"# TCN : {tcn_value}\n")
+            f.write("# ---------------------------------\n")
+        if (tcn_value == df.loc[i,'TEST_CASE_NUMBER_GROUP']):
+            if(df.loc[i,'IS_SQL'] == 1 and df.loc[i,'IS_PATCH'] == 1 and df.loc[i,'REQ_TYPE'] == "SYSCONF_CODIF"):
+                f.write(df.loc[i,'filename'] + "\n")
+    f.close()
+    logger.info("Finished writing .conf file.")
 
-    logger.info("Building derived columns...")
-    conditions = [
-        df_union['filename'].str.lower().str.contains('mpd'),
-        df_union['filename'].str.lower().str.contains('codif'),
-        df_union['filename'].str.lower().str.contains('sysconf'),
-        df_union['filename'].str.lower().str.contains('mand')
-    ]
-    values = [1,2,3,4]
-    df_union['ORDER_BY_TYPE'] = np.select(conditions,values,default=5)
+def replace_slash(path):
+    return str(path).replace('\\','/')+'/'
 
-    conditions = [ df_union['filename'].str.lower().str.contains('.sql') ]
-    values = [1]
-    df_union['IS_SQL'] = np.select(conditions,values,default=0)
-
-    conditions = [
-        df_union['REQ_TYPE'].str.lower().str.contains('reports'),
-        df_union['REQ_TYPE'].str.lower().str.contains('mpd'),
-        df_union['REQ_TYPE'].str.lower().str.contains('codif')
-    ]
-    values = [1, 2, 3]
-    df_union['ORDER_BY_REQ_TYPE'] = np.select(conditions, values)
-
-    df_final = df_union
-    df2 = df_union
-    logger.info("Calculating TEST_CASE_NUMBER_GROUP...")
-    df_final['TEST_CASE_NUMBER_GROUP'] = df_final.apply(lambda row : condition(row,df2),axis=1)
-
-    conditions = [ df_final['filename'].str.lower().str.slice(0, 5) == 'patch' ]
-    values = [1]
-    df_final['IS_PATCH'] = np.select(conditions, values,default=0)
-
-    logger.info("Sorting dataframe...")
-    df_final = df_final.sort_values(["ORDER_BY_REQ_TYPE","TEST_CASE_NUMBER_GROUP","ORDER_BY_TYPE","id"],ascending=[True,True,True,True], na_position='first').reset_index(drop=True)
-
-    logger.info("Calling create_file_conf()...")
-    create_file_conf(emp, name_file, head, report, df_final, mpd, codif_sysconf)
-
-    logger.info("===== END main.py =====")
-
+def condition(row,df2):
+    for val in df2['test_case_number']:
+        if(val is not None and row['test_case_number'] is not None):
+            if(val != row['test_case_number'] and row['test_case_number'] in val ):
+                return val
+    return row['test_case_number']
