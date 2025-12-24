@@ -1,128 +1,55 @@
-import os
-import oracledb
-from sqlalchemy import create_engine
-import pandas as pd
-import logging
-import sys
+# autoclicker.py
+# pip install pyautogui keyboard
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(filename)s:%(lineno)d | %(message)s",
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler("run.log", encoding="utf-8")
-    ]
-)
+import time
+import random
+import threading
+import pyautogui
+import keyboard
 
-logger = logging.getLogger(__name__)
+# --------- CONFIG ---------
+MIN_INTERVAL = 0.08  # secondes (min)
+MAX_INTERVAL = 0.20  # secondes (max)
+# --------------------------
 
-def extractSQL(file_path):
-    logger.info(f"Reading SQL file: {file_path}")
-    with open(file_path, 'r',encoding='utf-8') as file:
-        select_query = file.read()
-        return select_query
+running = False
+quit_app = False
+lock = threading.Lock()
 
-def ExecSQL_cnx(query,user,password,dsn):
-    logger.info("Connecting to Oracle DB (no param)...")
-    connection = oracledb.connect(user=user, password=password, dsn=dsn)
-    engine = create_engine('oracle+oracledb://', creator=lambda: connection)
-    df = pd.read_sql(query, engine)
-    logger.info(f"Query executed. Rows: {len(df)}")
-    return df
+def click_loop():
+    global running, quit_app
+    while not quit_app:
+        with lock:
+            is_running = running
+        if is_running:
+            pyautogui.click(button="left")
+            time.sleep(random.uniform(MIN_INTERVAL, MAX_INTERVAL))
+        else:
+            time.sleep(0.05)
 
-def ExecSQL_cnx_param(query,user,pwd,dsn,param1):
-    logger.info("Executing SQL with 1 param...")
-    oracledb.init_oracle_client()
-    engine = create_engine('oracle+oracledb://'+user+':'+pwd+dsn)
-    with engine.connect() as  conx:
-        params = { 'param1': param1 }
-        df = pd.read_sql_query(query,conx,params=params)
-    logger.info(f"Rows fetched: {len(df)}")
-    return df
+def toggle():
+    global running
+    with lock:
+        running = not running
+        state = "ON" if running else "OFF"
+    print(f"[AutoClicker] {state}")
 
-def ExecSQL_cnx_param_2(query,user,pwd,dsn,param1,param2):
-    logger.info("Executing SQL with 2 params...")
-    oracledb.init_oracle_client()
-    engine = create_engine('oracle+oracledb://'+user+':'+pwd+dsn)
-    with engine.connect() as  conx:
-        params = { 'param1': param1, 'param2': param2 }
-        df = pd.read_sql_query(query,conx,params=params)
-    logger.info(f"Rows fetched: {len(df)}")
-    return df
+def stop_and_quit():
+    global running, quit_app
+    with lock:
+        running = False
+    quit_app = True
+    print("[AutoClicker] Quit")
 
-def ExecSQL_cnx_param_3(query,user,pwd,dsn,param1,param2,param3):
-    logger.info("Executing SQL with 3 params...")
-    oracledb.init_oracle_client()
-    engine = create_engine('oracle+oracledb://'+user+':'+pwd+dsn)
-    with engine.connect() as  conx:
-        params = { 'param1': param1, 'param2': param2, 'param3': param3 }
-        df = pd.read_sql_query(query,conx,params=params)
-    logger.info(f"Rows fetched: {len(df)}")
-    return df
+if __name__ == "__main__":
+    print("AutoClicker prêt.")
+    print("F6 = Start/Stop | F8 = Quitter")
+    t = threading.Thread(target=click_loop, daemon=True)
+    t.start()
 
-def create_file_conf(emp,name_file,head,report,df,mpd,codif_sysconf):
-    file = emp + name_file
-    logger.info(f"Generating .conf file → {file}")
-    try:
-        os.remove(file)
-        logger.info("Previous file removed.")
-    except OSError:
-        logger.info("No previous file to remove.")
+    keyboard.add_hotkey("F6", toggle)
+    keyboard.add_hotkey("F8", stop_and_quit)
 
-    f = open(file, "a")
-    logger.info(f"Writing HEAD: {len(head)} lines")
-    for p in head: f.write(p + "\n")
-
-    logger.info(f"Writing REPORT: {len(report)} lines")
-    for p in report: f.write(p + "\n")
-
-    tcn_value = -1
-    for i in range(len(df)):
-        if (df.loc[i,'REQ_TYPE'] == "REPORTS" and tcn_value !=  df.loc[i,'TEST_CASE_NUMBER_GROUP']):
-            tcn_value = df.loc[i,'TEST_CASE_NUMBER_GROUP']
-            f.write("\n# ---------------------------------\n")
-            f.write(f"# TCN : {tcn_value}\n")
-            f.write("# ---------------------------------\n")
-        if (tcn_value == df.loc[i,'TEST_CASE_NUMBER_GROUP']):
-            if(df.loc[i,'IS_SQL'] == 1 and df.loc[i,'IS_PATCH'] == 1 and df.loc[i,'REQ_TYPE'] == "REPORTS"):
-                f.write(df.loc[i,'filename'] + "\n")
-
-    logger.info(f"Writing MPD: {len(mpd)} lines")
-    for p in mpd: f.write(p + "\n")
-
-    tcn_value = -1
-    for i in range(len(df)):
-        if (df.loc[i,'REQ_TYPE'] == "MPD" and tcn_value != df.loc[i,'TEST_CASE_NUMBER_GROUP']):
-            tcn_value = df.loc[i,'TEST_CASE_NUMBER_GROUP']
-            f.write("\n# ---------------------------------\n")
-            f.write(f"# TCN : {tcn_value}\n")
-            f.write("# ---------------------------------\n")
-        if (tcn_value == df.loc[i,'TEST_CASE_NUMBER_GROUP']):
-            if(df.loc[i,'IS_SQL'] == 1 and df.loc[i,'IS_PATCH'] == 1 and df.loc[i,'REQ_TYPE'] == "MPD"):
-                f.write(df.loc[i,'filename'] + "\n")
-
-    logger.info(f"Writing SYSCONF_CODIF: {len(codif_sysconf)} lines")
-    for p in codif_sysconf: f.write(p + "\n")
-
-    tcn_value = -1
-    for i in range(len(df)):
-        if (df.loc[i,'REQ_TYPE'] == "SYSCONF_CODIF" and tcn_value != df.loc[i,'TEST_CASE_NUMBER_GROUP']):
-            tcn_value = df.loc[i,'TEST_CASE_NUMBER_GROUP']
-            f.write("\n# ---------------------------------\n")
-            f.write(f"# TCN : {tcn_value}\n")
-            f.write("# ---------------------------------\n")
-        if (tcn_value == df.loc[i,'TEST_CASE_NUMBER_GROUP']):
-            if(df.loc[i,'IS_SQL'] == 1 and df.loc[i,'IS_PATCH'] == 1 and df.loc[i,'REQ_TYPE'] == "SYSCONF_CODIF"):
-                f.write(df.loc[i,'filename'] + "\n")
-    f.close()
-    logger.info("Finished writing .conf file.")
-
-def replace_slash(path):
-    return str(path).replace('\\','/')+'/'
-
-def condition(row,df2):
-    for val in df2['test_case_number']:
-        if(val is not None and row['test_case_number'] is not None):
-            if(val != row['test_case_number'] and row['test_case_number'] in val ):
-                return val
-    return row['test_case_number']
+    # boucle principale
+    while not quit_app:
+        time.sleep(0.2)
