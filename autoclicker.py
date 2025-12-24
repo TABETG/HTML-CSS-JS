@@ -1,0 +1,61 @@
+# autoclicker.py
+# pip install pyautogui keyboard
+
+import time
+import random
+import threading
+import pyautogui
+import keyboard
+
+# --------- CONFIG ---------
+MIN_INTERVAL = 0.08  # secondes (min)
+MAX_INTERVAL = 0.20  # secondes (max)
+# --------------------------
+
+running = False
+quit_app = False
+lock = threading.Lock()
+
+def click_loop():
+    global running, quit_app
+    while not quit_app:
+        with lock:
+            is_running = running
+        if is_running:
+            pyautogui.click(button="left")
+            time.sleep(random.uniform(MIN_INTERVAL, MAX_INTERVAL))
+        else:
+            time.sleep(0.05)
+
+def toggle():
+    global running
+    with lock:
+        running = not running
+        state = "ON" if running else "OFF"
+    print(f"[AutoClicker] {state}")
+
+def stop_and_quit():
+    global running, quit_app
+    with lock:
+        running = False
+    quit_app = True
+    print("[AutoClicker] Quit")
+
+if __name__ == "__main__":
+    print("AutoClicker prêt.")
+    print("F6 = Start/Stop | F8 = Quitter")
+    t = threading.Thread(target=click_loop, daemon=True)
+    t.start()
+
+    keyboard.add_hotkey("F6", toggle)
+    keyboard.add_hotkey("F8", stop_and_quit)
+
+    # boucle principale
+    while not quit_app:
+        time.sleep(0.2)
+
+
+
+
+pip install pyautogui keyboard
+python autoclicker.py
