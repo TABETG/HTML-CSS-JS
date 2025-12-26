@@ -1,0 +1,31 @@
+# pip install pyautogui
+import time
+import random
+import pyautogui
+
+pyautogui.FAILSAFE = True  # met la souris dans un coin pour arrêter
+
+def wiggle(duration_s: float, amplitude_px: int = 200, step_delay_s: float = 0.02):
+    """Bouge la souris gauche/droite pendant duration_s secondes."""
+    start = time.time()
+    direction = 1
+    while time.time() - start < duration_s:
+        x, y = pyautogui.position()
+        pyautogui.moveTo(x + direction * amplitude_px, y, duration=0)
+        direction *= -1
+        time.sleep(step_delay_s)
+
+def main():
+    print("Démarrage dans 2s... (Ctrl+C pour arrêter, ou coin de l'écran)")
+    time.sleep(2)
+
+    while True:
+        wiggle(3.0)           # 3 secondes
+        time.sleep(5.0)       # repos 5 secondes
+        wiggle(random.uniform(2.0, 3.0))  # 2-3 secondes
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\nArrêté.")
