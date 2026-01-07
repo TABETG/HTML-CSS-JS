@@ -1,0 +1,789 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Hélios — Livraison Majeure / Alpha (Guide + Exemples)</title>
+  <style>
+    :root{
+      --bg:#0b1020;
+      --panel:#121a33;
+      --panel2:#0f1630;
+      --text:#e8ecff;
+      --muted:#aab3d6;
+      --accent:#7aa2ff;
+      --ok:#35d07f;
+      --warn:#ffcc66;
+      --bad:#ff6b6b;
+      --border:rgba(255,255,255,.08);
+      --shadow:0 10px 30px rgba(0,0,0,.35);
+      --radius:14px;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;
+      --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Apple Color Emoji","Segoe UI Emoji";
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      font-family:var(--sans);
+      background: radial-gradient(1200px 800px at 20% 0%, #17224a 0%, var(--bg) 55%);
+      color:var(--text);
+    }
+    a{color:var(--accent); text-decoration:none}
+    a:hover{text-decoration:underline}
+    .app{display:grid; grid-template-columns: 340px 1fr; min-height:100vh;}
+    aside{
+      border-right:1px solid var(--border);
+      padding:18px 14px;
+      background: linear-gradient(180deg, rgba(255,255,255,.03), transparent);
+      position:sticky; top:0; height:100vh; overflow:auto;
+    }
+    main{padding:18px; overflow:auto;}
+    .brand{display:flex; gap:10px; align-items:center; padding:10px 10px 14px; border-bottom:1px solid var(--border); margin-bottom:14px;}
+    .logo{width:34px;height:34px;border-radius:10px;background: linear-gradient(135deg, rgba(122,162,255,.9), rgba(53,208,127,.9)); box-shadow: var(--shadow);}
+    .brand h1{font-size:15px; margin:0}
+    .brand p{margin:2px 0 0; font-size:12px; color:var(--muted)}
+    .controls{display:grid; gap:10px; padding:10px; background: rgba(255,255,255,.03); border:1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow);}
+    .controls label{font-size:12px; color:var(--muted)}
+    input[type="search"], select{
+      width:100%; padding:10px 12px; border-radius: 12px;
+      background: rgba(0,0,0,.25); border:1px solid var(--border);
+      color:var(--text); outline:none;
+    }
+    .pillbar{display:flex; flex-wrap:wrap; gap:8px;}
+    .pill{padding:7px 10px; border-radius: 999px; border:1px solid var(--border); background: rgba(255,255,255,.03); font-size:12px; cursor:pointer; user-select:none;}
+    .pill.active{border-color: rgba(122,162,255,.7); background: rgba(122,162,255,.12);}
+    nav{margin-top:12px; padding:10px;}
+    nav h3{margin:14px 0 8px; font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.08em;}
+    .navitem{display:block; padding:8px 10px; border-radius: 10px; border:1px solid transparent; color:var(--text);}
+    .navitem:hover{background: rgba(255,255,255,.04); border-color: var(--border); text-decoration:none;}
+    .grid{display:grid; grid-template-columns: 1fr; gap:14px; max-width: 1120px;}
+    .card{border:1px solid var(--border); background: rgba(255,255,255,.03); border-radius: var(--radius); padding:14px; box-shadow: var(--shadow);}
+    .card h2{margin:0 0 8px; font-size:18px}
+    .card h3{margin:12px 0 8px; font-size:14px; color:#d7ddff}
+    .card p{margin:6px 0; color: var(--muted); line-height:1.55}
+    .badge{display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:999px; border:1px solid var(--border); background: rgba(0,0,0,.18); font-size:12px; margin-right:8px;}
+    .badge.ok{border-color: rgba(53,208,127,.35); background: rgba(53,208,127,.12)}
+    .badge.warn{border-color: rgba(255,204,102,.35); background: rgba(255,204,102,.10)}
+    .badge.bad{border-color: rgba(255,107,107,.35); background: rgba(255,107,107,.10)}
+    .split{display:grid; grid-template-columns: 1.1fr .9fr; gap:14px;}
+    @media (max-width: 980px){.app{grid-template-columns:1fr} aside{position:relative; height:auto} .split{grid-template-columns:1fr}}
+    .cmd{font-family:var(--mono); font-size:12.5px; background: rgba(0,0,0,.28); border:1px solid var(--border); border-radius:12px; padding:10px 12px; overflow:auto;}
+    .cmdbar{display:flex; gap:10px; align-items:center; justify-content:space-between; margin:10px 0 6px;}
+    .btn{border:1px solid var(--border); background: rgba(255,255,255,.04); color:var(--text); padding:8px 10px; border-radius:12px; cursor:pointer; font-size:12px;}
+    .btn:hover{background: rgba(255,255,255,.07)}
+    .btn.primary{border-color: rgba(122,162,255,.55); background: rgba(122,162,255,.14);}
+    .checklist{display:grid; gap:8px; margin-top:10px;}
+    .check{display:flex; gap:10px; align-items:flex-start; padding:10px; border:1px solid var(--border); border-radius:12px; background: rgba(0,0,0,.12);}
+    .check input{margin-top:3px}
+    .check .title{font-size:13px}
+    .check .sub{font-size:12px; color:var(--muted); margin-top:2px}
+    details{border:1px solid var(--border); border-radius:12px; background: rgba(0,0,0,.14); padding:10px;}
+    summary{cursor:pointer; font-weight:600; color:#dfe6ff;}
+    .hidden{display:none!important;}
+    .kpi{display:flex; gap:10px; flex-wrap:wrap; margin-top:10px;}
+    .kpi .box{padding:10px 12px; border:1px solid var(--border); border-radius:12px; background: rgba(0,0,0,.12); min-width:160px;}
+    .kpi .box b{display:block; font-size:18px}
+    .kpi .box span{font-size:12px; color:var(--muted)}
+    table{width:100%; border-collapse:collapse; margin-top:8px; overflow:hidden; border-radius:12px; border:1px solid var(--border);}
+    th, td{padding:10px 10px; border-bottom:1px solid var(--border); font-size:12.5px;}
+    th{color:#dfe6ff; text-align:left; background: rgba(255,255,255,.04)}
+    td{color:var(--muted); background: rgba(0,0,0,.10)}
+    tr:last-child td{border-bottom:none}
+    .callout{border:1px solid rgba(255,204,102,.35); background: rgba(255,204,102,.08); border-radius:12px; padding:10px 12px; color:#f3e7c7; font-size:12.5px; line-height:1.5;}
+    .callout b{color:#fff}
+  </style>
+</head>
+
+<body>
+<div class="app">
+  <aside>
+    <div class="brand">
+      <div class="logo"></div>
+      <div>
+        <h1>Livraison Hélios</h1>
+        <p>Majeure / Alpha — guide + exemples intégrés</p>
+      </div>
+    </div>
+
+    <div class="controls">
+      <div>
+        <label for="q">Recherche</label>
+        <input id="q" type="search" placeholder="ex: CROB, -identical, ClearQuest, HLS_GXML..." />
+      </div>
+
+      <div>
+        <label for="mode">Mode</label>
+        <select id="mode">
+          <option value="alpha">Alpha</option>
+          <option value="majeure">Majeure</option>
+        </select>
+      </div>
+
+      <div>
+        <label>Filtres</label>
+        <div class="pillbar">
+          <div class="pill active" data-filter="all">Tout</div>
+          <div class="pill" data-filter="prep">Préparation</div>
+          <div class="pill" data-filter="cc">ClearCase</div>
+          <div class="pill" data-filter="cq">ClearQuest</div>
+          <div class="pill" data-filter="ex">Exemples</div>
+        </div>
+      </div>
+
+      <button class="btn primary" id="reset">Réinitialiser les checks</button>
+
+      <div class="kpi">
+        <div class="box"><b id="kDone">0</b><span>étapes cochées</span></div>
+        <div class="box"><b id="kTotal">0</b><span>étapes au total</span></div>
+      </div>
+    </div>
+
+    <nav>
+      <h3>Sommaire</h3>
+      <a class="navitem" href="#scope">Périmètre & Projets</a>
+      <a class="navitem" href="#preparation">1. Préparation (1.2.x)</a>
+      <a class="navitem" href="#deliver">2. Livraison activités (AnalyzeDeliver)</a>
+      <a class="navitem" href="#crob">3. CROB (CheckProject)</a>
+      <a class="navitem" href="#baseline">4. Baselines</a>
+      <a class="navitem" href="#cq">5. ClearQuest + Mail</a>
+      <a class="navitem" href="#notes">Notes</a>
+    </nav>
+  </aside>
+
+  <main>
+    <div class="grid">
+
+      <section id="scope" class="card" data-tags="all ex">
+        <h2>Périmètre & Projets</h2>
+        <p>Table projet : <b>helios-L5.0.x</b> est à traiter <b>en dernier</b> (majeure).</p>
+
+        <table>
+          <thead>
+            <tr><th>Projet</th><th>Remarque</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>HLS_EDITION-C5.0.x</td><td></td></tr>
+            <tr><td><b>helios-L5.0.x</b></td><td><span class="badge warn">À traiter en dernier (maj.)</span></td></tr>
+          </tbody>
+        </table>
+
+        <h3>Liste des projets qui constituent GEN2</h3>
+        <table>
+          <thead>
+            <tr><th>GEN2</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>GEN_MDPATCH-L5.0.x</td></tr>
+            <tr><td>GEN_APPLI-L5.0.x</td></tr>
+            <tr><td>GEN_METIER-C5.0.x</td></tr>
+          </tbody>
+        </table>
+
+        <div style="margin-top:10px">
+          <span class="badge ok">Compte : liv_dev</span>
+          <span class="badge">hôte : vhmvp03</span>
+          <span class="badge">Mail : helios.integration@dgfip.finances.gouv.fr</span>
+        </div>
+      </section>
+
+      <section id="preparation" class="card" data-tags="prep all">
+        <h2>1. Préparation (1.2.x)</h2>
+
+        <details open data-tags="prep ex">
+          <summary>1.2.1 — Création / mise à jour HeliosBddDependancies.conf</summary>
+          <div style="margin-top:10px" class="split">
+            <div>
+              <p>
+                Rôle : garantir l’ordre d’exécution des patchs <b>codifs</b>, <b>sysconfs</b> et <b>mpd</b>.
+                Un seul fichier <code>HeliosBddDependancies.conf</code> par version (intégré au projet MDPATCH).
+              </p>
+
+              <div class="checklist">
+                <label class="check">
+                  <input type="checkbox" data-key="prep_conf_create"/>
+                  <div>
+                    <div class="title">Créer / MAJ HeliosBddDependancies.conf</div>
+                    <div class="sub">Puis l’intégrer dans <b>HLS_MDPATCH-L5.0.x/L5.0.VV</b>.</div>
+                  </div>
+                </label>
+              </div>
+
+              <div class="callout">
+                <b>Note</b> : le fichier initial contient la liste des patchs (codifs/sysconfs/mpd) issus de la FIAD/Reports
+                de la version précédente + du dev en cours (les mpd FIAD peuvent être “à commenter” selon consigne).
+              </div>
+            </div>
+
+            <div>
+              <div class="cmdbar">
+                <b>Exemple d’emplacement</b>
+                <button class="btn" data-copy="#ex-path">Copier</button>
+              </div>
+              <pre class="cmd" id="ex-path">.../ClearCase/Views/.../HLS_MDPATCH-L5.0.x_dev.../COTECH/HLS_MDP/L5.0.25/HeliosBddDependancies.conf</pre>
+
+              <div class="cmdbar">
+                <b>Exemple contenu (extrait)</b>
+                <button class="btn" data-copy="#ex-conf">Copier</button>
+              </div>
+              <pre class="cmd" id="ex-conf"># REPORTS
+#---------------------------------------------------
+# TCN : &lt;vide&gt;
+#---------------------------------------------------
+#Patch_MPD_HLS00359654_HIS.sql
+#Patch_MPD_HLS00360234_DEP.sql
+#CRQP_HLS00359899.zip
+Patch_sysconf_HLS00355955_ARC.sql
+Patch_sysconf_HLS00356993_ARC.sql
+Patch_sysconf_HLS00358353_TYC.sql
+Patch_sysconf_HLS00359949_RCO.sql
+Patch_sysconf_HLS00360384_EXP.sql</pre>
+            </div>
+          </div>
+        </details>
+
+        <details data-tags="prep ex">
+          <summary>1.2.2 — Contrôle HeliosBddDependancies.conf (PreintBdDistant.sh)</summary>
+          <div style="margin-top:10px" class="split">
+            <div>
+              <p>
+                Re-lancer le script avec <b>version courante</b> + <b>version précédente</b>. Il compare :
+                la liste dans <code>HeliosBddDependancies.conf</code> vs la liste des patchs livrés.
+              </p>
+
+              <div class="checklist">
+                <label class="check">
+                  <input type="checkbox" data-key="prep_conf_check"/>
+                  <div>
+                    <div class="title">Exécuter PreintBdDistant.sh sur /app/TMA_util</div>
+                    <div class="sub">Le script envoie un mail (souvent uniquement si incohérence).</div>
+                  </div>
+                </label>
+              </div>
+
+              <div class="callout">
+                <b>Erreurs fréquentes</b> : patch référencé dans conf mais pas intégré / patch intégré mais pas référencé,
+                TMI incorrect, patch non attaché au ticket CQ, liste “ref” incohérente (ex: MAND vs MAND pour MPD/SYSCONF/TM).
+              </div>
+            </div>
+
+            <div>
+              <div class="cmdbar">
+                <b>Exemple exécution</b>
+                <button class="btn" data-copy="#ex-preint">Copier</button>
+              </div>
+              <pre class="cmd" id="ex-preint">cd /app/TMA_util
+. PreintBdDistant.sh
+New Version Off Patch : L5.0.25
+Old Version Off Patch : L5.0.24</pre>
+
+              <div class="cmdbar">
+                <b>Exemple mail (extrait)</b>
+                <button class="btn" data-copy="#ex-preint-mail">Copier</button>
+              </div>
+              <pre class="cmd" id="ex-preint-mail">WARNING : fichier sql/PATCH_MPD_HLS00xxxxx_RCO.sql inexistant ou non lisible
+WARNING : fichier CRQP_HLS00xxxxx.ZIP inexistant ou non lisible
+WARNING : fichier PATCH_SYSCONF_HLS00xxxxx_TYC.sql livre mais non reference dans HeliosBddDependancies.conf</pre>
+            </div>
+          </div>
+        </details>
+
+        <details data-tags="prep ex" open>
+          <summary>1.2.3 — Contrôle conformité activités ClearCase (AnalyzeDeliver -listonly)</summary>
+          <div style="margin-top:10px" class="split">
+            <div>
+              <p>
+                Une activité est <b>conforme</b> si elle est <b>verrouillée</b> et si tous les artefacts sont <b>restés tracés</b>
+                (pas de checkout en cours). À faire sur tous les projets du périmètre.
+              </p>
+
+              <div class="checklist">
+                <label class="check">
+                  <input type="checkbox" data-key="prep_listonly"/>
+                  <div>
+                    <div class="title">Lister l’état des activités (vue DEV → pas encore livrées)</div>
+                    <div class="sub">Les activités “sans check-in” n’apparaissent pas, même si des fichiers sont en checkout.</div>
+                  </div>
+                </label>
+              </div>
+
+              <h3>Catégories attendues</h3>
+              <ul style="margin:6px 0 0; color:var(--muted); line-height:1.5">
+                <li><b>Deliverable Activities</b> : livrables</li>
+                <li><b>Unlocked Activities</b> : non lockées</li>
+                <li><b>Activities with Checkout</b> : checkout résiduels</li>
+                <li><b>Activities with lost+found</b> : incohérence (créé/supprimé dans une même activité)</li>
+              </ul>
+            </div>
+
+            <div>
+              <div class="cmdbar">
+                <b>Exemple</b>
+                <button class="btn" data-copy="#ex-listonly">Copier</button>
+              </div>
+              <pre class="cmd" id="ex-listonly">AnalyzeDeliver.shl -project HLS_METIER-C5.0.x -listonly</pre>
+
+              <div class="cmdbar">
+                <b>En cas “absence dev” : lock manuel (vobadm)</b>
+                <button class="btn" data-copy="#ex-lock">Copier</button>
+              </div>
+              <pre class="cmd" id="ex-lock">cleartool describe -long activity:C_ABC_YYYYMMDD_HLS00XXXXXX@/helios_ver
+cleartool lock activity:C_ABC_YYYYMMDD_HLS00XXXXXX@/helios_ver</pre>
+
+              <div class="cmdbar">
+                <b>lost+found : remise en état</b>
+                <button class="btn" data-copy="#ex-lostfound">Copier</button>
+              </div>
+              <pre class="cmd" id="ex-lostfound">RemoveLostFoundFromActivity.shl -activity activity:C_ABC_YYYYMMDD_HLS00XXXXXX@/helios_ver</pre>
+
+              <div class="cmdbar">
+                <b>Contrôle global (script)</b>
+                <button class="btn" data-copy="#ex-listActivities">Copier</button>
+              </div>
+              <pre class="cmd" id="ex-listActivities">./listActivities.sh</pre>
+            </div>
+          </div>
+        </details>
+
+        <details data-tags="prep ex">
+          <summary>1.2.4 — Création nouvelle baseline du socle PL (SOCLE_PLSQL-1.x)</summary>
+          <div style="margin-top:10px">
+            <p>
+              Le projet <b>SOCLE_PLSQL-1.x</b> est externe et référencé (ex: par METIER). Si modification sur SOCLE_PLSQL :
+              il faut créer une <b>nouvelle baseline</b>, puis la référencer dans le projet consommateur.
+            </p>
+
+            <div class="checklist">
+              <label class="check">
+                <input type="checkbox" data-key="prep_socle_pl_baseline"/>
+                <div>
+                  <div class="title">Créer la baseline SOCLE_PLSQL-1.x (si modifié)</div>
+                  <div class="sub">Puis mettre à jour le projet consommateur (ex: HLS_METIER-C5.0.x).</div>
+                </div>
+              </label>
+            </div>
+
+            <div class="cmdbar">
+              <b>Commande</b>
+              <button class="btn" data-copy="#ex-soclepl">Copier</button>
+            </div>
+            <pre class="cmd" id="ex-soclepl">CreateComponentBaseline.shl -noviewupdate -nrecommend -project SOCLE_PLSQL-1.x -autonumbering</pre>
+          </div>
+        </details>
+      </section>
+
+      <section id="deliver" class="card" data-tags="cc all ex">
+        <h2>2. Livraison des activités (AnalyzeDeliver)</h2>
+        <p>
+          Objectif : livrer une activité de la vue <b>DEV</b> vers la vue <b>INTEGRATION</b>.
+          Deux modes : sélectionner activités une par une, ou <b>All_Activities</b> (recommandé pour Alpha/Majeure).
+        </p>
+
+        <details open>
+          <summary>Ordre des projets (selon mode)</summary>
+          <div style="margin-top:10px">
+            <div class="badge" id="modeBadge">Mode: Alpha</div>
+            <pre class="cmd" id="projectOrder"></pre>
+          </div>
+        </details>
+
+        <div class="checklist">
+          <label class="check">
+            <input type="checkbox" data-key="cc_deliver"/>
+            <div>
+              <div class="title">Lancer AnalyzeDeliver.shl pour chaque projet</div>
+              <div class="sub">Choisir <b>All_Activities</b> → valider <b>y</b> (ou <b>n</b> pour annuler).</div>
+            </div>
+          </label>
+        </div>
+
+        <div class="split">
+          <div>
+            <div class="cmdbar">
+              <b>Commande</b>
+              <button class="btn" data-copy="#cmd-deliver">Copier</button>
+            </div>
+            <pre class="cmd" id="cmd-deliver">AnalyzeDeliver.shl -project &lt;NOM_PROJET&gt;</pre>
+          </div>
+
+          <div>
+            <div class="cmdbar">
+              <b>Exemple (extrait output + prompt y/n)</b>
+              <button class="btn" data-copy="#ex-deliver-out">Copier</button>
+            </div>
+            <pre class="cmd" id="ex-deliver-out">Deliverable Activities: activity:...@/helios_ver  ...
+Unlocked Activities:
+Activities with Checkout:
+Activities with lost+found:
+
+Deliverable Activities are:
+  C_MDU_20240814_HLS00xxxxx_CDG_PreIntegration
+  ...
+  All_Activities
+  EndOfSelection
+
+Do you want to run directly that command? (y/n)
+[...]
+Deliver has completed.</pre>
+          </div>
+        </div>
+      </section>
+
+      <section id="crob" class="card" data-tags="cc all ex">
+        <h2>3. CROB — Mise à jour composants non modifiables (CheckProject)</h2>
+        <p>
+          Les projets Hélios contiennent des composants modifiables et non modifiables (ex: Guichet XML).
+          La CROB met à jour les composants non modifiables (souvent socles / interfaces / XSD…).
+        </p>
+
+        <div class="checklist">
+          <label class="check">
+            <input type="checkbox" data-key="cc_checkproject"/>
+            <div>
+              <div class="title">Exécuter CheckProject.shl</div>
+              <div class="sub">Si “not up to date”, appliquer la commande générée <b>ChangeReadOnlyBaseline.shl</b>.</div>
+            </div>
+          </label>
+        </div>
+
+        <div class="split">
+          <div>
+            <div class="cmdbar">
+              <b>Commande</b>
+              <button class="btn" data-copy="#cmd-checkproject">Copier</button>
+            </div>
+            <pre class="cmd" id="cmd-checkproject">CheckProject.shl -project &lt;NOM_PROJET&gt;</pre>
+
+            <div class="cmdbar">
+              <b>Exemple résultat OK</b>
+              <button class="btn" data-copy="#ex-check-ok">Copier</button>
+            </div>
+            <pre class="cmd" id="ex-check-ok">Validating project : HLS_CONF-C5.0.x...
+PROJECT: HLS_CONF-C5.0.x is up to date.</pre>
+          </div>
+
+          <div>
+            <div class="cmdbar">
+              <b>Exemple résultat KO + commande générée</b>
+              <button class="btn" data-copy="#ex-check-ko">Copier</button>
+            </div>
+            <pre class="cmd" id="ex-check-ko">Validating project : HLS_GXML-L5.0.x...
+HLS_GXML-L5.0.x is not up to date for Component PES_XSD it would need baseline: PES_XSD_HLS_SCHEMAS-C-5.0.25.1@/helios_ver
+...
+
+ChangeReadOnlyBaseline.shl -project HLS_GXML-L5.0.x -execute -unlock -baseline baseline:ITF_FCT_INTER-L5.0.11@/helios_ver,baseline:RCO_ITF_RCO_INTER-L5.0.0.12@/helios_ver,...</pre>
+
+            <div class="callout" style="margin-top:10px">
+              <b>PS</b> : suite à la CROB, le script peut envoyer un mail aux comptes ayant installé le projet.
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="baseline" class="card" data-tags="cc all ex">
+        <h2>4. Création des baselines</h2>
+        <p>Une baseline = photo du projet à un instant T (après livraison + CROB si besoin).</p>
+
+        <div class="checklist">
+          <label class="check">
+            <input type="checkbox" data-key="cc_baseline"/>
+            <div>
+              <div class="title">Créer la baseline du projet</div>
+              <div class="sub">Ajouter <b>-identical</b> si aucun changement (pas d’activité, pas de CROB).</div>
+            </div>
+          </label>
+
+          <label class="check">
+            <input type="checkbox" data-key="cc_end_activities"/>
+            <div>
+              <div class="title">Rejouer AnalyzeDeliver pour end_* (METIER + GXML)</div>
+              <div class="sub">Après création des baselines des projets “mavenisés”.</div>
+            </div>
+          </label>
+        </div>
+
+        <div class="split">
+          <div>
+            <div class="cmdbar">
+              <b>Commande baseline</b>
+              <button class="btn" data-copy="#cmd-baseline">Copier</button>
+            </div>
+            <pre class="cmd" id="cmd-baseline">CreateComponentBaseline.shl -noviewupdate -nrecommend -project "&lt;NOM_PROJET&gt;" -baseline "&lt;NOUVELLE_BASELINE&gt;"</pre>
+
+            <div class="cmdbar">
+              <b>Cas “aucun changement” (-identical)</b>
+              <button class="btn" data-copy="#cmd-identical">Copier</button>
+            </div>
+            <pre class="cmd" id="cmd-identical">CreateComponentBaseline.shl -noviewupdate -nrecommend -project "&lt;NOM_PROJET&gt;" -baseline "&lt;NOUVELLE_BASELINE&gt;" -identical</pre>
+          </div>
+
+          <div>
+            <div class="cmdbar">
+              <b>end_* après baselines mavenisées</b>
+              <button class="btn" data-copy="#cmd-end">Copier</button>
+            </div>
+            <pre class="cmd" id="cmd-end">AnalyzeDeliver.shl -project HLS_GXML-L5.0.x
+AnalyzeDeliver.shl -project HLS_METIER-C5.0.x</pre>
+
+            <details style="margin-top:10px">
+              <summary>4.1 (Majeure uniquement) — Baseline helios-L5.0.x</summary>
+              <div style="margin-top:10px">
+                <p>
+                  Après création des baselines de tous les projets composants : faire une CROB sur <b>helios-L5.0.x</b>,
+                  puis créer la baseline <code>helios-L5.0.VV.1</code> (VV = numéro version).
+                </p>
+                <div class="cmdbar">
+                  <b>Commandes</b>
+                  <button class="btn" data-copy="#cmd-helios">Copier</button>
+                </div>
+                <pre class="cmd" id="cmd-helios">CheckProject.shl -project helios-L5.0.x
+CreateComponentBaseline.shl -noviewupdate -nrecommend -project helios-L5.0.x -baseline helios-L5.0.VV.1</pre>
+              </div>
+            </details>
+          </div>
+        </div>
+      </section>
+
+      <section id="cq" class="card" data-tags="cq all ex">
+        <h2>5. ClearQuest + Mail (fin de livraison)</h2>
+        <p>
+          Fin de livraison : créer un ticket ClearQuest (affecté intégration) + envoyer un mail avec la liste des baselines.
+          Ensuite, extraction des tickets & mise à jour du champ patch par requête SQL.
+        </p>
+
+        <div class="checklist">
+          <label class="check">
+            <input type="checkbox" data-key="cq_ticket"/>
+            <div>
+              <div class="title">Créer le ticket ClearQuest et l’affecter à l’équipe intégration</div>
+              <div class="sub">Ex : HLS00362816 (à adapter).</div>
+            </div>
+          </label>
+          <label class="check">
+            <input type="checkbox" data-key="cq_mail"/>
+            <div>
+              <div class="title">Envoyer le mail de livraison avec les baselines créées</div>
+              <div class="sub">Vers helios.integration@dgfip.finances.gouv.fr (copie si besoin).</div>
+            </div>
+          </label>
+          <label class="check">
+            <input type="checkbox" data-key="cq_sql"/>
+            <div>
+              <div class="title">Préparer la requête SQL d’update (champ patch) + la transmettre à l’intégration</div>
+              <div class="sub">Dédoublonner les IDs HLS00xxxxx.</div>
+            </div>
+          </label>
+        </div>
+
+        <details open>
+          <summary>Exemple mail (baselines)</summary>
+          <div class="cmdbar">
+            <b>Copier</b>
+            <button class="btn" data-copy="#ex-mail">Copier</button>
+          </div>
+          <pre class="cmd" id="ex-mail">Bonjour,
+
+Les baselines suivantes ont été créées :
+
+HLS_MODELE-L5.0.25.1
+HLS_MDPATCH-L5.0.25.1
+HLS_CONF-C5.0.25.1
+HLS_SCHEMAS-C5.0.25.1
+...
+helios-L5.0.25.1
+
+Cordialement,</pre>
+        </details>
+
+        <details>
+          <summary>Exemple SELECT d’extraction (tickets / defects)</summary>
+          <div class="cmdbar">
+            <b>Copier</b>
+            <button class="btn" data-copy="#ex-select">Copier</button>
+          </div>
+          <pre class="cmd" id="ex-select">select
+  T1.id, T1.severity, T1.priority, T1.name, T1.ref_cfd, T1.resolution,
+  T1.liste_de_reference, T1.remediation, T1.theme_tm, T1.impact_metier,
+  T1.complement_resolution
+from Defect T1
+where T1.id in ('HLS00362449','HLS00362755','HLS00362984','HLS00363053')
+order by T1.id desc;</pre>
+        </details>
+
+        <details>
+          <summary>Exemple UPDATE champ patch</summary>
+          <div class="cmdbar">
+            <b>Copier</b>
+            <button class="btn" data-copy="#ex-update">Copier</button>
+          </div>
+          <pre class="cmd" id="ex-update">update Defect T1
+set T1.patch = '5.25 - ' || T1.patch
+where (T1.dbid &lt;&gt; 0 and (T1.id in (
+  'HLS00362449','HLS00362755','HLS00362984','HLS00363053'
+)));</pre>
+        </details>
+      </section>
+
+      <section id="notes" class="card" data-tags="all">
+        <h2>Notes / Logs</h2>
+        <p>Colle ici ta trace (commandes exécutées, baselines, erreurs, etc.). Sauvegarde locale.</p>
+
+        <textarea id="notesBox" rows="10"
+          style="width:100%; padding:10px 12px; border-radius:12px; background:rgba(0,0,0,.25);
+                 border:1px solid var(--border); color:var(--text); outline:none;
+                 font-family:var(--mono); font-size:12.5px;"
+          placeholder="Ex: baselines créées, output AnalyzeDeliver, commande CROB générée, ticket CQ..."></textarea>
+
+        <div class="cmdbar">
+          <b>Actions</b>
+          <div style="display:flex; gap:10px">
+            <button class="btn" id="saveNotes">Enregistrer</button>
+            <button class="btn" id="clearNotes">Effacer</button>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </main>
+</div>
+
+<script>
+  // Ordre projets (à adapter selon ton SI)
+  const ORDER_ALPHA = [
+    "HLS_MDPATCH-L5.0.x",
+    "HLS_CONF-C5.0.x",
+    "HLS_SCHEMAS-C5.0.x",
+    "HLS_APPLI-L5.0.x",
+    "HLS_METIER-C5.0.x",
+    "HLS_GXML-L5.0.x",
+    "HLS_TXPRESS-L5.0.x",
+    "HLS_EDITION-C5.0.x",
+    "HLS_EDITION-J5.0.x"
+  ];
+
+  const ORDER_MAJEURE = [
+    "HLS_MODELE-L5.0.x",
+    "HLS_MDPATCH-L5.0.x",
+    "HLS_CONF-C5.0.x",
+    "HLS_SCHEMAS-C5.0.x",
+    "HLS_SOCLE-C5.0.x",
+    "HLS_APPLI-L5.0.x",
+    "HLS_METIER-C5.0.x",
+    "HLS_GXML-L5.0.x",
+    "HLS_TXPRESS-L5.0.x",
+    "HLS_EDITION-C5.0.x",
+    "GEN_MDPATCH-L5.0.x",
+    "GEN_APPLI-L5.0.x",
+    "GEN_METIER-C5.0.x",
+    "helios-L5.0.x (DERNIER)"
+  ];
+
+  const $ = (sel, root=document) => root.querySelector(sel);
+  const $$ = (sel, root=document) => [...root.querySelectorAll(sel)];
+
+  const stateKey = "helios_livraison_checks_v2";
+  const notesKey = "helios_livraison_notes_v2";
+
+  function loadChecks(){
+    try { return JSON.parse(localStorage.getItem(stateKey) || "{}"); }
+    catch { return {}; }
+  }
+  function saveChecks(obj){ localStorage.setItem(stateKey, JSON.stringify(obj)); }
+
+  function updateKpis(){
+    const boxes = $$('input[type="checkbox"][data-key]');
+    $("#kTotal").textContent = String(boxes.length);
+    $("#kDone").textContent = String(boxes.filter(b => b.checked).length);
+  }
+
+  function renderOrder(){
+    const mode = $("#mode").value;
+    const order = (mode === "majeure") ? ORDER_MAJEURE : ORDER_ALPHA;
+    $("#modeBadge").textContent = "Mode: " + (mode === "majeure" ? "Majeure" : "Alpha");
+    $("#projectOrder").textContent = order.map((p,i)=>`${String(i+1).padStart(2,"0")}. ${p}`).join("\n");
+  }
+
+  function applySearchAndFilters(){
+    const q = $("#q").value.trim().toLowerCase();
+    const activeFilter = $(".pill.active")?.dataset.filter || "all";
+    const sections = $$("main section.card");
+
+    sections.forEach(sec => {
+      const tags = (sec.dataset.tags || "all").split(/\s+/);
+      const okFilter = (activeFilter === "all") || tags.includes(activeFilter);
+
+      const text = sec.textContent.toLowerCase();
+      const okSearch = !q || text.includes(q);
+
+      sec.classList.toggle("hidden", !(okFilter && okSearch));
+    });
+  }
+
+  function wirePills(){
+    $$(".pill").forEach(p => {
+      p.addEventListener("click", () => {
+        $$(".pill").forEach(x => x.classList.remove("active"));
+        p.classList.add("active");
+        applySearchAndFilters();
+      });
+    });
+  }
+
+  function wireCopyButtons(){
+    $$("[data-copy]").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const target = $(btn.dataset.copy);
+        const txt = target ? target.textContent : "";
+        await navigator.clipboard.writeText(txt);
+        const old = btn.textContent;
+        btn.textContent = "Copié ✓";
+        setTimeout(()=>btn.textContent=old, 900);
+      });
+    });
+  }
+
+  function wireCheckboxes(){
+    const saved = loadChecks();
+    $$('input[type="checkbox"][data-key]').forEach(cb => {
+      const key = cb.dataset.key;
+      cb.checked = !!saved[key];
+      cb.addEventListener("change", () => {
+        const s = loadChecks();
+        s[key] = cb.checked;
+        saveChecks(s);
+        updateKpis();
+      });
+    });
+    updateKpis();
+  }
+
+  function wireMode(){ $("#mode").addEventListener("change", () => { renderOrder(); applySearchAndFilters(); }); }
+  function wireSearch(){ $("#q").addEventListener("input", applySearchAndFilters); }
+
+  function wireReset(){
+    $("#reset").addEventListener("click", () => {
+      localStorage.removeItem(stateKey);
+      $$('input[type="checkbox"][data-key]').forEach(cb => cb.checked = false);
+      updateKpis();
+    });
+  }
+
+  function wireNotes(){
+    const notes = $("#notesBox");
+    notes.value = localStorage.getItem(notesKey) || "";
+    $("#saveNotes").addEventListener("click", () => localStorage.setItem(notesKey, notes.value));
+    $("#clearNotes").addEventListener("click", () => { notes.value=""; localStorage.removeItem(notesKey); });
+  }
+
+  // init
+  renderOrder();
+  wirePills();
+  wireCopyButtons();
+  wireCheckboxes();
+  wireMode();
+  wireSearch();
+  wireReset();
+  wireNotes();
+  applySearchAndFilters();
+</script>
+</body>
+</html>
