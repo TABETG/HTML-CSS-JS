@@ -1,60 +1,57 @@
 import difflib
-import sys
 import os
+import webbrowser
 
-def comparer_fichiers(fichier1_path, fichier2_path, fichier_sortie="rapport_diff.html"):
-    """
-    Compare deux fichiers et génère un rapport HTML côte à côte.
-    """
-    
-    # 1. Vérification de l'existence des fichiers
-    if not os.path.exists(fichier1_path):
-        print(f"❌ Erreur : Le fichier '{fichier1_path}' est introuvable.")
+# --- CONFIGURATION DES CHEMINS ---
+# L'astuce est le 'r' devant les guillemets pour gérer les backslashes Windows
+# J'ai corrigé les fautes de frappe probables (FastAPI, .txt, etc.)
+
+fichier_1 = r"C:\Users\btabet_consultant\PycharmProjects\FastAPIProject\Travail_Construction\PythonExtract\PythonExtract.txt"
+fichier_2 = r"C:\Users\btabet_consultant\PycharmProjects\FastAPIProject\Travail_Construction\ClearCaseExtract\ClearCaseExtract.txt"
+
+fichier_sortie = "resultat_comparaison.html"
+
+def comparer_fichiers(f1_path, f2_path, out_path):
+    print("--- Vérification des fichiers ---")
+
+    # 1. Vérification stricte des chemins
+    if not os.path.exists(f1_path):
+        print(f"❌ ERREUR FATALE : Le fichier 1 est introuvable à cet endroit :")
+        print(f"   -> {f1_path}")
+        print("   Vérifiez le nom du dossier (ex: espaces vs underscores) ou l'extension .txt")
         return
-    if not os.path.exists(fichier2_path):
-        print(f"❌ Erreur : Le fichier '{fichier2_path}' est introuvable.")
+
+    if not os.path.exists(f2_path):
+        print(f"❌ ERREUR FATALE : Le fichier 2 est introuvable à cet endroit :")
+        print(f"   -> {f2_path}")
         return
+
+    print("✅ Les deux fichiers ont été trouvés. Comparaison en cours...")
 
     try:
-        # 2. Lecture des fichiers
-        # On utilise 'utf-8' pour gérer les accents
-        with open(fichier1_path, 'r', encoding='utf-8') as f1:
+        # 2. Lecture (encodage utf-8 ou latin-1 selon ton système)
+        # Si ça plante ici, change 'utf-8' par 'latin-1'
+        with open(f1_path, 'r', encoding='utf-8', errors='ignore') as f1:
             lignes_f1 = f1.readlines()
         
-        with open(fichier2_path, 'r', encoding='utf-8') as f2:
+        with open(f2_path, 'r', encoding='utf-8', errors='ignore') as f2:
             lignes_f2 = f2.readlines()
 
-        print(f"🔄 Comparaison de '{fichier1_path}' avec '{fichier2_path}' en cours...")
+        # 3. Création du HTML (Style Notepad++)
+        diff = difflib.HtmlDiff(wrapcolumn=90)
+        html_content = diff.make_file(lignes_f1, lignes_f2, fromdesc="Python Extract", todesc="ClearCase Extract")
 
-        # 3. Génération du diff HTML
-        # HtmlDiff crée un tableau visuel style Notepad++ / WinMerge
-        diff = difflib.HtmlDiff(wrapcolumn=80) # wrapcolumn évite que les lignes soient trop longues
-        html_content = diff.make_file(lignes_f1, lignes_f2, fromdesc=fichier1_path, todesc=fichier2_path)
-
-        # 4. Sauvegarde du rapport
-        with open(fichier_sortie, 'w', encoding='utf-8') as f_out:
+        # 4. Sauvegarde
+        with open(out_path, 'w', encoding='utf-8') as f_out:
             f_out.write(html_content)
         
-        print(f"✅ Terminé ! Le rapport a été généré : {fichier_sortie}")
-        print("👉 Ouvrez ce fichier dans votre navigateur pour voir les différences.")
+        print(f"✅ Terminé ! Rapport généré : {os.path.abspath(out_path)}")
+        
+        # 5. Ouverture automatique dans le navigateur
+        webbrowser.open('file://' + os.path.abspath(out_path))
 
     except Exception as e:
-        print(f"Une erreur est survenue : {e}")
+        print(f"❌ Une erreur inattendue est survenue : {e}")
 
-# --- Configuration des fichiers à comparer ---
 if __name__ == "__main__":
-    # Remplace ces noms par les chemins de tes vrais fichiers
-    mon_fichier_A = "original.txt"
-    mon_fichier_B = "modifie.txt"
-    
-    # Création de fichiers de test si ils n'existent pas (pour que tu puisses tester le script de suite)
-    if not os.path.exists(mon_fichier_A):
-        with open(mon_fichier_A, "w", encoding="utf-8") as f:
-            f.write("Ligne 1 : Ceci est le texte original.\nLigne 2 : Python est super.\nLigne 3 : À garder.")
-    
-    if not os.path.exists(mon_fichier_B):
-        with open(mon_fichier_B, "w", encoding="utf-8") as f:
-            f.write("Ligne 1 : Ceci est le texte original.\nLigne 2 : Python est VRAIMENT super.\nLigne 4 : Une nouvelle ligne ajoutée.")
-
-    # Lancement de la comparaison
-    comparer_fichiers(mon_fichier_A, mon_fichier_B)
+    comparer_fichiers(fichier_1, fichier_2, fichier_sortie)
