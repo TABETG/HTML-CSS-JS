@@ -1,0 +1,925 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"/>
+  <title>Hélios — Guide de Livraison (Majeure / Alpha)</title>
+  <style>
+    :root {
+      /* Couleurs & Thème */
+      --bg-dark: #0b1020;
+      --bg-gradient: radial-gradient(circle at 15% 0%, #1c2a5e 0%, #0b1020 60%);
+      --panel-glass: rgba(18, 26, 51, 0.85);
+      --panel-border: rgba(255, 255, 255, 0.08);
+
+      --text-main: #eef2ff;
+      --text-muted: #94a3b8;
+
+      --accent: #6366f1; /* Indigo */
+      --accent-glow: rgba(99, 102, 241, 0.4);
+      --accent-hover: #818cf8;
+
+      --success: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+
+      --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+      --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+
+      --radius: 16px;
+      --shadow-lg: 0 20px 25px -5px rgba(0, 0, 0, 0.4), 0 10px 10px -5px rgba(0, 0, 0, 0.3);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: var(--font-sans);
+      background: var(--bg-dark);
+      background-image: var(--bg-gradient);
+      background-attachment: fixed;
+      color: var(--text-main);
+      line-height: 1.6;
+      height: 100vh;
+      overflow: hidden; /* App manage scroll */
+    }
+
+    /* Scrollbars personnalisées */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.3); }
+
+    /* Layout Principal */
+    .app {
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      height: 100vh;
+    }
+
+    /* --- SIDEBAR --- */
+    aside {
+      background: rgba(11, 16, 32, 0.95);
+      border-right: 1px solid var(--panel-border);
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      backdrop-filter: blur(12px);
+      z-index: 50;
+      transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .brand {
+      padding: 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      border-bottom: 1px solid var(--panel-border);
+    }
+
+    .logo {
+      width: 40px; height: 40px;
+      background: linear-gradient(135deg, var(--accent), #a855f7);
+      border-radius: 10px;
+      box-shadow: 0 0 15px var(--accent-glow);
+      display: flex; align-items: center; justify-content: center;
+      font-weight: bold; font-size: 20px;
+    }
+
+    .brand h1 { font-size: 16px; margin: 0; font-weight: 700; letter-spacing: -0.5px; }
+    .brand p { margin: 2px 0 0; font-size: 11px; color: var(--text-muted); opacity: 0.8; }
+
+    .sidebar-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    /* Inputs & Controls */
+    .control-group label {
+      display: block; font-size: 11px; text-transform: uppercase;
+      letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 6px; font-weight: 600;
+    }
+
+    .input-wrapper { position: relative; }
+
+    input[type="search"], select {
+      width: 100%;
+      background: rgba(0,0,0,0.3);
+      border: 1px solid var(--panel-border);
+      color: var(--text-main);
+      padding: 10px 12px;
+      border-radius: 8px;
+      font-size: 13px;
+      outline: none;
+      transition: all 0.2s;
+    }
+    input[type="search"]:focus, select:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
+      background: rgba(0,0,0,0.5);
+    }
+
+    /* Pills */
+    .pill-cloud { display: flex; flex-wrap: wrap; gap: 6px; }
+    .pill {
+      font-size: 11px; padding: 4px 10px;
+      border-radius: 20px;
+      border: 1px solid var(--panel-border);
+      background: rgba(255,255,255,0.03);
+      cursor: pointer;
+      transition: all 0.2s;
+      user-select: none;
+    }
+    .pill:hover { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.2); }
+    .pill.active {
+      background: rgba(99, 102, 241, 0.15);
+      border-color: var(--accent);
+      color: #fff;
+      box-shadow: 0 0 10px rgba(99, 102, 241, 0.1);
+    }
+
+    /* KPI Circle */
+    .progress-container {
+      background: rgba(0,0,0,0.2);
+      border-radius: 12px;
+      padding: 15px;
+      border: 1px solid var(--panel-border);
+      display: flex;
+      align-items: center;
+      gap: 15px;
+    }
+    .progress-ring { position: relative; width: 50px; height: 50px; }
+    .progress-ring circle {
+      fill: transparent; stroke-width: 4; transform: rotate(-90deg); transform-origin: 50% 50%;
+      transition: stroke-dashoffset 0.5s ease-in-out;
+    }
+    .ring-bg { stroke: rgba(255,255,255,0.1); }
+    .ring-val { stroke: var(--success); stroke-dasharray: 126; stroke-dashoffset: 126; stroke-linecap: round;}
+    .progress-text {
+      flex: 1;
+      display: flex; flex-direction: column;
+    }
+    .progress-text strong { font-size: 18px; line-height: 1; }
+    .progress-text span { font-size: 11px; color: var(--text-muted); }
+
+    /* Navigation TOC */
+    .toc { display: flex; flex-direction: column; gap: 2px; }
+    .toc a {
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 13px;
+      color: var(--text-muted);
+      text-decoration: none;
+      transition: all 0.2s;
+      border-left: 2px solid transparent;
+    }
+    .toc a:hover { background: rgba(255,255,255,0.05); color: var(--text-main); }
+    .toc a.active { background: rgba(99, 102, 241, 0.1); color: #fff; border-left-color: var(--accent); }
+
+    /* --- MAIN CONTENT --- */
+    main {
+      padding: 30px;
+      overflow-y: auto;
+      scroll-behavior: smooth;
+    }
+
+    .container { max-width: 1000px; margin: 0 auto; display: flex; flex-direction: column; gap: 24px; }
+
+    /* Cards */
+    .card {
+      background: var(--panel-glass);
+      border: 1px solid var(--panel-border);
+      border-radius: var(--radius);
+      padding: 24px;
+      box-shadow: var(--shadow-lg);
+      position: relative;
+      overflow: hidden;
+    }
+    .card::before {
+      content:''; position: absolute; top:0; left:0; right:0; height:1px;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
+    }
+
+    .card h2 {
+      margin: 0 0 16px; font-size: 1.5rem; color: #fff;
+      display: flex; align-items: center; gap: 10px;
+    }
+
+    .card h3 {
+      font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.05em;
+      color: var(--accent); margin: 24px 0 12px;
+      border-bottom: 1px solid var(--panel-border); padding-bottom: 8px;
+    }
+
+    p { color: var(--text-muted); margin-bottom: 1rem; }
+
+    ul { margin: 10px 0 0; padding-left: 18px; color: var(--text-muted); }
+    li { margin: 6px 0; }
+
+    /* Details / Summary */
+    details {
+      background: rgba(0,0,0,0.15);
+      border: 1px solid var(--panel-border);
+      border-radius: 12px;
+      overflow: hidden;
+      margin-bottom: 12px;
+      transition: background 0.2s;
+    }
+    details[open] { background: rgba(0,0,0,0.25); border-color: rgba(99, 102, 241, 0.3); }
+
+    summary {
+      padding: 14px 18px;
+      cursor: pointer;
+      font-weight: 600;
+      color: var(--text-main);
+      display: flex; align-items: center; justify-content: space-between;
+      list-style: none;
+    }
+    summary::-webkit-details-marker { display: none; }
+    summary::after {
+      content: '›'; font-size: 20px; font-weight: 300;
+      transform: rotate(90deg); transition: transform 0.2s; color: var(--text-muted);
+    }
+    details[open] summary::after { transform: rotate(270deg); color: var(--accent); }
+
+    .details-content { padding: 0 18px 18px; border-top: 1px solid rgba(255,255,255,0.03); margin-top: 5px; padding-top: 15px;}
+
+    /* Checkboxes améliorées */
+    .check-item {
+      display: flex; gap: 14px; align-items: flex-start;
+      padding: 12px;
+      background: rgba(255,255,255,0.03);
+      border-radius: 8px;
+      border: 1px solid transparent;
+      transition: all 0.2s;
+      cursor: pointer;
+      margin-bottom: 8px;
+    }
+    .check-item:hover { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.1); }
+    .check-item.checked { background: rgba(16, 185, 129, 0.1); border-color: rgba(16, 185, 129, 0.3); }
+
+    .custom-checkbox {
+      width: 20px; height: 20px; min-width: 20px;
+      border: 2px solid var(--text-muted);
+      border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+      transition: all 0.2s;
+      margin-top: 2px;
+    }
+    .check-item.checked .custom-checkbox {
+      background: var(--success); border-color: var(--success);
+    }
+    .custom-checkbox::after {
+      content: '✓'; color: #0b1020; font-size: 14px; font-weight: bold;
+      opacity: 0; transform: scale(0.5); transition: all 0.2s;
+    }
+    .check-item.checked .custom-checkbox::after { opacity: 1; transform: scale(1); }
+
+    .check-content .title { font-weight: 600; font-size: 14px; color: var(--text-main); }
+    .check-content .sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+
+    /* Code & Commandes */
+    .code-block {
+      position: relative;
+      background: #0f111a;
+      border: 1px solid var(--panel-border);
+      border-radius: 8px;
+      margin: 10px 0;
+      overflow: hidden;
+    }
+    .code-header {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 6px 12px; background: rgba(255,255,255,0.03);
+      border-bottom: 1px solid var(--panel-border);
+      font-size: 11px; color: var(--text-muted); font-family: var(--font-sans); text-transform: uppercase;
+    }
+    pre.cmd {
+      margin: 0; padding: 12px;
+      font-family: var(--font-mono); font-size: 12px; color: #a5b3ce;
+      overflow-x: auto; white-space: pre;
+    }
+    .hl-cmd { color: #facc15; }
+    .hl-arg { color: #60a5fa; }
+    .hl-comment { color: #4b5563; font-style: italic; }
+
+    /* Buttons */
+    .btn {
+      background: rgba(255,255,255,0.05); border: 1px solid var(--panel-border);
+      color: var(--text-main); padding: 5px 10px; border-radius: 6px;
+      cursor: pointer; font-size: 11px; transition: all 0.2s;
+    }
+    .btn:hover { background: rgba(255,255,255,0.1); }
+    .btn-primary {
+      background: var(--accent); border-color: transparent; color: white;
+      padding: 8px 16px; font-size: 12px; font-weight: 600;
+    }
+    .btn-primary:hover { background: var(--accent-hover); box-shadow: 0 0 15px var(--accent-glow); }
+
+    /* Badges */
+    .badge {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 3px 8px; border-radius: 4px;
+      font-size: 11px; font-family: var(--font-mono); font-weight: 500;
+    }
+    .badge-ok { background: rgba(16, 185, 129, 0.15); color: #6ee7b7; }
+    .badge-warn { background: rgba(245, 158, 11, 0.15); color: #fcd34d; }
+    .badge-bad { background: rgba(239, 68, 68, 0.15); color: #fca5a5; }
+
+    /* Tables */
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { text-align: left; color: var(--text-muted); padding: 8px; border-bottom: 1px solid var(--panel-border); }
+    td { padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.03); color: #cbd5e1; }
+
+    /* Callouts */
+    .callout {
+      margin-top: 15px; padding: 12px 16px; border-radius: 8px;
+      font-size: 13px; display: flex; gap: 12px; align-items: flex-start;
+      line-height: 1.5;
+    }
+    .callout-info { background: rgba(99, 102, 241, 0.1); border-left: 3px solid var(--accent); color: #c7d2fe; }
+    .callout-warn { background: rgba(245, 158, 11, 0.1); border-left: 3px solid var(--warning); color: #fde68a; }
+
+    /* Toast Notification */
+    .toast-container {
+      position: fixed; bottom: 20px; right: 20px; z-index: 100;
+      display: flex; flex-direction: column; gap: 10px; pointer-events: none;
+    }
+    .toast {
+      background: #1e293b; color: white; padding: 12px 20px; border-radius: 8px;
+      box-shadow: 0 10px 15px rgba(0,0,0,0.3); border: 1px solid var(--panel-border);
+      font-size: 13px; display: flex; align-items: center; gap: 10px;
+      animation: slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      pointer-events: all;
+    }
+    .toast svg { width: 18px; height: 18px; color: var(--success); }
+
+    /* Mobile Toggle */
+    .mobile-toggle {
+      position: fixed; bottom: 20px; right: 20px;
+      width: 50px; height: 50px; border-radius: 50%;
+      background: var(--accent); color: white;
+      display: none; align-items: center; justify-content: center;
+      box-shadow: 0 5px 20px rgba(0,0,0,0.5); z-index: 60; cursor: pointer;
+    }
+
+    @keyframes slideIn { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+    /* RESPONSIVE */
+    @media (max-width: 900px) {
+      .app { grid-template-columns: 1fr; }
+      aside {
+        position: fixed; top: 0; left: 0; width: 280px; transform: translateX(-100%);
+      }
+      aside.open { transform: translateX(0); }
+      .mobile-toggle { display: flex; }
+      .split { grid-template-columns: 1fr; }
+    }
+
+    .split { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    .hidden { display: none !important; }
+
+    /* PRINT */
+    @media print {
+      body { background: white; color: black; overflow: visible; height: auto; }
+      aside, .mobile-toggle, .code-header button, .toast-container { display: none; }
+      .app { display: block; }
+      main { padding: 0; }
+      .card { box-shadow: none; border: 1px solid #ccc; break-inside: avoid; background: white; color: black; margin-bottom: 20px;}
+      .card h2, .card h3, .title { color: black; }
+      .code-block { background: #f5f5f5; border: 1px solid #ddd; }
+      pre.cmd { color: #333; }
+      .badge { border: 1px solid #ccc; color: black !important; background: transparent !important; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="app">
+  <aside id="sidebar">
+    <div class="brand">
+      <div class="logo">H</div>
+      <div>
+        <h1>Livraison Hélios</h1>
+        <p>Guide Interactif v2.1</p>
+      </div>
+    </div>
+
+    <div class="sidebar-content">
+      <div class="control-group">
+        <div class="input-wrapper">
+          <input id="q" type="search" placeholder="Rechercher (ex: CROB, SQL...)" />
+        </div>
+      </div>
+
+      <div class="control-group">
+        <label>Mode Opératoire</label>
+        <select id="mode">
+          <option value="alpha">Alpha (Dev & Test)</option>
+          <option value="majeure">Majeure (Prod)</option>
+        </select>
+      </div>
+
+      <div class="control-group">
+        <label>Filtres</label>
+        <div class="pill-cloud">
+          <div class="pill active" data-filter="all">Tous</div>
+          <div class="pill" data-filter="prep">Préparation</div>
+          <div class="pill" data-filter="cc">ClearCase</div>
+          <div class="pill" data-filter="cq">ClearQuest</div>
+          <div class="pill" data-filter="ex">Exemples</div>
+        </div>
+      </div>
+
+      <div class="progress-container">
+        <div class="progress-ring">
+          <svg width="50" height="50">
+            <circle class="ring-bg" stroke-width="4" fill="transparent" r="20" cx="25" cy="25"></circle>
+            <circle class="ring-val" id="progressCircle" stroke-width="4" fill="transparent" r="20" cx="25" cy="25"></circle>
+          </svg>
+        </div>
+        <div class="progress-text">
+          <strong id="kPercent">0%</strong>
+          <span><span id="kDone">0</span>/<span id="kTotal">0</span> tâches</span>
+        </div>
+      </div>
+
+      <button class="btn" id="reset" style="width:100%; border-style:dashed; opacity:0.7">Réinitialiser tout</button>
+
+      <nav class="toc">
+        <label style="margin-bottom:8px; display:block; font-size:11px; color:#64748b; font-weight:700">NAVIGATION</label>
+        <a href="#intro">Enrichissement</a>
+        <a href="#scope">Périmètre</a>
+        <a href="#preparation">1. Préparation</a>
+        <a href="#deliver">2. Livraison</a>
+        <a href="#crob">3. CROB</a>
+        <a href="#baseline">4. Baselines</a>
+        <a href="#cq">5. Finalisation</a>
+        <a href="#notes">Notes</a>
+      </nav>
+    </div>
+  </aside>
+
+  <div class="mobile-toggle" id="menuToggle">☰</div>
+
+  <main>
+    <div class="container">
+
+      <!-- On conserve le texte “Enrichissement final” (non supprimé) sous forme d’une section lisible -->
+      <section id="intro" class="card" data-tags="all ex">
+        <h2>✨ Enrichissement final (Dashboard SPA)</h2>
+        <p>
+          C'est parti pour l'enrichissement final ! J'ai repris votre code complet et j'ai poussé l'amélioration
+          encore plus loin pour en faire un véritable Dashboard interactif (SPA).
+        </p>
+        <h3>Améliorations majeures apportées</h3>
+        <ul>
+          <li><b>Barre de progression visuelle</b> : jauge circulaire animée pour le suivi de l'avancement global.</li>
+          <li><b>Système de Notifications (Toasts)</b> : remplacement du texte “Copié” par des notifications flottantes.</li>
+          <li><b>Interface Mobile optimisée</b> : menu latéral en “Drawer” (bouton Burger).</li>
+          <li><b>Mise en valeur du Code</b> : coloration syntaxique légère via CSS/JS.</li>
+          <li><b>Mode Impression</b> : feuille de style <code>@media print</code> propre et lisible.</li>
+        </ul>
+      </section>
+
+      <section id="scope" class="card" data-tags="all ex">
+        <h2>📦 Périmètre & Projets</h2>
+        <p>Attention : le projet table <b>helios-L5.0.x</b> doit impérativement être traité en dernier lors d'une majeure.</p>
+
+        <div class="split">
+          <div>
+            <table>
+              <thead><tr><th>Projet</th><th>Statut</th></tr></thead>
+              <tbody>
+                <tr><td>HLS_EDITION-C5.0.x</td><td><span class="badge badge-ok">Standard</span></td></tr>
+                <tr><td><b>helios-L5.0.x</b></td><td><span class="badge badge-warn">Dernier (Majeure)</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div style="background:rgba(0,0,0,0.2); padding:15px; border-radius:12px;">
+            <div style="font-size:11px; color:var(--text-muted); margin-bottom:10px; font-weight:bold; text-transform:uppercase;">Informations Connexion</div>
+            <div style="display:flex; flex-direction:column; gap:8px;">
+              <div>👤 <span class="badge">liv_dev</span></div>
+              <div>💻 <span class="badge">vhmvp03</span></div>
+              <div>📧 <span class="badge">helios.integration@...</span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="preparation" class="card" data-tags="prep all">
+        <h2>🛠 1. Préparation (1.2.x)</h2>
+
+        <details open data-tags="prep ex">
+          <summary>1.2.1 — Configuration HeliosBddDependancies.conf</summary>
+          <div class="details-content">
+            <p>Ce fichier pilote l'ordre d'exécution des patchs SQL. Il est crucial pour éviter les erreurs de dépendances lors de l'installation.</p>
+
+            <div class="check-item" data-key="prep_conf_create">
+              <div class="custom-checkbox"></div>
+              <div class="check-content">
+                <div class="title">Créer ou mettre à jour le fichier .conf</div>
+                <div class="sub">Intégrer ensuite dans HLS_MDPATCH-L5.0.x / L5.0.VV</div>
+              </div>
+            </div>
+
+            <div class="split">
+              <div class="code-block">
+                <div class="code-header"><span>Chemin</span><button class="btn" data-copy="#path1">Copier</button></div>
+                <pre class="cmd" id="path1">.../HLS_MDPATCH-L5.0.x_dev.../COTECH/HLS_MDP/L5.0.25/HeliosBddDependancies.conf</pre>
+              </div>
+              <div class="code-block">
+                <div class="code-header"><span>Exemple Contenu</span><button class="btn" data-copy="#conf1">Copier</button></div>
+                <pre class="cmd" id="conf1"># REPORTS
+Patch_sysconf_HLS00355955_ARC.sql
+Patch_sysconf_HLS00356993_ARC.sql
+#Patch_MPD_HLS00360234_DEP.sql</pre>
+              </div>
+            </div>
+          </div>
+        </details>
+
+        <details data-tags="prep ex">
+          <summary>1.2.2 — Contrôle Cohérence (PreintBdDistant.sh)</summary>
+          <div class="details-content">
+            <div class="check-item" data-key="prep_conf_check">
+              <div class="custom-checkbox"></div>
+              <div class="check-content">
+                <div class="title">Lancer PreintBdDistant.sh sur le serveur</div>
+                <div class="sub">Vérifie la correspondance entre le fichier conf et les fichiers livrés.</div>
+              </div>
+            </div>
+
+            <div class="callout callout-warn">
+              <b>Attention :</b> Le script envoie un mail d'alerte. Vérifiez bien les "WARNING" (fichier manquant, typo dans le nom...).
+            </div>
+
+            <div class="code-block">
+              <div class="code-header"><span>Commande</span><button class="btn" data-copy="#cmd2">Copier</button></div>
+              <pre class="cmd" id="cmd2"><span class="hl-cmd">cd</span> /app/TMA_util
+<span class="hl-cmd">.</span> PreintBdDistant.sh</pre>
+            </div>
+          </div>
+        </details>
+      </section>
+
+      <section id="deliver" class="card" data-tags="cc all ex">
+        <h2>🚀 2. Livraison (AnalyzeDeliver)</h2>
+        <p>Livraison des activités de la vue DEV vers INTEGRATION.</p>
+
+        <div class="callout callout-info">
+          L'ordre des projets est dynamique. Vérifiez le mode sélectionné dans le menu.
+        </div>
+
+        <div style="margin: 20px 0;">
+          <div class="code-block">
+            <div class="code-header"><span>Ordre de livraison calculé</span><span class="badge" id="modeBadge">ALPHA</span></div>
+            <pre class="cmd" id="projectOrder" style="color:#a5f3fc; font-weight:bold; line-height:1.8"></pre>
+          </div>
+        </div>
+
+        <div class="check-item" data-key="cc_deliver">
+          <div class="custom-checkbox"></div>
+          <div class="check-content">
+            <div class="title">Exécuter AnalyzeDeliver.shl pour chaque projet</div>
+            <div class="sub">Option 'All_Activities' recommandée.</div>
+          </div>
+        </div>
+      </section>
+
+      <section id="crob" class="card" data-tags="cc all ex">
+        <h2>🔄 3. CROB (CheckProject)</h2>
+        <p>Mise à jour des composants en lecture seule (socles, XSD, interfaces).</p>
+
+        <div class="check-item" data-key="cc_checkproject">
+          <div class="custom-checkbox"></div>
+          <div class="check-content">
+            <div class="title">Lancer CheckProject.shl</div>
+            <div class="sub">Si KO, exécuter la commande de correction proposée par le script.</div>
+          </div>
+        </div>
+
+        <div class="split">
+          <div class="code-block">
+            <div class="code-header"><span>Commande</span><button class="btn" data-copy="#cmd3">Copier</button></div>
+            <pre class="cmd" id="cmd3">CheckProject.shl -project <span class="hl-arg">&lt;NOM_PROJET&gt;</span></pre>
+          </div>
+          <div class="code-block">
+            <div class="code-header"><span>Si Correction nécessaire</span></div>
+            <pre class="cmd">ChangeReadOnlyBaseline.shl ... -execute -unlock ...</pre>
+          </div>
+        </div>
+      </section>
+
+      <section id="baseline" class="card" data-tags="cc all ex">
+        <h2>📸 4. Création des Baselines</h2>
+
+        <div class="check-item" data-key="cc_baseline">
+          <div class="custom-checkbox"></div>
+          <div class="check-content">
+            <div class="title">Créer la baseline composant</div>
+            <div class="sub">Ajouter flag <code>-identical</code> si aucun changement détecté.</div>
+          </div>
+        </div>
+
+        <div class="code-block">
+          <div class="code-header"><span>Commande Standard</span><button class="btn" data-copy="#cmd4">Copier</button></div>
+          <pre class="cmd" id="cmd4">CreateComponentBaseline.shl -noviewupdate -nrecommend -project "<span class="hl-arg">NOM</span>" -baseline "<span class="hl-arg">BL_NAME</span>"</pre>
+        </div>
+
+        <details>
+          <summary>Cas Spécifique : helios-L5.0.x (Fin de Majeure)</summary>
+          <div class="details-content">
+            <p>Une fois tous les composants baselinés, on s'occupe du projet chapeau.</p>
+            <div class="code-block">
+              <pre class="cmd">CheckProject.shl -project helios-L5.0.x
+CreateComponentBaseline.shl ... -project helios-L5.0.x -baseline helios-L5.0.VV.1</pre>
+            </div>
+          </div>
+        </details>
+      </section>
+
+      <section id="cq" class="card" data-tags="cq all">
+        <h2>✉️ 5. Finalisation (ClearQuest & Mail)</h2>
+
+        <div class="check-item" data-key="cq_ticket">
+          <div class="custom-checkbox"></div>
+          <div class="check-content">
+            <div class="title">Créer/Affecter le ticket CQ</div>
+            <div class="sub">Affectation à l'équipe intégration.</div>
+          </div>
+        </div>
+
+        <div class="check-item" data-key="cq_sql">
+          <div class="custom-checkbox"></div>
+          <div class="check-content">
+            <div class="title">Préparer l'update SQL (Patch ID)</div>
+            <div class="sub">Mettre à jour le champ 'patch' des defects corrigés.</div>
+          </div>
+        </div>
+
+        <div class="code-block">
+          <div class="code-header"><span>SQL Update Pattern</span><button class="btn" data-copy="#sql1">Copier</button></div>
+          <pre class="cmd" id="sql1">update Defect T1 set T1.patch = '5.25 - ' || T1.patch
+where T1.id in ('HLS00xxxx', ...);</pre>
+        </div>
+      </section>
+
+      <section id="notes" class="card">
+        <h2>📝 Notes & Logs</h2>
+        <textarea id="notesBox" rows="8"
+          style="width:100%; background:rgba(0,0,0,0.3); border:1px solid var(--panel-border); color: var(--text-main);
+          border-radius:8px; padding:10px; font-family: var(--font-mono); font-size:12px; resize:vertical;"
+          placeholder="Collez ici vos sorties de console, numéros de baselines..."></textarea>
+        <div style="margin-top:10px; display:flex; gap:10px;">
+          <button class="btn btn-primary" id="saveNotes">Sauvegarder</button>
+          <button class="btn" id="clearNotes">Effacer</button>
+        </div>
+      </section>
+
+    </div>
+  </main>
+</div>
+
+<div class="toast-container" id="toasts"></div>
+
+<script>
+  /* --- DATA --- */
+  const ORDER_ALPHA = [
+    "HLS_MDPATCH-L5.0.x", "HLS_CONF-C5.0.x", "HLS_SCHEMAS-C5.0.x",
+    "HLS_APPLI-L5.0.x", "HLS_METIER-C5.0.x", "HLS_GXML-L5.0.x",
+    "HLS_TXPRESS-L5.0.x", "HLS_EDITION-C5.0.x"
+  ];
+  const ORDER_MAJEURE = [
+    "HLS_MODELE-L5.0.x", "HLS_MDPATCH-L5.0.x", "HLS_CONF-C5.0.x",
+    "HLS_SCHEMAS-C5.0.x", "HLS_SOCLE-C5.0.x", "HLS_APPLI-L5.0.x",
+    "HLS_METIER-C5.0.x", "HLS_GXML-L5.0.x", "HLS_TXPRESS-L5.0.x",
+    "HLS_EDITION-C5.0.x", "GEN_MDPATCH-L5.0.x", "GEN_APPLI-L5.0.x",
+    "GEN_METIER-C5.0.x", "helios-L5.0.x (DERNIER)"
+  ];
+
+  /* --- UTILS --- */
+  const $ = s => document.querySelector(s);
+  const $$ = s => document.querySelectorAll(s);
+  const STORAGE_KEY = "helios_guide_v2";
+
+  /* --- LOGIC --- */
+  function init() {
+    loadState();
+    renderOrder();
+    setupEventListeners();
+    updateKPI();
+    observeTOC();
+    filterContent(); // applique filtre/search dès le départ
+  }
+
+  function setupEventListeners() {
+    // Checkboxes (delegate)
+    document.addEventListener('click', e => {
+      const checkItem = e.target.closest('.check-item');
+      if (checkItem) toggleCheck(checkItem);
+    });
+
+    // Filtres
+    $$('.pill').forEach(p => p.addEventListener('click', () => {
+      $$('.pill').forEach(i => i.classList.remove('active'));
+      p.classList.add('active');
+      filterContent();
+      saveState();
+    }));
+
+    // Search
+    $('#q').addEventListener('input', () => { filterContent(); saveState(); });
+
+    // Mode
+    $('#mode').addEventListener('change', () => { renderOrder(); saveState(); });
+
+    // Copy
+    $$('[data-copy]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation(); // avoid triggering details
+        const target = $(btn.dataset.copy);
+        if (target) copyToClipboard(target.innerText);
+      });
+    });
+
+    // Notes
+    $('#saveNotes').addEventListener('click', () => { saveState(); showToast('Notes sauvegardées'); });
+    $('#clearNotes').addEventListener('click', () => { $('#notesBox').value=''; saveState(); showToast('Notes effacées'); });
+
+    // Reset
+    $('#reset').addEventListener('click', () => {
+      if (confirm('Tout réinitialiser ?')) {
+        localStorage.removeItem(STORAGE_KEY);
+        location.reload();
+      }
+    });
+
+    // Mobile Menu
+    const sidebar = $('#sidebar');
+    $('#menuToggle').addEventListener('click', () => {
+      sidebar.classList.toggle('open');
+      $('#menuToggle').textContent = sidebar.classList.contains('open') ? '✕' : '☰';
+    });
+
+    // Close sidebar when clicking a link on mobile
+    $$('.toc a').forEach(link => link.addEventListener('click', () => {
+      if (window.innerWidth <= 900) {
+        sidebar.classList.remove('open');
+        $('#menuToggle').textContent = '☰';
+      }
+    }));
+  }
+
+  function toggleCheck(el) {
+    el.classList.toggle('checked');
+    updateKPI();
+    saveState();
+  }
+
+  function updateKPI() {
+    const all = $$('.check-item');
+    const checked = $$('.check-item.checked');
+    const pct = Math.round((checked.length / all.length) * 100) || 0;
+
+    $('#kDone').textContent = checked.length;
+    $('#kTotal').textContent = all.length;
+    $('#kPercent').textContent = pct + '%';
+
+    // Circle Animation
+    const circle = $('#progressCircle');
+    const radius = circle.r.baseVal.value;
+    const circumference = radius * 2 * Math.PI;
+    circle.style.strokeDasharray = circumference;
+    const offset = circumference - (pct / 100) * circumference;
+    circle.style.strokeDashoffset = offset;
+
+    // Color change based on completion
+    if (pct === 100) circle.style.stroke = '#10b981';
+    else if (pct > 50) circle.style.stroke = '#6366f1';
+    else circle.style.stroke = '#f59e0b';
+  }
+
+  function filterContent() {
+    const q = ($('#q').value || '').toLowerCase().trim();
+    const filter = $('.pill.active')?.dataset?.filter || 'all';
+
+    $$('.container > section').forEach(sec => {
+      const tags = (sec.dataset.tags || '').split(' ').filter(Boolean);
+      const matchFilter = filter === 'all' || tags.includes(filter);
+      const matchSearch = !q || sec.innerText.toLowerCase().includes(q);
+      sec.classList.toggle('hidden', !(matchFilter && matchSearch));
+    });
+  }
+
+  function renderOrder() {
+    const mode = $('#mode').value;
+    const list = mode === 'majeure' ? ORDER_MAJEURE : ORDER_ALPHA;
+    const container = $('#projectOrder');
+
+    container.innerHTML = list.map((p, i) =>
+      `<span style="opacity:0.5; margin-right:10px">${String(i+1).padStart(2,'0')}</span> ${p}`
+    ).join('\n');
+
+    $('#modeBadge').textContent = mode.toUpperCase();
+    $('#modeBadge').className = `badge ${mode === 'majeure' ? 'badge-warn' : 'badge-ok'}`;
+  }
+
+  /* --- STATE MANAGEMENT --- */
+  function saveState() {
+    const state = {
+      checks: [...$$('.check-item.checked')].map(el => el.dataset.key),
+      mode: $('#mode').value,
+      notes: $('#notesBox').value,
+      search: $('#q').value,
+      filter: $('.pill.active')?.dataset?.filter || 'all'
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  }
+
+  function loadState() {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return;
+    const state = JSON.parse(raw);
+
+    // Checks
+    state.checks?.forEach(key => {
+      const el = $(`.check-item[data-key="${key}"]`);
+      if (el) el.classList.add('checked');
+    });
+
+    // Inputs
+    if (state.mode) $('#mode').value = state.mode;
+    if (state.notes) $('#notesBox').value = state.notes;
+    if (typeof state.search === 'string') $('#q').value = state.search;
+
+    // Filter restore
+    if (state.filter) {
+      $$('.pill').forEach(p => p.classList.toggle('active', p.dataset.filter === state.filter));
+    }
+  }
+
+  /* --- NOTIFICATIONS --- */
+  function copyToClipboard(text) {
+    // fallback si clipboard API indisponible
+    if (!navigator.clipboard) {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); showToast('Copié dans le presse-papier'); }
+      catch { showToast('Copie impossible'); }
+      finally { ta.remove(); }
+      return;
+    }
+
+    navigator.clipboard.writeText(text).then(() => {
+      showToast('Copié dans le presse-papier');
+    }).catch(() => showToast('Copie impossible'));
+  }
+
+  function showToast(msg) {
+    const box = document.createElement('div');
+    box.className = 'toast';
+    box.innerHTML = `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg> ${msg}`;
+
+    $('#toasts').appendChild(box);
+    setTimeout(() => {
+      box.style.opacity = '0';
+      box.style.transform = 'translateY(20px)';
+      setTimeout(() => box.remove(), 300);
+    }, 2500);
+  }
+
+  /* --- TOC active (IntersectionObserver) --- */
+  function observeTOC() {
+    const links = [...$$('.toc a')];
+    const targets = links
+      .map(a => document.querySelector(a.getAttribute('href')))
+      .filter(Boolean);
+
+    const io = new IntersectionObserver((entries) => {
+      const visible = entries
+        .filter(e => e.isIntersecting)
+        .sort((a,b) => b.intersectionRatio - a.intersectionRatio)[0];
+
+      if (!visible) return;
+
+      links.forEach(a => a.classList.remove('active'));
+      const active = links.find(a => a.getAttribute('href') === `#${visible.target.id}`);
+      if (active) active.classList.add('active');
+    }, { root: document.querySelector('main'), threshold: [0.2, 0.35, 0.5] });
+
+    targets.forEach(t => io.observe(t));
+  }
+
+  // Start
+  init();
+</script>
+</body>
+</html>
