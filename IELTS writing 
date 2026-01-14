@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IELTS Master: La Méthode Simple</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap');
+        body { font-family: 'Inter', sans-serif; scroll-behavior: smooth; }
+        .gradient-text { background: linear-gradient(to right, #2563eb, #9333ea); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .card-hover:hover { transform: translateY(-5px); transition: all 0.3s ease; }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800">
+
+    <nav class="bg-white shadow-md fixed w-full z-50">
+        <div class="max-w-6xl mx-auto px-4 py-4 flex justify-between items-center">
+            <h1 class="text-xl font-bold text-blue-700"><i class="fas fa-pen-nib"></i> IELTS<span class="text-gray-400">ZEN</span></h1>
+            <div class="hidden md:flex space-x-6">
+                <a href="#methode" class="hover:text-blue-600">Méthode T-A-P</a>
+                <a href="#structure" class="hover:text-blue-600">Structure 13 Phrases</a>
+                <a href="#types" class="hover:text-blue-600">Types & Mnémos</a>
+                <a href="#templates" class="hover:text-blue-600">Templates</a>
+            </div>
+        </div>
+    </nav>
+
+    <header class="pt-32 pb-16 px-4 text-center bg-white">
+        <h1 class="text-4xl md:text-6xl font-extrabold mb-4">Tu n'es pas nul.</h1>
+        <p class="text-xl md:text-2xl text-gray-600 mb-8">Tu as juste besoin d'une méthode <span class="gradient-text font-bold">simple, répétable et par cœur</span>.</p>
+        <a href="#methode" class="bg-blue-600 text-white px-8 py-3 rounded-full font-semibold shadow-lg hover:bg-blue-700 transition">Commencer la méthode Band 7+</a>
+    </header>
+
+    <section id="methode" class="py-16 px-4 max-w-5xl mx-auto">
+        <div class="flex items-center mb-8">
+            <div class="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 font-bold mr-4">1</div>
+            <h2 class="text-3xl font-bold">Analyse en 10 secondes : T + A + P</h2>
+        </div>
+        
+        <div class="grid md:grid-cols-3 gap-6">
+            <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100 card-hover">
+                <div class="text-4xl mb-4">🎯</div>
+                <h3 class="text-xl font-bold mb-2">T = Topic</h3>
+                <p class="text-gray-600 text-sm mb-3">De quoi parle-t-on précisément ?</p>
+                <div class="bg-blue-50 p-3 rounded text-sm text-blue-800">
+                    <strong>Technique 3 cercles :</strong><br>
+                    Sujet global + Restriction + Angle<br>
+                    <em>Ex: Crime + Teenagers + Causes</em>
+                </div>
+            </div>
+
+            <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100 card-hover">
+                <div class="text-4xl mb-4">⚡</div>
+                <h3 class="text-xl font-bold mb-2">A = Action / Task</h3>
+                <p class="text-gray-600 text-sm mb-3">Regarde le verbe de commande.</p>
+                <div class="bg-purple-50 p-3 rounded text-sm text-purple-800">
+                    <strong>Mots clés :</strong><br>
+                    Discuss, Agree, Causes, Solutions.<br>
+                    <em>Souvent la dernière phrase.</em>
+                </div>
+            </div>
+
+            <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100 card-hover">
+                <div class="text-4xl mb-4">🙋‍♂️</div>
+                <h3 class="text-xl font-bold mb-2">P = Position</h3>
+                <p class="text-gray-600 text-sm mb-3">Ton avis immédiat.</p>
+                <div class="bg-green-50 p-3 rounded text-sm text-green-800">
+                    <strong>Stratégie :</strong><br>
+                    Décide TOUT DE SUITE.<br>
+                    <em>Ex: "Partly agree" ou "A outweighs B"</em>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section id="structure" class="py-16 px-4 bg-gray-100">
+        <div class="max-w-5xl mx-auto">
+            <div class="flex items-center mb-8">
+                <div class="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 font-bold mr-4">2</div>
+                <h2 class="text-3xl font-bold">Le Plan Universel (13 Phrases)</h2>
+            </div>
+
+            <div class="space-y-4">
+                <div class="bg-white border-l-4 border-blue-500 p-4 rounded shadow-sm">
+                    <h3 class="font-bold text-lg">Introduction (2 Phrases)</h3>
+                    <ul class="list-disc list-inside text-gray-600 ml-4">
+                        <li>Phrase 1 : Paraphrase du contexte (Topic).</li>
+                        <li>Phrase 2 : Thesis (Ton avis + annonce du plan).</li>
+                    </ul>
+                </div>
+
+                <div class="bg-white border-l-4 border-green-500 p-4 rounded shadow-sm">
+                    <h3 class="font-bold text-lg">Body 1 (5 Phrases) - Méthode PEEL</h3>
+                    <ul class="list-none text-gray-600 ml-4 space-y-1">
+                        <li>🔹 <strong>P</strong>oint (Topic sentence) : Idée 1</li>
+                        <li>🔹 <strong>E</strong>xplain : Pourquoi c'est vrai ?</li>
+                        <li>🔹 <strong>E</strong>xample : Exemple général (pas "mon oncle")</li>
+                        <li>🔹 <strong>E</strong>xtend/Point 2 : Deuxième idée ou extension</li>
+                        <li>🔹 <strong>L</strong>ink : Mini-conclusion / Lien avec sujet</li>
+                    </ul>
+                </div>
+
+                <div class="bg-white border-l-4 border-green-500 p-4 rounded shadow-sm">
+                    <h3 class="font-bold text-lg">Body 2 (5 Phrases) - Méthode PEEL</h3>
+                    <p class="text-gray-500 ml-4 italic">Même structure que Body 1 pour la 2ème partie de l'argumentation.</p>
+                </div>
+
+                <div class="bg-white border-l-4 border-red-500 p-4 rounded shadow-sm">
+                    <h3 class="font-bold text-lg">Conclusion (1-2 Phrases)</h3>
+                    <ul class="list-disc list-inside text-gray-600 ml-4">
+                        <li>Résumé rapide.</li>
+                        <li>Reformulation de l'opinion finale.</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section id="types" class="py-16 px-4 max-w-5xl mx-auto">
+        <div class="flex items-center mb-8">
+            <div class="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 font-bold mr-4">3</div>
+            <h2 class="text-3xl font-bold">Cheat Sheet : Mnémotechnique O-W-C-A-Q</h2>
+        </div>
+
+        <div class="overflow-x-auto">
+            <table class="w-full bg-white shadow-lg rounded-lg overflow-hidden">
+                <thead class="bg-gray-800 text-white">
+                    <tr>
+                        <th class="p-4 text-left">Code</th>
+                        <th class="p-4 text-left">Type</th>
+                        <th class="p-4 text-left">Mots Clés</th>
+                        <th class="p-4 text-left">Plan (B1 / B2)</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-200">
+                    <tr>
+                        <td class="p-4 font-bold text-blue-600">O</td>
+                        <td class="p-4 font-bold">Opinion</td>
+                        <td class="p-4 text-sm">Agree / Disagree</td>
+                        <td class="p-4 text-sm">B1: Raisons pour <br> B2: Raisons contre (ou limites)</td>
+                    </tr>
+                    <tr class="bg-gray-50">
+                        <td class="p-4 font-bold text-blue-600">W</td>
+                        <td class="p-4 font-bold">Winner (Outweigh)</td>
+                        <td class="p-4 text-sm">Advantages outweigh disadvantages</td>
+                        <td class="p-4 text-sm">B1: Côté Gagnant (Fort)<br> B2: Côté Perdant (Faible)</td>
+                    </tr>
+                    <tr>
+                        <td class="p-4 font-bold text-blue-600">C</td>
+                        <td class="p-4 font-bold">Cause / Fix</td>
+                        <td class="p-4 text-sm">Reasons & Solutions</td>
+                        <td class="p-4 text-sm">B1: Causes (Problèmes)<br> B2: Solutions</td>
+                    </tr>
+                    <tr class="bg-gray-50">
+                        <td class="p-4 font-bold text-blue-600">A</td>
+                        <td class="p-4 font-bold">A vs B (Discuss)</td>
+                        <td class="p-4 text-sm">Discuss both views</td>
+                        <td class="p-4 text-sm">B1: View A<br> B2: View B + Ton avis</td>
+                    </tr>
+                    <tr>
+                        <td class="p-4 font-bold text-blue-600">Q</td>
+                        <td class="p-4 font-bold">Questions (2-part)</td>
+                        <td class="p-4 text-sm">Why...? What...?</td>
+                        <td class="p-4 text-sm">B1: Réponse Question 1<br> B2: Réponse Question 2</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <section id="templates" class="py-16 px-4 bg-blue-900 text-white">
+        <div class="max-w-4xl mx-auto">
+            <h2 class="text-3xl font-bold mb-8 text-center">📋 Templates Prêts à Copier</h2>
+            
+            <div class="grid md:grid-cols-2 gap-6">
+                <div class="bg-blue-800 p-6 rounded-lg border border-blue-700">
+                    <h3 class="text-yellow-400 font-bold mb-2">Introduction</h3>
+                    <p class="font-mono text-sm">"Nowadays, <span class="text-blue-300">[TOPIC]</span> is a widely debated issue. I strongly agree that... mainly because..."</p>
+                </div>
+
+                <div class="bg-blue-800 p-6 rounded-lg border border-blue-700">
+                    <h3 class="text-yellow-400 font-bold mb-2">Topic Sentences</h3>
+                    <p class="font-mono text-sm">"One major reason is that..."<br>"Another key point is that..."</p>
+                </div>
+
+                <div class="bg-blue-800 p-6 rounded-lg border border-blue-700">
+                    <h3 class="text-yellow-400 font-bold mb-2">Exemples</h3>
+                    <p class="font-mono text-sm">"For instance, in many large cities..."<br>"A clear example can be seen in..."</p>
+                </div>
+
+                <div class="bg-blue-800 p-6 rounded-lg border border-blue-700">
+                    <h3 class="text-yellow-400 font-bold mb-2">Conclusion</h3>
+                    <p class="font-mono text-sm">"In conclusion, while <span class="text-blue-300">[OPPOSING VIEW]</span>, I believe that... overall."</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <footer class="bg-gray-900 text-gray-400 py-12 px-4 text-center">
+        <h3 class="text-white font-bold text-xl mb-4">📅 Ta Routine Flash (5 min/jour)</h3>
+        <div class="flex flex-wrap justify-center gap-4 text-sm">
+            <span class="bg-gray-800 px-3 py-1 rounded">J1: Mémorise T-A-P</span>
+            <span class="bg-gray-800 px-3 py-1 rounded">J2: Mémorise I-B1-B2-C</span>
+            <span class="bg-gray-800 px-3 py-1 rounded">J3: Mémorise O-W-C-A-Q</span>
+            <span class="bg-gray-800 px-3 py-1 rounded text-white border border-blue-500">J4+: Fais 1 plan en 5 min</span>
+        </div>
+        <p class="mt-8 text-xs">&copy; 2024 - Ta méthode IELTS simple.</p>
+    </footer>
+
+</body>
+</html>
