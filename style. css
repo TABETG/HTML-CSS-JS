@@ -1,0 +1,44 @@
+/* Import de la police */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap');
+
+/* Configuration de base */
+body {
+    font-family: 'Inter', sans-serif;
+    scroll-behavior: smooth;
+}
+
+/* Texte dégradé pour le titre */
+.gradient-text {
+    background: linear-gradient(to right, #2563eb, #9333ea);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+/* Animation au survol des cartes */
+.card-hover {
+    transition: all 0.3s ease;
+}
+
+.card-hover:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+}
+
+/* Badge numéroté pour les sections */
+.number-badge {
+    width: 2.5rem;
+    height: 2.5rem;
+    background-color: #dbeafe; /* bleu clair */
+    border-radius: 9999px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #2563eb;
+    font-weight: bold;
+    margin-right: 1rem;
+}
+
+/* Classe utilitaire pour cacher des éléments (utilisée par JS) */
+.hidden {
+    display: none;
+}
