@@ -1,0 +1,29 @@
+document.addEventListener('DOMContentLoaded', () => {
+    
+    // Sélectionne toutes les cartes de templates
+    const templates = document.querySelectorAll('.template-card');
+
+    templates.forEach(card => {
+        card.addEventListener('click', () => {
+            // 1. Récupérer le texte à l'intérieur
+            const textToCopy = card.querySelector('.template-text').innerText;
+            
+            // 2. Copier dans le presse-papier
+            navigator.clipboard.writeText(textToCopy).then(() => {
+                
+                // 3. Afficher le petit message "Copié !"
+                const feedback = card.querySelector('.copy-feedback');
+                feedback.classList.remove('hidden');
+
+                // 4. Cacher le message après 2 secondes
+                setTimeout(() => {
+                    feedback.classList.add('hidden');
+                }, 2000);
+            }).catch(err => {
+                console.error('Erreur lors de la copie :', err);
+            });
+        });
+    });
+
+    console.log("IELTS Master est chargé et prêt !");
+});
