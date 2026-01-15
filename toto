@@ -1,123 +1,92 @@
 #!/usr/bin/env python3
-import argparse
 import csv
 import re
 from pathlib import Path
-from typing import Iterable, Set, Tuple
+from typing import Set, Tuple
 
-# ✅ Matche :
+# ============================
+# CONFIGURATION AUTOMATIQUE
+# ============================
+
+BASE_DIR = Path(__file__).parent.resolve()
+LOGS_DIR = BASE_DIR / "logs"
+OUTPUT_CSV = BASE_DIR / "hls_unique.csv"
+
+# Matche :
 # - HLS00372942
 # - HLS 00372942
 # - HLS:00372942
 # - HLS_00372942
 # - HLS-00372942
-#
-# On reconstruit ensuite au format canonique "HLS" + 8 digits => ex: HLS00372942
 HLS_REGEX = re.compile(r"\bHLS\b[\s:_-]*([0-9]{8})\b", re.IGNORECASE)
 
 
-def iter_files(input_dir: Path, extensions: Tuple[str, ...]) -> Iterable[Path]:
-    # ✅ Par défaut: on parcourt TOUT, y compris sous-dossiers
-    for p in input_dir.rglob("*"):
-        if not p.is_file():
-            continue
-
-        if not extensions:
-            yield p
-        else:
-            # ✅ extension case-insensitive (.log, .LOG, etc.)
-            if p.suffix.lower() in extensions:
-                yield p
-
-
-def extract_hls_from_file(path: Path) -> Tuple[Set[str], int, int]:
+def extract_hls_from_file(file_path: Path) -> Tuple[Set[str], int, int]:
     """
     Retourne:
-      - set des HLS uniques trouvés dans ce fichier
-      - nb d'occurrences matchées (avec doublons)
-      - nb de lignes lues
+      - set des HLS uniques trouvés dans le fichier
+      - nombre total d'occurrences trouvées
+      - nombre de lignes lues
     """
     found: Set[str] = set()
-    matches_count = 0
-    lines_count = 0
+    occurrences = 0
+    lines_read = 0
 
-    # ✅ lecture ligne par ligne, robuste aux encodages
-    with open(path, "r", encoding="utf-8", errors="ignore") as f:
+    with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
         for line in f:
-            lines_count += 1
-            for m in HLS_REGEX.finditer(line):
-                matches_count += 1
-                found.add("HLS" + m.group(1))  # format canonique
+            lines_read += 1
+            for match in HLS_REGEX.finditer(line):
+                occurrences += 1
+                found.add("HLS" + match.group(1))
 
-    return found, matches_count, lines_count
-
-
-def write_csv(output_csv: Path, hls_values: Iterable[str]) -> None:
-    output_csv.parent.mkdir(parents=True, exist_ok=True)
-    with output_csv.open("w", newline="", encoding="utf-8") as f:
-        w = csv.writer(f)
-        w.writerow(["HLS"])
-        for hls in hls_values:
-            w.writerow([hls])
+    return found, occurrences, lines_read
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Extract HLS######## from all log files in a folder and export unique list to CSV.")
-    parser.add_argument("-i", "--input", required=True, help="Dossier contenant les logs")
-    parser.add_argument("-o", "--output", default="hls_unique.csv", help="Chemin du CSV de sortie")
-    parser.add_argument(
-        "--ext",
-        nargs="*",
-        default=[],
-        help="Extensions à lire (ex: .log .txt). Par défaut: lit TOUS les fichiers.",
-    )
-    parser.add_argument("--sort", action="store_true", help="Trie les HLS avant export")
-    args = parser.parse_args()
+    if not LOGS_DIR.exists() or not LOGS_DIR.is_dir():
+        print(f"❌ Dossier 'logs' introuvable : {LOGS_DIR}")
+        print("➡️ Crée un dossier 'logs' et mets-y tes fichiers.")
+        return
 
-    input_dir = Path(args.input).expanduser().resolve()
-    output_csv = Path(args.output).expanduser().resolve()
+    all_files = [p for p in LOGS_DIR.rglob("*") if p.is_file()]
 
-    if not input_dir.exists() or not input_dir.is_dir():
-        raise SystemExit(f"❌ Dossier introuvable: {input_dir}")
+    if not all_files:
+        print("❌ Aucun fichier trouvé dans le dossier logs.")
+        return
 
-    # ✅ Par défaut: aucune extension => lire tous les fichiers
-    if args.ext and len(args.ext) > 0:
-        extensions = []
-        for e in args.ext:
-            e = e.strip().lower()
-            if e and not e.startswith("."):
-                e = "." + e
-            if e:
-                extensions.append(e)
-        ext_tuple: Tuple[str, ...] = tuple(extensions)
-    else:
-        ext_tuple = ()
-
-    files = list(iter_files(input_dir, ext_tuple))
-    if not files:
-        raise SystemExit("❌ Aucun fichier trouvé dans le dossier (vérifie le chemin et/ou --ext).")
-
-    all_unique: Set[str] = set()
+    all_unique_hls: Set[str] = set()
     total_occurrences = 0
     total_lines = 0
-    files_with_hits = 0
+    files_with_hls = 0
 
-    for fp in files:
-        uniq, occ, lines = extract_hls_from_file(fp)
+    for file_path in all_files:
+        unique, occ, lines = extract_hls_from_file(file_path)
         total_lines += lines
         total_occurrences += occ
+
         if occ > 0:
-            files_with_hits += 1
-        all_unique.update(uniq)
+            files_with_hls += 1
 
-    export_list = sorted(all_unique) if args.sort else list(all_unique)
-    write_csv(output_csv, export_list)
+        all_unique_hls.update(unique)
 
-    print(f"✅ Fichiers parcourus: {len(files)} (dont {files_with_hits} avec au moins 1 HLS)")
-    print(f"✅ Lignes lues: {total_lines}")
-    print(f"✅ Occurrences HLS trouvées (avec doublons): {total_occurrences}")
-    print(f"✅ HLS uniques: {len(all_unique)}")
-    print(f"✅ CSV généré: {output_csv}")
+    # Tri automatique
+    sorted_hls = sorted(all_unique_hls)
+
+    # Écriture CSV
+    with open(OUTPUT_CSV, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(["HLS"])
+        for hls in sorted_hls:
+            writer.writerow([hls])
+
+    print("\n================ RÉSULTAT ================ ")
+    print(f"📂 Fichiers analysés        : {len(all_files)}")
+    print(f"📄 Fichiers contenant des HLS : {files_with_hls}")
+    print(f"📑 Lignes lues               : {total_lines}")
+    print(f"🔎 Occurrences HLS trouvées  : {total_occurrences}")
+    print(f"✅ HLS uniques               : {len(all_unique_hls)}")
+    print(f"💾 CSV généré                : {OUTPUT_CSV}")
+    print("==========================================\n")
 
 
 if __name__ == "__main__":
