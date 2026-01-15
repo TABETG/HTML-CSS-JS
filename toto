@@ -1,84 +1,116 @@
-Parfait 👍
-Voici le programme COMPLET en un seul bloc, prêt à copier-coller, + les commandes exactes à exécuter.
+Voici un programme complet (script Python + README) qui :
 
-Je pars sur le cas le plus robuste :
-➡️ lecture du fichier .ods,
-➡️ prise de la première colonne (peu importe son nom),
-➡️ nettoyage (espaces, lignes vides),
-➡️ dédoublonnage,
-➡️ affichage + sauvegarde.
+lit tous les fichiers logs d’un dossier (et sous-dossiers si tu veux),
 
+extrait les identifiants au format HLS + 8 chiffres (ex: HLS00372942),
 
----
+dédoublonne,
 
-1️⃣ Commandes à exécuter
+exporte dans un CSV.
 
-Installation des dépendances (une seule fois)
-
-pip install pandas odfpy
-
-Lancer le script
-
-python dedoublonner_hls.py
 
 
 ---
 
-2️⃣ Programme Python COMPLET
+1) Script : extract_hls.py
 
-👉 fichier : dedoublonner_hls.py
+#!/usr/bin/env python3
+import argparse
+import csv
+import re
+from pathlib import Path
+from typing import Iterable, Set, Tuple
 
-import pandas as pd
+# Format attendu : HLS + exactement 8 chiffres (avec zéros possibles)
+# Exemples: HLS00372942, HLS12345678
+HLS_PATTERN = re.compile(r"\b(HLS\d{8})\b", re.IGNORECASE)
 
-# ==============================
-# CONFIGURATION
-# ==============================
-FILE_PATH = "CQs HLS avec doublon_20260115160236.ods"
-OUTPUT_TXT = "hls_dedoublonnees.txt"
-OUTPUT_CSV = "hls_dedoublonnees.csv"
+
+def iter_files(input_dir: Path, extensions: Tuple[str, ...], recursive: bool) -> Iterable[Path]:
+    iterator = input_dir.rglob("*") if recursive else input_dir.glob("*")
+    for p in iterator:
+        if p.is_file():
+            if not extensions:
+                yield p
+            else:
+                if p.suffix.lower() in extensions:
+                    yield p
+
+
+def read_file_text(path: Path) -> str:
+    # Logs parfois en encodage mixte: on évite de planter
+    return path.read_text(encoding="utf-8", errors="ignore")
+
+
+def extract_hls(text: str) -> Set[str]:
+    # On normalise en uppercase pour éviter doublons Hls... vs HLS...
+    return {m.group(1).upper() for m in HLS_PATTERN.finditer(text)}
+
+
+def write_csv(output_csv: Path, hls_values: Iterable[str]) -> None:
+    output_csv.parent.mkdir(parents=True, exist_ok=True)
+    with output_csv.open("w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        w.writerow(["HLS"])
+        for hls in hls_values:
+            w.writerow([hls])
+
 
 def main():
-    # Lecture du fichier ODS
-    df = pd.read_excel(FILE_PATH, engine="odf")
-
-    if df.empty:
-        raise ValueError("Le fichier est vide.")
-
-    # Lecture de la première colonne (HLS)
-    hls_column = df.iloc[:, 0]
-
-    # Nettoyage + suppression des doublons
-    hls_unique = (
-        hls_column
-        .dropna()                 # supprime les lignes vides
-        .astype(str)              # force en string
-        .str.strip()              # enlève les espaces
-        .unique()                 # dédoublonnage
+    parser = argparse.ArgumentParser(
+        description="Extract HLS######## from log files in a folder, deduplicate, export to CSV."
     )
-
-    hls_list = list(hls_unique)
-
-    # Affichage
-    print("\nHLS dédoublonnées :")
-    print("-" * 30)
-    for hls in hls_list:
-        print(hls)
-
-    # Sauvegarde TXT
-    with open(OUTPUT_TXT, "w", encoding="utf-8") as f:
-        for hls in hls_list:
-            f.write(hls + "\n")
-
-    # Sauvegarde CSV
-    pd.DataFrame({"HLS": hls_list}).to_csv(
-        OUTPUT_CSV,
-        index=False,
-        encoding="utf-8"
+    parser.add_argument("-i", "--input", required=True, help="Dossier contenant les logs")
+    parser.add_argument("-o", "--output", default="hls_unique.csv", help="Chemin du CSV de sortie")
+    parser.add_argument(
+        "--ext",
+        nargs="*",
+        default=[".log"],
+        help="Extensions à lire (ex: .log .txt). Mets --ext sans valeur pour lire tous les fichiers.",
     )
+    parser.add_argument("-r", "--recursive", action="store_true", help="Parcourt aussi les sous-dossiers")
+    parser.add_argument("--sort", action="store_true", help="Trie les HLS avant export")
+    args = parser.parse_args()
 
-    print("\nFichiers générés :")
-    print(f"- {OUTPUT_TXT}")
-    print(f"- {OUTPUT_CSV}")
+    input_dir = Path(args.input).expanduser().resolve()
+    output_csv = Path(args.output).expanduser().resolve()
+
+    if not input_dir.exists() or not input_dir.is_dir():
+        raise SystemExit(f"❌ Dossier introuvable: {input_dir}")
+
+    # Extensions :
+    # - si --ext est fourni vide => lire tous les fichiers
+    # - sinon normaliser
+    if args.ext is None or len(args.ext) == 0:
+        extensions: Tuple[str, ...] = ()
+    else:
+        norm = []
+        for e in args.ext:
+            e = e.strip().lower()
+            if e and not e.startswith("."):
+                e = "." + e
+            if e:
+                norm.append(e)
+        extensions = tuple(norm)
+
+    files = list(iter_files(input_dir, extensions, args.recursive))
+
+    unique_hls: Set[str] = set()
+    total_matches = 0
+
+    for fp in files:
+        text = read_file_text(fp)
+        matches = list(HLS_PATTERN.finditer(text))
+        total_matches += len(matches)
+        unique_hls.update(m.group(1).upper() for m in matches)
+
+    export_list = sorted(unique_hls) if args.sort else list(unique_hls)
+    write_csv(output_csv, export_list)
+
+    print(f"✅ {len(files)} fichiers parcourus")
+    print(f"✅ {total_matches} occurrences trouvées")
+    print(f"✅ {len(unique_hls)} HLS uniques exportés vers: {output_csv}")
+
 
 if __name__ == "__main__":
     main()
@@ -86,29 +118,104 @@ if __name__ == "__main__":
 
 ---
 
-3️⃣ Résultat attendu
+2) README : README.md
 
-✅ Liste des HLS sans doublons affichée dans le terminal
+# Extract HLS from logs → CSV (deduplicated)
 
-✅ Fichier hls_dedoublonnees.txt
+Ce script parcourt des fichiers de logs dans un dossier et extrait tous les identifiants au format :
 
-✅ Fichier hls_dedoublonnees.csv
+- `HLS` + **8 chiffres**
+- Exemple : `HLS00372942`, `HLS12345678`
 
+Ensuite il **dédoublonne** et exporte la liste finale dans un **CSV**.
+
+---
+
+## Prérequis
+
+- Python 3.8+ (idéalement 3.10+)
+
+Aucune dépendance externe (pas besoin de `pip install ...`).
+
+---
+
+## Installation
+
+1. Crée un dossier de travail
+2. Mets tes logs dans un dossier, par exemple :
+
+project/ logs/ file1.log file2.log
+
+3. Ajoute le script `extract_hls.py` dans `project/`.
+
+---
+
+## Usage
+
+### Cas standard (lit uniquement `.log`)
+```bash
+python extract_hls.py --input "./logs" --output "hls_unique.csv"
+
+Lire aussi des .txt
+
+python extract_hls.py -i "./logs" -o "hls_unique.csv" --ext .log .txt
+
+Lire TOUS les fichiers (extensions ignorées)
+
+> --ext sans valeur = tout lire
+
+
+
+python extract_hls.py -i "./logs" -o "hls_unique.csv" --ext
+
+Parcourir les sous-dossiers
+
+python extract_hls.py -i "./logs" -o "hls_unique.csv" --recursive
+
+Trier la sortie
+
+python extract_hls.py -i "./logs" -o "hls_unique.csv" --sort
 
 
 ---
 
-Variantes possibles (si tu veux aller plus loin)
+Sortie
 
-dédoublonnage insensible à la casse
+Le fichier CSV contient une seule colonne :
 
-tri alphabétique
-
-comptage des occurrences
-
-sélection par nom de colonne
-
-export Excel .xlsx
+HLS
 
 
-Dis-moi ce que tu veux, je t’adapte le script directement 🔧
+Exemple :
+
+HLS
+HLS00372395
+HLS00372689
+HLS00372942
+...
+
+
+---
+
+Notes
+
+Le script est insensible à la casse (ex: hls00372942 sera normalisé en HLS00372942).
+
+Les zéros au début sont conservés (important pour HLS00372942).
+
+Lecture robuste des fichiers (UTF-8 avec errors=ignore) pour éviter les crashs sur des logs "sales".
+
+
+---
+
+## Commandes rapides (copier-coller)
+
+```bash
+# 1) placer extract_hls.py et README.md dans ton dossier projet
+# 2) mettre tes logs dans ./logs
+
+python extract_hls.py -i "./logs" -o "hls_unique.csv" --sort
+
+Si tu veux, je peux te faire une version “audit” qui sort aussi :
+
+HLS, fichier_source, nb_occurrences (super utile pour tracer les doublons).
