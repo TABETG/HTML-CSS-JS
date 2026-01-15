@@ -1,116 +1,24 @@
-#!/usr/bin/env python3
 import csv
-import shutil
-import re
-from pathlib import Path
 
-# ============================
-# CONFIG (AUCUN ARGUMENT)
-# ============================
-BASE_DIR = Path(__file__).parent.resolve()
+INPUT_CSV = "CQs HLS avec doublon_20260115163713.csv"
+OUTPUT_CSV = "CQs_HLS_sans_doublon.csv"
 
-# 1) Si tu mets ton .7z ici, le script l'extrait automatiquement
-#    (ex: majeur529_....7z)
-ARCHIVE_7Z = next(iter(BASE_DIR.glob("*.7z")), None)
+seen = set()
+unique_rows = []
 
-# 2) Si pas de .7z, il lit le dossier logs/ (si présent)
-LOGS_DIR = BASE_DIR / "logs"
+with open(INPUT_CSV, newline="", encoding="utf-8") as f:
+    reader = csv.reader(f)
+    header = next(reader)  # garder l'en-tête
+    for row in reader:
+        row_tuple = tuple(row)
+        if row_tuple not in seen:
+            seen.add(row_tuple)
+            unique_rows.append(row)
 
-# 3) Dossier d'extraction auto du .7z
-EXTRACT_DIR = BASE_DIR / "logs_extracted"
+with open(OUTPUT_CSV, "w", newline="", encoding="utf-8") as f:
+    writer = csv.writer(f)
+    writer.writerow(header)
+    writer.writerows(unique_rows)
 
-# 4) Sortie (UN SEUL CSV avec doublons)
-OUTPUT_CSV = BASE_DIR / "hls_all.csv"
-
-# ============================
-# REGEX ADAPTÉ À TES LOGS
-# ============================
-# Matche :
-# - HLS00372942
-# même si entouré de '_' ou collé à d'autres caractères non-chiffres :
-# - _HLS00372942_
-# - ...HLS00372942@...
-# On évite de prendre 9+ chiffres avec (?!\d)
-HLS_REGEX = re.compile(r"(?i)HLS\d{8}(?!\d)")
-
-
-def extract_7z_if_needed() -> Path:
-    """
-    Si un .7z est trouvé à côté du script, on l'extrait dans logs_extracted/
-    et on renvoie le dossier à parser.
-    Sinon, on renvoie logs/ (si présent).
-    """
-    if ARCHIVE_7Z:
-        try:
-            import py7zr
-        except ImportError:
-            print("❌ Module py7zr manquant.")
-            print("➡️ Installe-le avec : pip install py7zr")
-            raise
-
-        # Nettoyage ancien extract
-        if EXTRACT_DIR.exists():
-            shutil.rmtree(EXTRACT_DIR, ignore_errors=True)
-        EXTRACT_DIR.mkdir(parents=True, exist_ok=True)
-
-        # Extraction
-        with py7zr.SevenZipFile(ARCHIVE_7Z, mode="r") as z:
-            z.extractall(path=EXTRACT_DIR)
-
-        print(f"✅ Archive détectée et extraite : {ARCHIVE_7Z.name}")
-        return EXTRACT_DIR
-
-    # Pas d'archive => logs/
-    if LOGS_DIR.exists() and LOGS_DIR.is_dir():
-        print("✅ Pas d'archive .7z détectée, lecture du dossier ./logs")
-        return LOGS_DIR
-
-    print("❌ Aucun .7z trouvé et dossier ./logs introuvable.")
-    print("➡️ Mets soit un .7z à côté du script, soit un dossier logs/ avec tes fichiers.")
-    raise SystemExit(1)
-
-
-def list_all_files(folder: Path):
-    return [p for p in folder.rglob("*") if p.is_file()]
-
-
-def main():
-    root = extract_7z_if_needed()
-    files = list_all_files(root)
-
-    if not files:
-        print(f"❌ Aucun fichier trouvé dans : {root}")
-        return
-
-    all_hls = []
-    total_lines = 0
-
-    for fp in files:
-        try:
-            with open(fp, "r", encoding="utf-8", errors="ignore") as f:
-                for line in f:
-                    total_lines += 1
-                    for m in HLS_REGEX.finditer(line):
-                        all_hls.append(m.group(0).upper())
-        except Exception:
-            # Si un fichier n'est pas lisible, on le skip sans planter
-            continue
-
-    # ✅ UN SEUL CSV (avec doublons, comme ton LibreOffice)
-    with open(OUTPUT_CSV, "w", newline="", encoding="utf-8") as f:
-        w = csv.writer(f)
-        w.writerow(["HLS"])
-        for hls in all_hls:
-            w.writerow([hls])
-
-    print("\n================ RÉSULTAT ================")
-    print(f"📂 Dossier analysé           : {root}")
-    print(f"📄 Fichiers analysés         : {len(files)}")
-    print(f"📑 Lignes lues               : {total_lines}")
-    print(f"🔢 Total HLS (cumul, doublons): {len(all_hls)}")
-    print(f"💾 CSV unique sortie         : {OUTPUT_CSV}")
-    print("==========================================\n")
-
-
-if __name__ == "__main__":
-    main()
+print(f"✔ CSV nettoyé : {len(unique_rows)} lignes uniques")
+print(f"📁 Fichier généré : {OUTPUT_CSV}")
