@@ -1,82 +1,39 @@
-#!/usr/bin/env python3
-import argparse
-import csv
-import re
-from pathlib import Path
-from typing import Iterable, Set, Tuple
+# Extraction des HLS depuis des logs
 
-# Format attendu : HLS + exactement 8 chiffres
-# Exemples : HLS00372942, HLS12345678
-HLS_PATTERN = re.compile(r"\b(HLS\d{8})\b", re.IGNORECASE)
+Ce script Python extrait tous les identifiants au format :
 
+HLS + 8 chiffres  
+Exemples :
+- HLS00372942
+- HLS00372689
 
-def iter_files(input_dir: Path, extensions: Tuple[str, ...], recursive: bool) -> Iterable[Path]:
-    iterator = input_dir.rglob("*") if recursive else input_dir.glob("*")
-    for p in iterator:
-        if p.is_file():
-            if not extensions:
-                yield p
-            elif p.suffix.lower() in extensions:
-                yield p
+Il dédoublonne les résultats et les exporte dans un fichier CSV.
 
+---
 
-def read_file_text(path: Path) -> str:
-    return path.read_text(encoding="utf-8", errors="ignore")
+## Prérequis
 
+- Python 3.8 ou plus
+- Aucune dépendance externe
 
-def write_csv(output_csv: Path, hls_values: Iterable[str]) -> None:
-    output_csv.parent.mkdir(parents=True, exist_ok=True)
-    with output_csv.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(["HLS"])
-        for hls in hls_values:
-            writer.writerow([hls])
+---
 
+## Structure recommandée
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Extract HLS######## from log files and export unique values to CSV"
-    )
-    parser.add_argument("-i", "--input", required=True, help="Dossier contenant les logs")
-    parser.add_argument("-o", "--output", default="hls_unique.csv", help="CSV de sortie")
-    parser.add_argument("--ext", nargs="*", default=[".log"],
-                        help="Extensions à lire (.log .txt). --ext vide = tous fichiers")
-    parser.add_argument("-r", "--recursive", action="store_true", help="Parcourt les sous-dossiers")
-    parser.add_argument("--sort", action="store_true", help="Trie les HLS")
-    args = parser.parse_args()
+project/
+│
+├── extract_hls.py
+├── README.md
+└── logs/
+    ├── file1.log
+    ├── file2.log
+    └── subfolder/
+        └── file3.log
 
-    input_dir = Path(args.input).resolve()
-    output_csv = Path(args.output).resolve()
+---
 
-    if not input_dir.exists() or not input_dir.is_dir():
-        raise SystemExit(f"Dossier introuvable : {input_dir}")
+## Utilisation
 
-    if args.ext is None or len(args.ext) == 0:
-        extensions: Tuple[str, ...] = ()
-    else:
-        extensions = tuple(
-            e.lower() if e.startswith(".") else "." + e.lower()
-            for e in args.ext if e
-        )
-
-    files = list(iter_files(input_dir, extensions, args.recursive))
-
-    unique_hls: Set[str] = set()
-    total_matches = 0
-
-    for file in files:
-        text = read_file_text(file)
-        matches = list(HLS_PATTERN.finditer(text))
-        total_matches += len(matches)
-        unique_hls.update(m.group(1).upper() for m in matches)
-
-    result = sorted(unique_hls) if args.sort else list(unique_hls)
-    write_csv(output_csv, result)
-
-    print(f"✅ {len(files)} fichiers analysés")
-    print(f"✅ {total_matches} occurrences trouvées")
-    print(f"✅ {len(unique_hls)} HLS uniques exportés → {output_csv}")
-
-
-if __name__ == "__main__":
-    main()
+### Cas standard (fichiers .log)
+```bash
+python extract_hls.py -i ./logs -o hls_unique.csv
