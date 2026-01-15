@@ -1,123 +1,116 @@
 #!/usr/bin/env python3
 import csv
+import shutil
 import re
 from pathlib import Path
-from typing import Dict, List, Set, Tuple
 
 # ============================
 # CONFIG (AUCUN ARGUMENT)
 # ============================
 BASE_DIR = Path(__file__).parent.resolve()
+
+# 1) Si tu mets ton .7z ici, le script l'extrait automatiquement
+#    (ex: majeur529_....7z)
+ARCHIVE_7Z = next(iter(BASE_DIR.glob("*.7z")), None)
+
+# 2) Si pas de .7z, il lit le dossier logs/ (si présent)
 LOGS_DIR = BASE_DIR / "logs"
 
-# 1) CSV dédoublonné
-OUTPUT_UNIQUE = BASE_DIR / "hls_unique.csv"
-# 2) CSV complet (toutes occurrences, comme quand tu listes "ligne par ligne")
-OUTPUT_ALL = BASE_DIR / "hls_all.csv"
+# 3) Dossier d'extraction auto du .7z
+EXTRACT_DIR = BASE_DIR / "logs_extracted"
+
+# 4) Sortie (UN SEUL CSV avec doublons)
+OUTPUT_CSV = BASE_DIR / "hls_all.csv"
 
 # ============================
-# REGEX ROBUSTE
+# REGEX ADAPTÉ À TES LOGS
 # ============================
-# Capture les HLS au format HLS + 8 digits, même si séparés par :
-# espace, :, _, -, =, etc. + accepte ponctuation après le nombre
-#
-# Match:
+# Matche :
 # - HLS00372942
-# - HLS 00372942
-# - HLS:00372942
-# - HLS_00372942
-# - HLS-00372942
-# - HLS=00372942
-# - HLS=00372942,
-# - (HLS00372942)
-HLS_REGEX = re.compile(r"(?i)\bHLS\b[\s:_\-=]*([0-9]{8})(?![0-9])")
+# même si entouré de '_' ou collé à d'autres caractères non-chiffres :
+# - _HLS00372942_
+# - ...HLS00372942@...
+# On évite de prendre 9+ chiffres avec (?!\d)
+HLS_REGEX = re.compile(r"(?i)HLS\d{8}(?!\d)")
 
-def list_all_files(folder: Path) -> List[Path]:
+
+def extract_7z_if_needed() -> Path:
+    """
+    Si un .7z est trouvé à côté du script, on l'extrait dans logs_extracted/
+    et on renvoie le dossier à parser.
+    Sinon, on renvoie logs/ (si présent).
+    """
+    if ARCHIVE_7Z:
+        try:
+            import py7zr
+        except ImportError:
+            print("❌ Module py7zr manquant.")
+            print("➡️ Installe-le avec : pip install py7zr")
+            raise
+
+        # Nettoyage ancien extract
+        if EXTRACT_DIR.exists():
+            shutil.rmtree(EXTRACT_DIR, ignore_errors=True)
+        EXTRACT_DIR.mkdir(parents=True, exist_ok=True)
+
+        # Extraction
+        with py7zr.SevenZipFile(ARCHIVE_7Z, mode="r") as z:
+            z.extractall(path=EXTRACT_DIR)
+
+        print(f"✅ Archive détectée et extraite : {ARCHIVE_7Z.name}")
+        return EXTRACT_DIR
+
+    # Pas d'archive => logs/
+    if LOGS_DIR.exists() and LOGS_DIR.is_dir():
+        print("✅ Pas d'archive .7z détectée, lecture du dossier ./logs")
+        return LOGS_DIR
+
+    print("❌ Aucun .7z trouvé et dossier ./logs introuvable.")
+    print("➡️ Mets soit un .7z à côté du script, soit un dossier logs/ avec tes fichiers.")
+    raise SystemExit(1)
+
+
+def list_all_files(folder: Path):
     return [p for p in folder.rglob("*") if p.is_file()]
 
-def extract_from_file(file_path: Path) -> Tuple[List[str], int]:
-    """
-    Retourne:
-      - liste de HLS trouvés (avec doublons) sous forme canonique HLS########
-      - nb de lignes lues
-    """
-    found_all: List[str] = []
-    lines_read = 0
-
-    with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-        for line in f:
-            lines_read += 1
-            for m in HLS_REGEX.finditer(line):
-                found_all.append("HLS" + m.group(1))
-
-    return found_all, lines_read
-
-def write_csv_unique(path: Path, values: List[str]) -> None:
-    unique_sorted = sorted(set(values))
-    with open(path, "w", newline="", encoding="utf-8") as f:
-        w = csv.writer(f)
-        w.writerow(["HLS"])
-        for v in unique_sorted:
-            w.writerow([v])
-
-def write_csv_all(path: Path, values: List[str]) -> None:
-    # liste brute, comme "mes 400 lignes"
-    with open(path, "w", newline="", encoding="utf-8") as f:
-        w = csv.writer(f)
-        w.writerow(["HLS"])
-        for v in values:
-            w.writerow([v])
 
 def main():
-    if not LOGS_DIR.exists() or not LOGS_DIR.is_dir():
-        print(f"❌ Dossier logs introuvable : {LOGS_DIR}")
-        print("➡️ Crée un dossier 'logs' à côté de ce script et mets tous tes fichiers dedans.")
-        return
+    root = extract_7z_if_needed()
+    files = list_all_files(root)
 
-    files = list_all_files(LOGS_DIR)
     if not files:
-        print(f"❌ Aucun fichier trouvé dans : {LOGS_DIR}")
+        print(f"❌ Aucun fichier trouvé dans : {root}")
         return
 
-    all_hls: List[str] = []
+    all_hls = []
     total_lines = 0
-    files_with_hits = 0
-    per_file_hits: Dict[str, int] = {}
 
     for fp in files:
-        values, lines = extract_from_file(fp)
-        total_lines += lines
-        all_hls.extend(values)
+        try:
+            with open(fp, "r", encoding="utf-8", errors="ignore") as f:
+                for line in f:
+                    total_lines += 1
+                    for m in HLS_REGEX.finditer(line):
+                        all_hls.append(m.group(0).upper())
+        except Exception:
+            # Si un fichier n'est pas lisible, on le skip sans planter
+            continue
 
-        hits = len(values)
-        per_file_hits[str(fp)] = hits
-        if hits > 0:
-            files_with_hits += 1
-
-    # Export
-    write_csv_all(OUTPUT_ALL, all_hls)
-    write_csv_unique(OUTPUT_UNIQUE, all_hls)
-
-    # Stats
-    total_occ = len(all_hls)
-    total_unique = len(set(all_hls))
+    # ✅ UN SEUL CSV (avec doublons, comme ton LibreOffice)
+    with open(OUTPUT_CSV, "w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        w.writerow(["HLS"])
+        for hls in all_hls:
+            w.writerow([hls])
 
     print("\n================ RÉSULTAT ================")
-    print(f"📂 Fichiers analysés          : {len(files)}")
-    print(f"📄 Fichiers contenant des HLS : {files_with_hits}")
-    print(f"📑 Lignes lues                : {total_lines}")
-    print(f"🔎 Occurrences HLS (brut)     : {total_occ}")
-    print(f"✅ HLS uniques                : {total_unique}")
-    print(f"💾 CSV complet (brut)         : {OUTPUT_ALL}")
-    print(f"💾 CSV dédoublonné            : {OUTPUT_UNIQUE}")
+    print(f"📂 Dossier analysé           : {root}")
+    print(f"📄 Fichiers analysés         : {len(files)}")
+    print(f"📑 Lignes lues               : {total_lines}")
+    print(f"🔢 Total HLS (cumul, doublons): {len(all_hls)}")
+    print(f"💾 CSV unique sortie         : {OUTPUT_CSV}")
     print("==========================================\n")
 
-    # Top 10 fichiers qui contiennent le plus de HLS (diagnostic)
-    top = sorted(per_file_hits.items(), key=lambda x: x[1], reverse=True)[:10]
-    print("Top fichiers (HLS trouvés) :")
-    for path, cnt in top:
-        if cnt > 0:
-            print(f"  - {cnt:6d}  {path}")
 
 if __name__ == "__main__":
     main()
