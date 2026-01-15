@@ -2,92 +2,122 @@
 import csv
 import re
 from pathlib import Path
-from typing import Set, Tuple
+from typing import Dict, List, Set, Tuple
 
 # ============================
-# CONFIGURATION AUTOMATIQUE
+# CONFIG (AUCUN ARGUMENT)
 # ============================
-
 BASE_DIR = Path(__file__).parent.resolve()
 LOGS_DIR = BASE_DIR / "logs"
-OUTPUT_CSV = BASE_DIR / "hls_unique.csv"
 
-# Matche :
+# 1) CSV dédoublonné
+OUTPUT_UNIQUE = BASE_DIR / "hls_unique.csv"
+# 2) CSV complet (toutes occurrences, comme quand tu listes "ligne par ligne")
+OUTPUT_ALL = BASE_DIR / "hls_all.csv"
+
+# ============================
+# REGEX ROBUSTE
+# ============================
+# Capture les HLS au format HLS + 8 digits, même si séparés par :
+# espace, :, _, -, =, etc. + accepte ponctuation après le nombre
+#
+# Match:
 # - HLS00372942
 # - HLS 00372942
 # - HLS:00372942
 # - HLS_00372942
 # - HLS-00372942
-HLS_REGEX = re.compile(r"\bHLS\b[\s:_-]*([0-9]{8})\b", re.IGNORECASE)
+# - HLS=00372942
+# - HLS=00372942,
+# - (HLS00372942)
+HLS_REGEX = re.compile(r"(?i)\bHLS\b[\s:_\-=]*([0-9]{8})(?![0-9])")
 
+def list_all_files(folder: Path) -> List[Path]:
+    return [p for p in folder.rglob("*") if p.is_file()]
 
-def extract_hls_from_file(file_path: Path) -> Tuple[Set[str], int, int]:
+def extract_from_file(file_path: Path) -> Tuple[List[str], int]:
     """
     Retourne:
-      - set des HLS uniques trouvés dans le fichier
-      - nombre total d'occurrences trouvées
-      - nombre de lignes lues
+      - liste de HLS trouvés (avec doublons) sous forme canonique HLS########
+      - nb de lignes lues
     """
-    found: Set[str] = set()
-    occurrences = 0
+    found_all: List[str] = []
     lines_read = 0
 
     with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
         for line in f:
             lines_read += 1
-            for match in HLS_REGEX.finditer(line):
-                occurrences += 1
-                found.add("HLS" + match.group(1))
+            for m in HLS_REGEX.finditer(line):
+                found_all.append("HLS" + m.group(1))
 
-    return found, occurrences, lines_read
+    return found_all, lines_read
 
+def write_csv_unique(path: Path, values: List[str]) -> None:
+    unique_sorted = sorted(set(values))
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        w.writerow(["HLS"])
+        for v in unique_sorted:
+            w.writerow([v])
+
+def write_csv_all(path: Path, values: List[str]) -> None:
+    # liste brute, comme "mes 400 lignes"
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        w.writerow(["HLS"])
+        for v in values:
+            w.writerow([v])
 
 def main():
     if not LOGS_DIR.exists() or not LOGS_DIR.is_dir():
-        print(f"❌ Dossier 'logs' introuvable : {LOGS_DIR}")
-        print("➡️ Crée un dossier 'logs' et mets-y tes fichiers.")
+        print(f"❌ Dossier logs introuvable : {LOGS_DIR}")
+        print("➡️ Crée un dossier 'logs' à côté de ce script et mets tous tes fichiers dedans.")
         return
 
-    all_files = [p for p in LOGS_DIR.rglob("*") if p.is_file()]
-
-    if not all_files:
-        print("❌ Aucun fichier trouvé dans le dossier logs.")
+    files = list_all_files(LOGS_DIR)
+    if not files:
+        print(f"❌ Aucun fichier trouvé dans : {LOGS_DIR}")
         return
 
-    all_unique_hls: Set[str] = set()
-    total_occurrences = 0
+    all_hls: List[str] = []
     total_lines = 0
-    files_with_hls = 0
+    files_with_hits = 0
+    per_file_hits: Dict[str, int] = {}
 
-    for file_path in all_files:
-        unique, occ, lines = extract_hls_from_file(file_path)
+    for fp in files:
+        values, lines = extract_from_file(fp)
         total_lines += lines
-        total_occurrences += occ
+        all_hls.extend(values)
 
-        if occ > 0:
-            files_with_hls += 1
+        hits = len(values)
+        per_file_hits[str(fp)] = hits
+        if hits > 0:
+            files_with_hits += 1
 
-        all_unique_hls.update(unique)
+    # Export
+    write_csv_all(OUTPUT_ALL, all_hls)
+    write_csv_unique(OUTPUT_UNIQUE, all_hls)
 
-    # Tri automatique
-    sorted_hls = sorted(all_unique_hls)
+    # Stats
+    total_occ = len(all_hls)
+    total_unique = len(set(all_hls))
 
-    # Écriture CSV
-    with open(OUTPUT_CSV, "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(["HLS"])
-        for hls in sorted_hls:
-            writer.writerow([hls])
-
-    print("\n================ RÉSULTAT ================ ")
-    print(f"📂 Fichiers analysés        : {len(all_files)}")
-    print(f"📄 Fichiers contenant des HLS : {files_with_hls}")
-    print(f"📑 Lignes lues               : {total_lines}")
-    print(f"🔎 Occurrences HLS trouvées  : {total_occurrences}")
-    print(f"✅ HLS uniques               : {len(all_unique_hls)}")
-    print(f"💾 CSV généré                : {OUTPUT_CSV}")
+    print("\n================ RÉSULTAT ================")
+    print(f"📂 Fichiers analysés          : {len(files)}")
+    print(f"📄 Fichiers contenant des HLS : {files_with_hits}")
+    print(f"📑 Lignes lues                : {total_lines}")
+    print(f"🔎 Occurrences HLS (brut)     : {total_occ}")
+    print(f"✅ HLS uniques                : {total_unique}")
+    print(f"💾 CSV complet (brut)         : {OUTPUT_ALL}")
+    print(f"💾 CSV dédoublonné            : {OUTPUT_UNIQUE}")
     print("==========================================\n")
 
+    # Top 10 fichiers qui contiennent le plus de HLS (diagnostic)
+    top = sorted(per_file_hits.items(), key=lambda x: x[1], reverse=True)[:10]
+    print("Top fichiers (HLS trouvés) :")
+    for path, cnt in top:
+        if cnt > 0:
+            print(f"  - {cnt:6d}  {path}")
 
 if __name__ == "__main__":
     main()
