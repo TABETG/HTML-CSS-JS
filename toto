@@ -22,12 +22,12 @@ EXTRACT_DIR = BASE_DIR / "logs_extracted"
 OUTPUT_CSV = BASE_DIR / "hls_unique.csv"
 
 # ============================
-# REGEX ADAPTÉ À TES LOGS
+# REGEX ADAPTÉE
 # ============================
-# Matche : HLS + 8 chiffres, même entouré de underscores etc.
-# Ex: _HLS00371592_  => match HLS00371592
-# (?!\d) évite de capter 9 chiffres ou plus
-HLS_REGEX = re.compile(r"(?i)HLS\d{8}(?!\d)")
+# Matche : HLS + au moins 1 chiffre (1 ou +)
+# Ex: HLS1, HLS123456, HLS123456789
+# (?!\d) évite de "déborder" si une suite de chiffres continue juste après
+HLS_REGEX = re.compile(r"(?i)HLS\d+(?!\d)")
 
 
 def extract_7z_if_needed() -> Path:
@@ -107,13 +107,13 @@ def main():
             w.writerow([hls])
 
     print("\n================ RÉSULTAT ================")
-    print(f"📂 Dossier analysé             : {root}")
-    print(f"📄 Fichiers analysés           : {len(files)}")
-    print(f"📄 Fichiers contenant des HLS  : {files_with_hits}")
-    print(f"📑 Lignes lues                 : {total_lines}")
-    print(f"🔢 Occurrences HLS (avec doublons) : {total_occurrences}")
-    print(f"✅ HLS uniques (sans doublons) : {len(unique_hls)}")
-    print(f"💾 CSV généré (unique)         : {OUTPUT_CSV}")
+    print(f"📂 Dossier analysé                  : {root}")
+    print(f"📄 Fichiers analysés                : {len(files)}")
+    print(f"📄 Fichiers contenant des HLS       : {files_with_hits}")
+    print(f"📑 Lignes lues                      : {total_lines}")
+    print(f"🔢 Occurrences HLS (avec doublons)  : {total_occurrences}")
+    print(f"✅ HLS uniques (sans doublons)      : {len(unique_hls)}")
+    print(f"💾 CSV généré (unique)              : {OUTPUT_CSV}")
     print("==========================================\n")
 
 
