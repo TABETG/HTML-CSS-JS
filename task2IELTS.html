@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kit IELTS Task 2 - Mémorisation</title>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --secondary: #1e40af;
+            --accent: #ef4444;
+            --bg: #f3f4f6;
+            --card-bg: #ffffff;
+            --text: #1f2937;
+        }
+
+        body {
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        /* Header & Controls */
+        header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        h1 {
+            color: var(--secondary);
+            font-size: 1.8rem;
+            margin-bottom: 10px;
+        }
+
+        p.subtitle {
+            color: #6b7280;
+            font-size: 0.9rem;
+        }
+
+        .controls {
+            position: sticky;
+            top: 10px;
+            z-index: 100;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 10px;
+            border-radius: 50px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            display: inline-block;
+            backdrop-filter: blur(5px);
+            margin-bottom: 20px;
+        }
+
+        .toggle-btn {
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 25px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 1rem;
+        }
+
+        .toggle-btn:active {
+            transform: scale(0.95);
+        }
+
+        .toggle-btn.active {
+            background-color: var(--accent);
+        }
+
+        /* Cards */
+        .card {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 25px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            border-left: 5px solid var(--primary);
+        }
+
+        h2 {
+            margin-top: 0;
+            font-size: 1.2rem;
+            color: var(--primary);
+            border-bottom: 1px solid #e5e7eb;
+            padding-bottom: 10px;
+            margin-bottom: 15px;
+        }
+
+        /* Text Content & Memorization Logic */
+        .content-box {
+            font-size: 1.1rem;
+            background: #f9fafb;
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid #e5e7eb;
+            transition: all 0.3s ease;
+            position: relative;
+        }
+
+        .variable {
+            color: var(--accent);
+            font-weight: bold;
+            background-color: #fee2e2;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.95em;
+        }
+
+        /* Blur Effect Class */
+        .blurred .content-text {
+            filter: blur(6px);
+            user-select: none;
+            transition: filter 0.3s ease;
+        }
+
+        .blurred .content-box:hover .content-text,
+        .blurred .content-box:active .content-text {
+            filter: blur(0);
+        }
+        
+        /* Hint for blur mode */
+        .hint-overlay {
+            display: none;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #9ca3af;
+            font-size: 0.9rem;
+            pointer-events: none;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+
+        .blurred .content-box .hint-overlay {
+            display: block;
+        }
+        
+        .blurred .content-box:hover .hint-overlay {
+            display: none;
+        }
+
+        /* Tabs for Variations */
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+
+        .tab-btn {
+            background: #e5e7eb;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            flex-grow: 1;
+        }
+
+        .tab-btn.active-tab {
+            background: var(--secondary);
+            color: white;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        /* Vocab & Checklist lists */
+        ul.checklist {
+            list-style: none;
+            padding: 0;
+        }
+        ul.checklist li {
+            background: #eff6ff;
+            margin-bottom: 8px;
+            padding: 10px;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+        }
+        ul.checklist li::before {
+            content: "✔";
+            color: var(--primary);
+            margin-right: 10px;
+            font-weight: bold;
+        }
+
+        /* Footer */
+        footer {
+            text-align: center;
+            margin-top: 40px;
+            color: #9ca3af;
+            font-size: 0.8rem;
+        }
+
+        @media (max-width: 600px) {
+            body { padding: 10px; }
+            h1 { font-size: 1.5rem; }
+            .card { padding: 15px; }
+            .content-box { font-size: 1rem; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <h1>IELTS Task 2 - Par Cœur</h1>
+        <p class="subtitle">Kit de survie 7.5+ | Mémorisation active</p>
+        
+        <div class="controls">
+            <button id="toggleMode" class="toggle-btn" onclick="toggleBlur()">👁️ Mode Lecture</button>
+        </div>
+        <div style="font-size: 0.8rem; color: #666; margin-top:5px;">
+            <span id="mode-instruction">Lis pour comprendre.</span>
+        </div>
+    </header>
+
+    <section class="card">
+        <h2>1️⃣ Structure Immutable</h2>
+        <div class="content-box">
+            <div class="content-text">
+                1. <b>Introduction</b> (2 phrases)<br>
+                2. <b>Body Paragraph 1</b> (Idée principale)<br>
+                3. <b>Body Paragraph 2</b> (Adaptation à la consigne)<br>
+                4. <b>Conclusion</b> (Adaptée au type)
+            </div>
+            <div class="hint-overlay">Survole pour révéler</div>
+        </div>
+    </section>
+
+    <section class="card">
+        <h2>2️⃣ Introduction (Safe)</h2>
+        <div class="content-box">
+            <div class="content-text">
+                It is often argued that <span class="variable">[topic]</span> has become a significant issue in modern society.<br>
+                In my view, this is an important matter because of its impact on <span class="variable">[reason 1]</span> and <span class="variable">[reason 2]</span>.
+            </div>
+            <div class="hint-overlay">Survole pour révéler</div>
+        </div>
+    </section>
+
+    <section class="card">
+        <h2>3️⃣ Body Paragraph 1 (Squelette fixe)</h2>
+        <div class="content-box">
+            <div class="content-text">
+                The main reason for this situation is <span class="variable">[reason 1]</span>.<br>
+                This issue directly affects people’s daily lives and overall well-being.<br>
+                When it is left unaddressed, it often leads to long-term consequences that individuals cannot manage on their own.<br>
+                For example, <span class="variable">[example]</span>, which clearly demonstrates how this factor contributes to the problem.<br>
+                As a result, the effects extend beyond individuals and influence society as a whole.
+            </div>
+            <div class="hint-overlay">Survole pour révéler</div>
+        </div>
+    </section>
+
+    <section class="card">
+        <h2>4️⃣ Body Paragraph 2 (Choisir 1)</h2>
+        <div class="tabs">
+            <button class="tab-btn active-tab" onclick="openTab(event, 'body2-A', 'body2')">A. Opinion/Agree</button>
+            <button class="tab-btn" onclick="openTab(event, 'body2-B', 'body2')">B. Causes/Effects</button>
+            <button class="tab-btn" onclick="openTab(event, 'body2-C', 'body2')">C. Prob/Sol</button>
+        </div>
+
+        <div id="body2-A" class="tab-content body2 active">
+            <div class="content-box">
+                <div class="content-text">
+                    Some people argue that <span class="variable">[opposite view]</span>.<br>
+                    However, this perspective overlooks the wider consequences of the issue.<br>
+                    In reality, this situation rarely affects only one individual and often creates broader social effects.
+                </div>
+                <div class="hint-overlay">Survole pour révéler</div>
+            </div>
+        </div>
+
+        <div id="body2-B" class="tab-content body2">
+            <div class="content-box">
+                <div class="content-text">
+                    Another key factor is <span class="variable">[reason 2]</span>.<br>
+                    This plays a significant role in shaping the impact of the issue.<br>
+                    Over time, these effects can become increasingly serious.
+                </div>
+                <div class="hint-overlay">Survole pour révéler</div>
+            </div>
+        </div>
+
+        <div id="body2-C" class="tab-content body2">
+            <div class="content-box">
+                <div class="content-text">
+                    One effective way to address this problem is to focus on <span class="variable">[reason 2]</span>.<br>
+                    This approach tackles the issue at its root and helps prevent it from worsening.<br>
+                    If applied consistently, it can lead to long-term improvements.
+                </div>
+                <div class="hint-overlay">Survole pour révéler</div>
+            </div>
+        </div>
+    </section>
+
+    <section class="card">
+        <h2>5️⃣ Conclusions (Choisir 1)</h2>
+        <div class="tabs">
+            <button class="tab-btn active-tab" onclick="openTab(event, 'conc-A', 'conc')">Opinion</button>
+            <button class="tab-btn" onclick="openTab(event, 'conc-B', 'conc')">Causes</button>
+            <button class="tab-btn" onclick="openTab(event, 'conc-C', 'conc')">Prob/Sol</button>
+            <button class="tab-btn" onclick="openTab(event, 'conc-D', 'conc')">Adv/Dis</button>
+        </div>
+
+        <div id="conc-A" class="tab-content conc active">
+            <div class="content-box">
+                <div class="content-text">
+                    In conclusion, I firmly believe that <span class="variable">[topic]</span> should be taken seriously, as addressing it properly brings long-term benefits for individuals and society.
+                </div>
+                <div class="hint-overlay">Survole pour révéler</div>
+            </div>
+        </div>
+
+        <div id="conc-B" class="tab-content conc">
+            <div class="content-box">
+                <div class="content-text">
+                    In conclusion, this issue is driven by clear causes and leads to serious consequences, which makes early action increasingly important.
+                </div>
+                <div class="hint-overlay">Survole pour révéler</div>
+            </div>
+        </div>
+
+        <div id="conc-C" class="tab-content conc">
+            <div class="content-box">
+                <div class="content-text">
+                    In conclusion, although this issue creates serious challenges, implementing effective solutions is essential to prevent the situation from worsening.
+                </div>
+                <div class="hint-overlay">Survole pour révéler</div>
+            </div>
+        </div>
+
+        <div id="conc-D" class="tab-content conc">
+            <div class="content-box">
+                <div class="content-text">
+                    In conclusion, despite certain drawbacks, the advantages of <span class="variable">[topic]</span> are more significant when managed carefully.
+                </div>
+                <div class="hint-overlay">Survole pour révéler</div>
+            </div>
+        </div>
+    </section>
+
+    <section class="card">
+        <h2>6️⃣ Vocabulaire & Checklist</h2>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+            <div>
+                <h3>Vocabulaire Sûr (C1)</h3>
+                <ul style="font-size: 0.9rem; padding-left: 20px;">
+                    <li>long-term social consequences</li>
+                    <li>pressure on public services</li>
+                    <li>decline in overall well-being</li>
+                    <li>lack of accountability</li>
+                    <li>recent trends clearly show this pattern</li>
+                </ul>
+            </div>
+            <div>
+                <h3>Checklist (10s)</h3>
+                <ul class="checklist" style="font-size: 0.8rem;">
+                    <li>Identifier le type de question</li>
+                    <li>Choisir Body 2 + Conclusion</li>
+                    <li>Remplir [variables]</li>
+                    <li>Écrire sans réfléchir</li>
+                </ul>
+            </div>
+        </div>
+    </section>
+
+    <footer>
+        <p>Généré pour ta réussite IELTS. Répétition espacée recommandée.</p>
+    </footer>
+</div>
+
+<script>
+    // Logic for Study Mode vs Memory Mode
+    let isMemoryMode = false;
+    const body = document.body;
+    const btn = document.getElementById('toggleMode');
+    const instruction = document.getElementById('mode-instruction');
+
+    function toggleBlur() {
+        isMemoryMode = !isMemoryMode;
+        
+        if (isMemoryMode) {
+            body.classList.add('blurred');
+            btn.classList.add('active');
+            btn.innerHTML = "🧠 Mode Récitation (Actif)";
+            instruction.innerText = "Essaie de réciter à voix haute, puis survole/clique pour vérifier.";
+        } else {
+            body.classList.remove('blurred');
+            btn.classList.remove('active');
+            btn.innerHTML = "👁️ Mode Lecture";
+            instruction.innerText = "Lis pour comprendre et mémoriser.";
+        }
+    }
+
+    // Tab Switching Logic
+    function openTab(evt, tabId, groupName) {
+        // Hide all tabs in this group
+        var i, tabcontent, tablinks;
+        tabcontent = document.getElementsByClassName(groupName);
+        for (i = 0; i < tabcontent.length; i++) {
+            tabcontent[i].style.display = "none";
+        }
+
+        // Deactivate all buttons in this container
+        var container = evt.currentTarget.parentNode;
+        tablinks = container.getElementsByClassName("tab-btn");
+        for (i = 0; i < tablinks.length; i++) {
+            tablinks[i].className = tablinks[i].className.replace(" active-tab", "");
+        }
+
+        // Show the specific tab and activate button
+        document.getElementById(tabId).style.display = "block";
+        evt.currentTarget.className += " active-tab";
+    }
+</script>
+
+</body>
+</html>
