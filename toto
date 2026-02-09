@@ -1,65 +1,58 @@
-Pour faire fonctionner votre site sans serveur (directement en double-cliquant sur les fichiers .html), vous devez contourner la sécurité des navigateurs qui bloque les modules JavaScript (type="module") lorsqu'ils sont utilisés via le protocole file://.
-Voici la méthode propre pour rendre votre dossier technique "portable" (clé USB, dossier partagé, etc.) en convertissant vos scripts modules en scripts classiques.
-Étape 1 : Modifier les fichiers HTML (ex: Accueil.html)
-Vous devez remplacer les appels aux scripts "modules" par des scripts standards.
-1. Remplacer la bibliothèque DSFR
-Le DSFR fournit une version compatible "sans module" (nomodule).
- * Supprimez :
-   <script type="module" src="dist-dsfr/dsfr.module.min.js"></script>
+<#
+utf8_to_ansi.ps1
+Usage:
+  .\utf8_to_ansi.ps1 -InFile "C:\path\input.sql" -OutFile "C:\path\output.sql"
+#>
 
- * Ajoutez à la place :
-   <script src="dist-dsfr/dsfr.nomodule.min.js"></script>
+param(
+  [Parameter(Mandatory=$true)]
+  [string]$InFile,
 
-2. Adapter vos scripts personnalisés
-Les navigateurs ne peuvent pas exécuter import sans serveur. Vous devez inclure vos fichiers JS directement avec une balise <script> classique.
- * Supprimez les lignes comme :
-   <script type="module" src="js/gestion_iframe_contenu.module.js"></script>
+  [Parameter(Mandatory=$true)]
+  [string]$OutFile
+)
 
- * Remplacez par :
-   <script src="js/gestion_iframe_contenu.module.js"></script>
-
-   (Note : Il faudra modifier ce fichier JS, voir Étape 2).
-3. Corriger les scripts intégrés dans le HTML
-Dans Accueil.html, vous avez ce bloc qui pose problème :
-<script type="module">
-  import { getHauteurIframeGestionChangement } from "./js/gestion_iframe.module.js"
-  addEventListener("message", getHauteurIframeGestionChangement)
-</script>
-
-Il faut le remplacer par :
-<script src="js/gestion_iframe.module.js"></script>
-<script>
-  // On suppose que la fonction est devenue globale (voir étape 2)
-  addEventListener("message", getHauteurIframeGestionChangement);
-</script>
-
-Étape 2 : Nettoyer vos fichiers JavaScript (.js)
-Les fichiers .js actuels utilisent export et import, ce qui est interdit sans serveur. Vous devez les simplifier.
-Pour chaque fichier JS utilisé (ex: js/gestion_iframe.module.js) :
- * Ouvrez le fichier JS.
- * Supprimez les mots-clés export devant les fonctions ou variables.
- * Supprimez les lignes import ... from ... en haut du fichier.
- * Si une fonction doit être utilisée dans un autre fichier, attachez-la à l'objet window pour la rendre globale.
-Exemple Avant (Module) :
-// js/gestion_iframe.module.js
-export const getHauteurIframeGestionChangement = (event) => {
-   // ... code ...
+if (-not (Test-Path $InFile)) {
+  Write-Error "Fichier introuvable: $InFile"
+  exit 1
 }
 
-Exemple Après (Standard) :
-// js/gestion_iframe.module.js
-const getHauteurIframeGestionChangement = (event) => {
-   // ... code ...
+# Lire en bytes (gère UTF-8 avec ou sans BOM)
+$bytes = [IO.File]::ReadAllBytes($InFile)
+
+# Détecter BOM UTF-8 (EF BB BF)
+$hasUtf8Bom = ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF)
+
+# Décoder UTF-8
+if ($hasUtf8Bom) {
+  $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+  $text = $utf8NoBom.GetString($bytes, 3, $bytes.Length - 3)
+} else {
+  $text = [Text.Encoding]::UTF8.GetString($bytes)
 }
-// Rendre la fonction accessible partout
-window.getHauteurIframeGestionChangement = getHauteurIframeGestionChangement;
 
-Solution Alternative (Rapide / "Hack")
-Si vous ne pouvez pas modifier le code, vous devez lancer votre navigateur avec une commande spéciale pour autoriser les fichiers locaux (déconseillé pour un usage quotidien de navigation, mais utile pour un test ponctuel).
-Pour Chrome / Edge :
- * Fermez toutes les fenêtres de Chrome/Edge.
- * Ouvrez votre terminal (cmd).
- * Lancez le navigateur avec ce paramètre :
-   "C:\Program Files\Google\Chrome\Application\chrome.exe" --allow-file-access-from-files
+# Encoder en ANSI Windows (CP1252)
+$ansi = [Text.Encoding]::GetEncoding(1252)
+$outBytes = $ansi.GetBytes($text)
 
-Cela désactivera temporairement la sécurité CORS pour les fichiers locaux.
+# Écrire en bytes (=> pas d'UTF-8 possible)
+[IO.File]::WriteAllBytes($OutFile, $outBytes)
+
+# Checks rapides
+$head = [IO.File]::ReadAllBytes($OutFile)
+$first3 = if ($head.Length -ge 3) { $head[0..2] } else { $head }
+$hasBomOut = ($head.Length -ge 3 -and $head[0] -eq 0xEF -and $head[1] -eq 0xBB -and $head[2] -eq 0xBF)
+
+$nonAsciiSample = ($head | Where-Object { $_ -ge 128 } | Select-Object -First 1)
+
+Write-Host "OK: Conversion terminée"
+Write-Host "Input : $InFile"
+Write-Host "Output: $OutFile"
+Write-Host "Input BOM UTF-8 détecté : $hasUtf8Bom"
+Write-Host "Output BOM UTF-8 présent  : $hasBomOut"
+Write-Host ("Output first bytes        : " + ($first3 -join " "))
+if ($null -eq $nonAsciiSample) {
+  Write-Host "Note: le fichier de sortie semble ASCII-only (ANSI et UTF-8 identiques)."
+} else {
+  Write-Host "Output contient des octets >=128 (non-ASCII) => encodage ANSI visible."
+}
