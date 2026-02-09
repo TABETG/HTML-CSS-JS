@@ -1,55 +1,65 @@
-@echo off
-setlocal EnableExtensions EnableDelayedExpansion
-chcp 65001 >nul
+Pour faire fonctionner votre site sans serveur (directement en double-cliquant sur les fichiers .html), vous devez contourner la sécurité des navigateurs qui bloque les modules JavaScript (type="module") lorsqu'ils sont utilisés via le protocole file://.
+Voici la méthode propre pour rendre votre dossier technique "portable" (clé USB, dossier partagé, etc.) en convertissant vos scripts modules en scripts classiques.
+Étape 1 : Modifier les fichiers HTML (ex: Accueil.html)
+Vous devez remplacer les appels aux scripts "modules" par des scripts standards.
+1. Remplacer la bibliothèque DSFR
+Le DSFR fournit une version compatible "sans module" (nomodule).
+ * Supprimez :
+   <script type="module" src="dist-dsfr/dsfr.module.min.js"></script>
 
-REM ============================================
-REM DosTech - Lancement serveur local + Accueil
-REM - Installe Python si absent (winget)
-REM - Démarre un serveur HTTP
-REM - Ouvre Accueil.html dans le navigateur
-REM ============================================
+ * Ajoutez à la place :
+   <script src="dist-dsfr/dsfr.nomodule.min.js"></script>
 
-set "PORT=8000"
-set "PYEXE=python"
-set "ROOT=%~dp0"
-set "ACCUEIL=Accueil.html"
+2. Adapter vos scripts personnalisés
+Les navigateurs ne peuvent pas exécuter import sans serveur. Vous devez inclure vos fichiers JS directement avec une balise <script> classique.
+ * Supprimez les lignes comme :
+   <script type="module" src="js/gestion_iframe_contenu.module.js"></script>
 
-cd /d "%ROOT%"
+ * Remplacez par :
+   <script src="js/gestion_iframe_contenu.module.js"></script>
 
-echo [1/4] Vérification de Python...
-where %PYEXE% >nul 2>&1
-if errorlevel 1 (
-  echo Python non trouvé. Installation via winget...
-  where winget >nul 2>&1
-  if errorlevel 1 (
-    echo ERREUR: winget indisponible. Installe Python manuellement.
-    pause
-    exit /b 1
-  )
-  winget install -e --id Python.Python.3 --accept-source-agreements --accept-package-agreements
-)
+   (Note : Il faudra modifier ce fichier JS, voir Étape 2).
+3. Corriger les scripts intégrés dans le HTML
+Dans Accueil.html, vous avez ce bloc qui pose problème :
+<script type="module">
+  import { getHauteurIframeGestionChangement } from "./js/gestion_iframe.module.js"
+  addEventListener("message", getHauteurIframeGestionChangement)
+</script>
 
-echo [2/4] Vérification Python...
-%PYEXE% --version || (
-  echo ERREUR: Python non fonctionnel.
-  pause
-  exit /b 1
-)
+Il faut le remplacer par :
+<script src="js/gestion_iframe.module.js"></script>
+<script>
+  // On suppose que la fonction est devenue globale (voir étape 2)
+  addEventListener("message", getHauteurIframeGestionChangement);
+</script>
 
-echo [3/4] Démarrage serveur http://localhost:%PORT% ...
-for /f "tokens=5" %%P in ('netstat -ano ^| findstr /r /c:":%PORT% .*LISTENING"') do (
-  taskkill /PID %%P /F >nul 2>&1
-)
+Étape 2 : Nettoyer vos fichiers JavaScript (.js)
+Les fichiers .js actuels utilisent export et import, ce qui est interdit sans serveur. Vous devez les simplifier.
+Pour chaque fichier JS utilisé (ex: js/gestion_iframe.module.js) :
+ * Ouvrez le fichier JS.
+ * Supprimez les mots-clés export devant les fonctions ou variables.
+ * Supprimez les lignes import ... from ... en haut du fichier.
+ * Si une fonction doit être utilisée dans un autre fichier, attachez-la à l'objet window pour la rendre globale.
+Exemple Avant (Module) :
+// js/gestion_iframe.module.js
+export const getHauteurIframeGestionChangement = (event) => {
+   // ... code ...
+}
 
-start "HTTP Server" /min cmd /c "%PYEXE% -m http.server %PORT% --bind 127.0.0.1"
-timeout /t 2 /nobreak >nul
+Exemple Après (Standard) :
+// js/gestion_iframe.module.js
+const getHauteurIframeGestionChangement = (event) => {
+   // ... code ...
+}
+// Rendre la fonction accessible partout
+window.getHauteurIframeGestionChangement = getHauteurIframeGestionChangement;
 
-echo [4/4] Ouverture de %ACCUEIL% ...
-if not exist "%ACCUEIL%" (
-  echo ERREUR: %ACCUEIL% introuvable.
-  pause
-  exit /b 1
-)
+Solution Alternative (Rapide / "Hack")
+Si vous ne pouvez pas modifier le code, vous devez lancer votre navigateur avec une commande spéciale pour autoriser les fichiers locaux (déconseillé pour un usage quotidien de navigation, mais utile pour un test ponctuel).
+Pour Chrome / Edge :
+ * Fermez toutes les fenêtres de Chrome/Edge.
+ * Ouvrez votre terminal (cmd).
+ * Lancez le navigateur avec ce paramètre :
+   "C:\Program Files\Google\Chrome\Application\chrome.exe" --allow-file-access-from-files
 
-start "" "http://localhost:%PORT%/%ACCUEIL%"
-exit /b 0
+Cela désactivera temporairement la sécurité CORS pour les fichiers locaux.
