@@ -2,15 +2,6 @@
 setlocal EnableExtensions EnableDelayedExpansion
 chcp 65001 >nul
 
-REM ==============================================
-REM UTF-8 -> ANSI (CP1252) SQL converter (no args)
-REM - Double-clique ce .bat
-REM - Convertit "input.sql" dans le même dossier
-REM   vers "output_ansi.sql"
-REM - Si input.sql n'existe pas, prend le premier
-REM   fichier *.sql du dossier
-REM ==============================================
-
 set "ROOT=%~dp0"
 cd /d "%ROOT%"
 
@@ -28,39 +19,41 @@ if not exist "%IN%" (
 )
 
 :FOUND
-echo [INFO] Fichier source : "%ROOT%%IN%"
-echo [INFO] Fichier cible  : "%ROOT%%OUT%"
+echo [INFO] Fichier source: "%ROOT%%IN%"
+echo [INFO] Fichier cible : "%ROOT%%OUT%"
 echo.
 
-powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "$in  = Join-Path '%ROOT%' '%IN%';" ^
-  "$out = Join-Path '%ROOT%' '%OUT%';" ^
-  "if(!(Test-Path $in)){ Write-Host '[ERREUR] Fichier introuvable:' $in; exit 1 }" ^
-  "$bytes = [IO.File]::ReadAllBytes($in);" ^
-  "$hasBom = ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF);" ^
-  "if($hasBom){" ^
-  "  $utf8NoBom = New-Object System.Text.UTF8Encoding($false);" ^
-  "  $text = $utf8NoBom.GetString($bytes, 3, $bytes.Length-3);" ^
-  "} else {" ^
-  "  $text = [Text.Encoding]::UTF8.GetString($bytes);" ^
-  "}" ^
-  "$enc = [Text.Encoding]::GetEncoding(1252);" ^
-  "[IO.File]::WriteAllBytes($out, $enc.GetBytes($text));" ^
-  "$head = [IO.File]::ReadAllBytes($out);" ^
-  "$hasBomOut = ($head.Length -ge 3 -and $head[0] -eq 0xEF -and $head[1] -eq 0xBB -and $head[2] -eq 0xBF);" ^
-  "Write-Host ('[OK] Conversion terminée. BOM UTF-8 en sortie : ' + $hasBomOut);" ^
-  "$sample = ($head | Where-Object { $_ -ge 128 } | Select-Object -First 1);" ^
-  "if($null -eq $sample){ Write-Host '[NOTE] Le fichier est ASCII-only (ANSI et UTF-8 identiques visuellement).'}"
+set "PS1=%TEMP%\utf8_to_ansi_sql_%RANDOM%.ps1"
 
-if errorlevel 1 (
+> "%PS1%" (
+  echo param([string]$InFile,[string]$OutFile^)
+  echo if(-not (Test-Path $InFile^)) { Write-Host "[ERREUR] Introuvable: $InFile"; exit 1 }
+  echo $bytes = [IO.File]::ReadAllBytes($InFile^)
+  echo $hasBom = ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF^)
+  echo if($hasBom^) {
+  echo ^  $utf8NoBom = New-Object System.Text.UTF8Encoding($false^)
+  echo ^  $text = $utf8NoBom.GetString($bytes, 3, $bytes.Length-3^)
+  echo } else {
+  echo ^  $text = [Text.Encoding]::UTF8.GetString($bytes^)
+  echo }
+  echo $enc = [Text.Encoding]::GetEncoding(1252^)
+  echo [IO.File]::WriteAllBytes($OutFile, $enc.GetBytes($text^)^)
+  echo Write-Host "[OK] Conversion terminée -> $OutFile"
+)
+
+powershell -NoProfile -ExecutionPolicy Bypass -File "%PS1%" -InFile "%ROOT%%IN%" -OutFile "%ROOT%%OUT%"
+set "RC=%ERRORLEVEL%"
+
+del /f /q "%PS1%" >nul 2>&1
+
+if not "%RC%"=="0" (
   echo.
   echo [ERREUR] La conversion a échoué.
   pause
-  exit /b 1
+  exit /b %RC%
 )
 
 echo.
-echo [OK] Conversion réussie.
-echo Fichier créé : "%ROOT%%OUT%"
+echo [OK] Fichier créé : "%ROOT%%OUT%"
 pause
 exit /b 0
