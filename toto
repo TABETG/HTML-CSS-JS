@@ -1,58 +1,66 @@
-<#
-utf8_to_ansi.ps1
-Usage:
-  .\utf8_to_ansi.ps1 -InFile "C:\path\input.sql" -OutFile "C:\path\output.sql"
-#>
+@echo off
+setlocal EnableExtensions EnableDelayedExpansion
+chcp 65001 >nul
 
-param(
-  [Parameter(Mandatory=$true)]
-  [string]$InFile,
+REM ==============================================
+REM UTF-8 -> ANSI (CP1252) SQL converter (no args)
+REM - Double-clique ce .bat
+REM - Convertit "input.sql" dans le même dossier
+REM   vers "output_ansi.sql"
+REM - Si input.sql n'existe pas, prend le premier
+REM   fichier *.sql du dossier
+REM ==============================================
 
-  [Parameter(Mandatory=$true)]
-  [string]$OutFile
+set "ROOT=%~dp0"
+cd /d "%ROOT%"
+
+set "IN=input.sql"
+set "OUT=output_ansi.sql"
+
+if not exist "%IN%" (
+  for %%F in (*.sql) do (
+    set "IN=%%F"
+    goto :FOUND
+  )
+  echo [ERREUR] Aucun fichier .sql trouvé dans "%ROOT%"
+  pause
+  exit /b 1
 )
 
-if (-not (Test-Path $InFile)) {
-  Write-Error "Fichier introuvable: $InFile"
-  exit 1
-}
+:FOUND
+echo [INFO] Fichier source : "%ROOT%%IN%"
+echo [INFO] Fichier cible  : "%ROOT%%OUT%"
+echo.
 
-# Lire en bytes (gère UTF-8 avec ou sans BOM)
-$bytes = [IO.File]::ReadAllBytes($InFile)
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "$in  = Join-Path '%ROOT%' '%IN%';" ^
+  "$out = Join-Path '%ROOT%' '%OUT%';" ^
+  "if(!(Test-Path $in)){ Write-Host '[ERREUR] Fichier introuvable:' $in; exit 1 }" ^
+  "$bytes = [IO.File]::ReadAllBytes($in);" ^
+  "$hasBom = ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF);" ^
+  "if($hasBom){" ^
+  "  $utf8NoBom = New-Object System.Text.UTF8Encoding($false);" ^
+  "  $text = $utf8NoBom.GetString($bytes, 3, $bytes.Length-3);" ^
+  "} else {" ^
+  "  $text = [Text.Encoding]::UTF8.GetString($bytes);" ^
+  "}" ^
+  "$enc = [Text.Encoding]::GetEncoding(1252);" ^
+  "[IO.File]::WriteAllBytes($out, $enc.GetBytes($text));" ^
+  "$head = [IO.File]::ReadAllBytes($out);" ^
+  "$hasBomOut = ($head.Length -ge 3 -and $head[0] -eq 0xEF -and $head[1] -eq 0xBB -and $head[2] -eq 0xBF);" ^
+  "Write-Host ('[OK] Conversion terminée. BOM UTF-8 en sortie : ' + $hasBomOut);" ^
+  "$sample = ($head | Where-Object { $_ -ge 128 } | Select-Object -First 1);" ^
+  "if($null -eq $sample){ Write-Host '[NOTE] Le fichier est ASCII-only (ANSI et UTF-8 identiques visuellement).'}"
 
-# Détecter BOM UTF-8 (EF BB BF)
-$hasUtf8Bom = ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF)
+if errorlevel 1 (
+  echo.
+  echo [ERREUR] La conversion a échoué.
+  pause
+  exit /b 1
+)
 
-# Décoder UTF-8
-if ($hasUtf8Bom) {
-  $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-  $text = $utf8NoBom.GetString($bytes, 3, $bytes.Length - 3)
-} else {
-  $text = [Text.Encoding]::UTF8.GetString($bytes)
-}
-
-# Encoder en ANSI Windows (CP1252)
-$ansi = [Text.Encoding]::GetEncoding(1252)
-$outBytes = $ansi.GetBytes($text)
-
-# Écrire en bytes (=> pas d'UTF-8 possible)
-[IO.File]::WriteAllBytes($OutFile, $outBytes)
-
-# Checks rapides
-$head = [IO.File]::ReadAllBytes($OutFile)
-$first3 = if ($head.Length -ge 3) { $head[0..2] } else { $head }
-$hasBomOut = ($head.Length -ge 3 -and $head[0] -eq 0xEF -and $head[1] -eq 0xBB -and $head[2] -eq 0xBF)
-
-$nonAsciiSample = ($head | Where-Object { $_ -ge 128 } | Select-Object -First 1)
-
-Write-Host "OK: Conversion terminée"
-Write-Host "Input : $InFile"
-Write-Host "Output: $OutFile"
-Write-Host "Input BOM UTF-8 détecté : $hasUtf8Bom"
-Write-Host "Output BOM UTF-8 présent  : $hasBomOut"
-Write-Host ("Output first bytes        : " + ($first3 -join " "))
-if ($null -eq $nonAsciiSample) {
-  Write-Host "Note: le fichier de sortie semble ASCII-only (ANSI et UTF-8 identiques)."
-} else {
-  Write-Host "Output contient des octets >=128 (non-ASCII) => encodage ANSI visible."
-}
+echo.
+echo [OK] Conversion réussie.
+echo Fichier créé : "%ROOT%%OUT%"
+pause
+exit /b 0
