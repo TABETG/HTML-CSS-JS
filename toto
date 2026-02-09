@@ -1,5 +1,3 @@
-Voici un script PowerShell prêt à copier (utf8_to_ansi.ps1) : il convertit un .sql UTF-8 → ANSI (CP1252), gère BOM, et affiche des checks.
-
 <#
 utf8_to_ansi.ps1
 Usage:
@@ -58,9 +56,3 @@ if ($null -eq $nonAsciiSample) {
 } else {
   Write-Host "Output contient des octets >=128 (non-ASCII) => encodage ANSI visible."
 }
-
-Exécution
-
-.\utf8_to_ansi.ps1 -InFile "C:\Users\btabet-consultant01\Downloads\input.sql" -OutFile "C:\Users\btabet-consultant01\Downloads\output.sql"
-
-Si tu veux, je te le fournis aussi en .bat qui appelle PowerShell automatiquement.
